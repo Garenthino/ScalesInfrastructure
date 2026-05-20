@@ -1,116 +1,46 @@
+version: "3.8"
+
 services:
-  postgres:
+  db:
     image: postgres:16-alpine
-    container_name: scales-postgres
-    restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-scales}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scales_dev}
-      POSTGRES_DB: ${POSTGRES_DB:-scales}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+      POSTGRES_USER: scales
+      POSTGRES_PASSWORD: scales
+      POSTGRES_DB: scales
     ports:
       - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      test: ["CMD-SHELL", "pg_isready -U scales -d scales"]
       interval: 5s
       timeout: 5s
       retries: 5
-    networks:
-      - scales-net
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://scales:scales@db:5432/scales
+      REDIS_URL: redis://redis:6379/0
+      DEBUG: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./app:/app/app:ro
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
   redis:
     image: redis:7-alpine
-    container_name: scales-redis
-    restart: unless-stopped
-    command: redis-server --appendonly yes
-    volumes:
-      - redis_data:/data
     ports:
       - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    networks:
-      - scales-net
-
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: scales-backend
-    restart: unless-stopped
-    environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://scales:scales_dev@postgres:5432/scales}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
-      ENVIRONMENT: ${ENVIRONMENT:-development}
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./backend:/app
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - scales-net
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-
-  gateway:
-    build:
-      context: ./gateway
-      dockerfile: Dockerfile
-    container_name: scales-gateway
-    restart: unless-stopped
-    environment:
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
-      PORT: ${GATEWAY_PORT:-3001}
-    ports:
-      - "3001:3001"
-    volumes:
-      - ./gateway:/app
-    depends_on:
-      redis:
-        condition: service_healthy
-      backend:
-        condition: service_started
-    networks:
-      - scales-net
-    command: npx nodemon server.js
-
-  web:
-    build:
-      context: ./web
-      dockerfile: Dockerfile
-    container_name: scales-web
-    restart: unless-stopped
-    environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-      NEXT_PUBLIC_GATEWAY_URL: ${NEXT_PUBLIC_GATEWAY_URL:-http://localhost:3001}
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./web:/app
-      - /app/node_modules
-      - /app/.next
-    depends_on:
-      backend:
-        condition: service_started
-      gateway:
-        condition: service_started
-    networks:
-      - scales-net
-    command: npm run dev
 
 volumes:
-  postgres_data:
-  redis_data:
-
-networks:
-  scales-net:
-    driver: bridge
+  pgdata:
