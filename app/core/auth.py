@@ -1,7 +1,13 @@
-"""Authentication dependency: resolve current singer from the Authorization header."""
+"""Authentication layer: singer resolution + token helpers + venue scoping.
+
+Provides two usage patterns:
+1. SingerUser resolution (auth router, RBAC deps) — get_current_user, SingerUser
+2. Raw token dicts (song catalog router) — require_admin, optional_token, venue_match
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 from fastapi import Request, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +19,10 @@ from app.core.permissions import Role
 from app.models import Singer
 
 
+# ---------------------------------------------------------------------------
+# SingerUser dataclass (used by auth router and RBAC deps)
+# ---------------------------------------------------------------------------
+
 @dataclass(frozen=True)
 class SingerUser:
     id: str
@@ -20,10 +30,11 @@ class SingerUser:
     stage_name: str
     email: str | None
     role: Role
-    token_claims: dict[str,object]
+    token_claims: dict[str, object]
 
 
 async def get_current_user(request: Request) -> SingerUser:
+    """Dependency: resolve current singer from the Authorization header."""
     auth = request.headers.get("Authorization")
     if not auth or not auth.lower().startswith("bearer "):
         raise HTTPException(
@@ -85,3 +96,57 @@ async def _load_singer(session: AsyncSession, singer_id: str) -> Singer | None:
         select(Singer).where(Singer.id == singer_id)
     )
     return result.scalar_one_or_none()
+
+
+# ---------------------------------------------------------------------------
+# Raw-token helpers (used by song catalog router for backward compat)
+# ---------------------------------------------------------------------------
+
+def _extract_token(request: Request) -> str:
+    """Extract Bearer token from Authorization header."""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing Bearer token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return auth[len("Bearer "):]
+
+
+async def require_admin(request: Request) -> dict:
+    """Dependency: enforce role == admin or kj. 403 otherwise. Returns raw token dict."""
+    token = _extract_token(request)
+    payload = decode_token(token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    role = payload.get("role", "").lower()
+    if role not in ("admin", "kj"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or KJ access required",
+        )
+    return payload
+
+
+async def optional_token(request: Request) -> Optional[dict]:
+    """Dependency: return decoded token if present, else None."""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    try:
+        return decode_token(auth[len("Bearer "):])
+    except Exception:
+        return None
+
+
+def venue_match(venue_id_param: str, token_payload: dict) -> bool:
+    """Return True when the URL venue_id matches the token venue_id."""
+    token_venue = token_payload.get("venue_id")
+    if token_venue is None:
+        return True
+    return str(token_venue) == str(venue_id_param)

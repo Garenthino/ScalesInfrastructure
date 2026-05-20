@@ -91,8 +91,10 @@ class Song(Base):
     artist = Column(Text, nullable=False)
     album = Column(Text)
     genre = Column(Text)
+    category = Column(Text)
     language = Column(Text)
     duration_ms = Column(Integer)
+    year = Column(Integer)
     lyrics_url = Column(Text)
     cover_art_url = Column(Text)
     is_available = Column(Integer, default=1)
@@ -105,6 +107,10 @@ class Song(Base):
     __table_args__ = (
         Index("ix_songs_venue_id", "venue_id"),
         Index("ix_songs_venue_title", "venue_id", "title"),
+        Index("ix_songs_venue_artist", "venue_id", "artist"),
+        Index("ix_songs_venue_genre", "venue_id", "genre"),
+        Index("ix_songs_venue_year", "venue_id", "year"),
+        Index("ix_songs_venue_category", "venue_id", "category"),
     )
 
     venue = relationship("Venue", back_populates="songs")

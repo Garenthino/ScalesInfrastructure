@@ -6,7 +6,7 @@ Organized by domain: venues, songs, singers, queue, loyalty, commerce, analytics
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -106,8 +106,10 @@ class SongBase(ScalesModel):
     artist: str = Field(..., min_length=1, max_length=200)
     album: str | None = None
     genre: str | None = None
+    category: str | None = None
     language: str | None = None
     duration_ms: int | None = None
+    year: int | None = None
     lyrics_url: str | None = None
     cover_art_url: str | None = None
     is_available: bool = True
@@ -123,8 +125,10 @@ class SongUpdate(ScalesModel):
     artist: str | None = Field(None, min_length=1, max_length=200)
     album: str | None = None
     genre: str | None = None
+    category: str | None = None
     language: str | None = None
     duration_ms: int | None = None
+    year: int | None = None
     lyrics_url: str | None = None
     cover_art_url: str | None = None
     is_available: bool | None = None
@@ -144,6 +148,19 @@ class SongSearchQuery(ScalesModel):
     q: str = ""
     type: Literal["title", "artist", "all"] = "all"
     fuzzy: bool = True
+
+
+class SongListParams(ScalesModel):
+    page: int = Field(1, ge=1)
+    per_page: int = Field(20, ge=1, le=100)
+    q: str = ""
+    sort: Literal["title", "artist", "year", "created_at"] = "title"
+    order: Literal["asc", "desc"] = "asc"
+    genre: str | None = None
+    category: str | None = None
+    decade: str | None = None
+    language: str | None = None
+    available_only: bool = False
 
 
 # ---------------------------------------------------------------------------

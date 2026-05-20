@@ -22,6 +22,7 @@ from app.schemas.dto import (
     SongUpdate,
     SongOut,
     SongSearchQuery,
+    SongListParams,
     # Singers
     SingerBase,
     SingerCreate,

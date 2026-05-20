@@ -1,5 +1,7 @@
 """Async SQLAlchemy engine, session, and declarative base."""
 
+from typing import AsyncIterator
+
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     create_async_engine,
@@ -25,3 +27,9 @@ async_session_factory = async_sessionmaker(
 )
 
 Base = declarative_base()
+
+
+async def get_db() -> AsyncIterator[AsyncSession]:
+    """FastAPI dependency yielding an async DB session."""
+    async with async_session_factory() as session:
+        yield session
