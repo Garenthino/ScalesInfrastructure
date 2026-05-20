@@ -123,6 +123,8 @@ class Singer(Base):
     email = Column(Text)
     phone = Column(Text)
     notes = Column(Text)
+    role = Column(Text, default="singer")
+    password_hash = Column(Text)
     loyalty_tier_id = Column(String(36), ForeignKey("loyalty_tiers.id"))
     total_points = Column(Integer, default=0)
     created_at = Column(Text, default=_now_iso)

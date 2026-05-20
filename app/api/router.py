@@ -2,9 +2,11 @@
 
 from fastapi import APIRouter
 
-from app.routers import venues, songs, singers, queue, loyalty, commerce, social, analytics
+from app.routers import venues, songs, singers, queue, loyalty, commerce, social, analytics, auth
 
 api_router = APIRouter()
+
+api_router.include_router(auth.router, prefix="/auth", tags=["Auth"])
 
 api_router.include_router(venues.router, prefix="/venues", tags=["Venues"])
 api_router.include_router(songs.router, prefix="/venues/{venue_id}/songs", tags=["Songs"])
