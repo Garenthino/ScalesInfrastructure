@@ -1,0 +1,16 @@
+# Alembic — Scales Database Migrations
+
+Generic single-database configuration with an async engine.
+
+## Usage
+
+```bash
+# Create a new revision
+alembic revision --autogenerate -m "add users table"
+
+# Upgrade to latest
+alembic upgrade head
+
+# Downgrade one step
+alembic downgrade -1
+```
