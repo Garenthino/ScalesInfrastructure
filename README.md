@@ -1,99 +1,54 @@
-# ScalesInfrastructure
+# Scales Dev Stack
 
-Backend infrastructure, API services, and web portal for the Scales karaoke ecosystem.
-
-## Overview
-
-ScalesInfrastructure powers the real-time synchronization, payment processing, and management layer connecting venue KJ software, mobile apps, and web dashboards.
-
-## Services
-
-| Service | Technology | Purpose |
-|---------|------------|---------|
-| API Gateway | FastAPI | RESTful API, auth, rate limiting |
-| Real-time | WebSocket Server | Live queue sync, notifications |
-| Web Portal | Next.js | Venue dashboards, analytics, song library |
-| Payments | Stripe | Subscriptions, tips, ticket sales |
-| Telemetry | Prometheus/Grafana | Metrics, monitoring |
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                         Clients                              │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────────┐ │
-│  │ ScalesMobile │  │DragonHost2   │  │    Web Portal       │ │
-│  │  (Flutter)   │  │  (Windows)   │  │   (Next.js)         │ │
-│  └──────┬───────┘  └──────┬───────┘  └──────────┬──────────┘ │
-└─────────┼─────────────────┼─────────────────────┼──────────────┘
-          │                 │                     │
-          └────────┬────────┴────────┬────────────┘
-                   │               │
-         ┌─────────▼─────────┐    │
-         │   Load Balancer   │────┤
-         └─────────┬─────────┘    │
-                   │              │
-         ┌─────────▼─────────┐   │
-         │    API Gateway    │   │
-         │    (FastAPI)      │   │
-         └─────────┬─────────┘   │
-                   │              │
-    ┌──────────────┼──────────────┼──────────────┐
-    │              │              │              │
-┌───▼───┐    ┌────▼────┐    ┌────▼─────┐  ┌────▼────┐
-│PostgreSQL│  │  Redis   │    │WebSocket │  │  Stripe   │
-│(Primary) │  │ (Cache)  │    │ Server   │  │ (Payments)│
-└─────────┘  └─────────┘    └──────────┘  └─────────┘
-```
-
-## Repository Structure
-
-```
-ScalesInfrastructure/
-├── api/                    # FastAPI application
-│   ├── routes/
-│   ├── models/
-│   ├── services/
-│   └── main.py
-├── websocket/              # WebSocket server for real-time sync
-├── web_portal/             # Next.js web application
-├── migrations/             # Database migrations
-├── docs/                   # Architecture decisions, specifications
-├── infra/                  # Terraform, Docker, K8s manifests
-└── tests/                  # Integration tests, load tests
-```
-
-## Design Documents
-
-- `docs/architecture/` — System architecture decisions
-- `docs/api/` — API specifications
-- `docs/security/` — Security architecture, compliance
-- `docs/sync/` — CRDT sync protocol documentation
+One-command development environment for the Scales karaoke platform.
 
 ## Quick Start
 
 ```bash
-# API Gateway
-cd api
-pip install -r requirements.txt
-uvicorn main:app --reload
+# 1. Copy environment template
+cp .env.example .env
 
-# WebSocket Server
-cd websocket
-npm install
-npm start
+# 2. Start the full stack
+docker compose up
 
-# Web Portal
-cd web_portal
-npm install
-npm run dev
+# 3. Visit services
+- API docs:   http://localhost:8000/docs
+- Gateway:    ws://localhost:3001
+- Web portal: http://localhost:3000
+- Postgres:   localhost:5432
+- Redis:      localhost:6379
 ```
 
-## Related Repositories
+## Services
 
-- [ScalesMobile](https://github.com/Garenthino/ScalesMobile) — Flutter mobile apps
-- DragonHost2-Hermes — Windows KJ software (private repo)
+| Service | Port | Description |
+|---------|------|-------------|
+| postgres | 5432 | PostgreSQL 16 (persistent volume) |
+| redis | 6379 | Redis 7 (pub/sub, session cache) |
+| backend | 8000 | FastAPI + Uvicorn (hot reload) |
+| gateway | 3001 | Socket.IO server (nodemon reload) |
+| web | 3000 | Next.js dev server (HMR) |
 
-## License
+## Environment Variables
 
-MIT License - see LICENSE file
+Copy `.env.example` to `.env` and adjust as needed. No secrets are committed.
+
+## Hot Reload
+
+All code services mount the local source directory and run in dev mode with file-watchers:
+- **backend**: `uvicorn --reload`
+- **gateway**: `nodemon`
+- **web**: Next.js HMR
+
+## Health Checks
+
+Postgres and Redis include Docker healthchecks. Backend and gateway depend on database readiness before starting.
+
+## Persistent Data
+
+- `postgres_data`: Docker volume for PostgreSQL data
+- `redis_data`: Docker volume for Redis AOF persistence
+
+## Architecture
+
+See `docs/system_architecture.md` and `docs/infrastructure/infra_arch.md` for production design.
