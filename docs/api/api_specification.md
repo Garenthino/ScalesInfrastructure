@@ -4,8 +4,8 @@
 > **Base URL**: `https://api.scales.app/v1`  
 > **Protocol**: HTTPS (REST) / WSS (WebSocket) / SSE (server-sent events)  
 > **Content-Type**: `application/json`  
-> **Cross-references**: [Security Architecture](../t_47927d77/security_arch.md)
-
+> **Cross-references**: [Security Architecture](security_architecture.md)
+> **Synthesized from**: t_97abe5ff (API Spec) + t_20644505 (Token/Rate Limit Reconciliation)
 
 ---
 
@@ -14,33 +14,25 @@
 The API uses **JWT Bearer tokens** passed in the `Authorization` header.
 
 ```
-Authorization: Bearer <token>
+Authorization: Bearer <jwt>
 ```
 
 ### Token Types
 
-Scales uses a **two-model authentication system**: dual-token OAuth2 for human users,
-and long-lived service tokens for machine-to-machine (M2M) clients.
+Scales uses a **two-model authentication system**: dual-token OAuth2 for human users, and long-lived service tokens for machine-to-machine (M2M) clients.
 
 #### Human users (dual-token OAuth2)
 
-All authenticated human users — singer, kj, venue_admin, and platform_admin — share
-a single token model.  The access token is short-lived and the refresh token allows
-background re-authentication without re-entering credentials.
+All authenticated human users — singer, kj, venue_admin, and platform_admin — share a single token model. The access token is short-lived and the refresh token allows background re-authentication without re-entering credentials.
 
 | Token Type | Issued To | Scope | Lifetime |
 |------------|-----------|-------|----------|
 | `anonymous` | Unauthenticated users | Public read-only endpoints | 24h |
-| `access` | All human users (singer, kj, venue_admin, platform_admin) | Role-scoped API access | 15 minutes |
-| `refresh` | All human users (singer, kj, venue_admin, platform_admin) | Re-issue access token | 7 days (single-use, rotated) |
-| `service` | M2M / service accounts | Internal service communication | 30 days |
+| `access` | All human users (singer, kj, venue_admin, platform_admin) | Role-scoped API access | **15 minutes** |
+| `refresh` | All human users | Re-issue access token | **7 days** (single-use, rotated) |
+| `service` | M2M / service accounts | Internal service communication | **30 days** |
 
-Role differentiation is carried in the JWT `role` and `venue_id` claims, not by
-token lifetime.  See `security_arch.md` §3."Token Architecture" for implementation
-details (device binding, refresh rotation, Keychain/Keystore storage).
-
-> **Cross-reference:** [`security_arch.md` — Token Architecture](../t_47927d77/security_arch.md#token-architecture)
-
+Role differentiation is carried in the JWT `role` and `venue_id` claims, not by token lifetime. See `security_architecture.md` §Token Architecture for implementation details (device binding, refresh rotation, Keychain/Keystore storage).
 
 ### Auth Schemes Per Endpoint
 
@@ -55,16 +47,14 @@ details (device binding, refresh rotation, Keychain/Keystore storage).
 
 ## Rate Limiting
 
-Rate limits are split into **two tiers**: a generous UX tier for normal usage and a
-strict abuse-prevention tier for write-heavy operations.
+Rate limits are split into **two tiers**: a generous UX tier for normal usage and a strict abuse-prevention tier for write-heavy operations.
 
 ### Tier A — UX Tier (per authenticated session)
 
-These limits apply to routine browsing and management flows.  They are enforced
-by access-token identity (not by IP).
+These limits apply to routine browsing and management flows. They are enforced by access-token identity (not by IP).
 
 | Endpoint Class | Rate Limit | Burst |
-|--------------|------------|-------|
+|----------------|------------|-------|
 | Public reads (songs, leaderboards) | 60 req/min | 10 |
 | Song browse / search | 100 req/min | 15 |
 | Social reads (history, stats) | 60 req/min | 10 |
@@ -76,8 +66,7 @@ by access-token identity (not by IP).
 
 ### Tier B — Abuse-Prevention Tier (per device / per singer-venue combo)
 
-These limits protect queue integrity and prevent queue flooding.  They are
-enforced independently of Tier A and have much smaller windows.
+These limits protect queue integrity and prevent queue flooding. They are enforced independently of Tier A and have much smaller windows.
 
 | Operation | Limit | Window | Scope Key |
 |-----------|-------|--------|-----------|
@@ -98,8 +87,7 @@ All throttled responses include:
 
 ### Error Response
 
-When a Tier B limit is exceeded the 429 `rate_limit_exceeded` Problem Detail
-includes a `retry_after_minutes` hint:
+When a Tier B limit is exceeded the 429 `rate_limit_exceeded` Problem Detail includes a `retry_after_minutes` hint:
 
 ```json
 {
@@ -112,14 +100,11 @@ includes a `retry_after_minutes` hint:
 }
 ```
 
-> **Cross-reference:** [`security_arch.md` — Rate Limiting Strategy](../t_47927d77/security_arch.md#rate-limiting-strategy)
-
-
 ---
 
 ## Endpoint Inventory
 
-### 1. Venue Management APIs
+### 1. Venue Management
 
 | Auth | Method | Path | Description |
 |------|--------|------|-------------|
@@ -134,7 +119,7 @@ includes a `retry_after_minutes` hint:
 | 🔒 venue_admin | GET | `/venues/{venue_id}/analytics` | Venue performance dashboard data |
 | 🔒 platform_admin | GET | `/admin/venues` | List all venues (platform-wide) |
 
-**Parameters (POST/PUT /venues)**:
+**Parameters (POST/PUT `/venues`)**:
 ```json
 {
   "name": "string (required, 1-100 chars)",
@@ -167,7 +152,7 @@ includes a `retry_after_minutes` hint:
 
 ---
 
-### 2. Song Database APIs
+### 2. Song Database
 
 Venue-scoped song catalogs. Songs are either global (platform) or venue-custom.
 
@@ -183,7 +168,7 @@ Venue-scoped song catalogs. Songs are either global (platform) or venue-custom.
 | 🔒 platform_admin | GET | `/admin/songs` | Global song registry |
 | 🔒 platform_admin | POST | `/admin/songs` | Add to global catalog |
 
-**Query Parameters (GET /songs)**:
+**Query Parameters (GET `/songs`)**:
 - `genre` — Filter by genre (rock, pop, country, etc.)
 - `language` — ISO 639-1 code
 - `decade` — 1980s, 1990s, etc.
@@ -193,14 +178,14 @@ Venue-scoped song catalogs. Songs are either global (platform) or venue-custom.
 - `page` — Pagination page (default: 1)
 - `per_page` — Items per page (default: 20, max: 100)
 
-**Search Query (GET /songs/search)**:
+**Search Query (GET `/songs/search`)**:
 - `q` — Search query (title, artist, lyrics snippet)
 - `type` — `title`, `artist`, `all` (default: all)
 - `fuzzy` — Enable fuzzy matching (boolean, default: true)
 
 ---
 
-### 3. Singer/Patron APIs
+### 3. Singer / Patron
 
 Per-venue singer profiles and session management.
 
@@ -249,7 +234,7 @@ Per-venue singer profiles and session management.
 
 ---
 
-### 4. Request Queue APIs
+### 4. Request Queue
 
 The core karaoke request system.
 
@@ -303,7 +288,7 @@ The core karaoke request system.
 
 ---
 
-### 5. Loyalty System APIs
+### 5. Loyalty System
 
 Points, tiers, quests, and redemption.
 
@@ -366,7 +351,7 @@ Points, tiers, quests, and redemption.
 
 ---
 
-### 6. Merchandise APIs
+### 6. Merchandise
 
 Catalog, Stripe checkout, and dropshipper webhooks.
 
@@ -422,7 +407,7 @@ Catalog, Stripe checkout, and dropshipper webhooks.
 
 ---
 
-### 7. Social APIs
+### 7. Social
 
 Leaderboards, consent management, and sharing.
 
@@ -467,7 +452,7 @@ Leaderboards, consent management, and sharing.
 
 ---
 
-### 8. Analytics APIs
+### 8. Analytics
 
 Aggregated metrics and reporting.
 
@@ -507,7 +492,7 @@ Aggregated metrics and reporting.
 
 ---
 
-### 9. Export APIs
+### 9. Export
 
 CSV and PDF report generation.
 
@@ -546,7 +531,7 @@ CSV and PDF report generation.
 
 ---
 
-### 10. KJ Sync APIs
+### 10. KJ Sync
 
 State upload/download for crash recovery and multi-device KJ setups.
 
@@ -704,134 +689,38 @@ State upload/download for crash recovery and multi-device KJ setups.
   "data": {
     "singer_id": "uuid",
     "old_tier": "regular",
-    "new_tier": "regular_plus",
-    "benefits": ["queue_priority", "10%_discount"]
+    "new_tier": "vip",
+    "new_benefits": {
+      "queue_priority": 1,
+      "discount_percent": 15
+    }
   }
 }
 ```
 
-#### `song.completed`
+#### `action.play` (KJ → Server)
 ```json
 {
-  "event": "song.completed",
+  "event": "action.play",
   "timestamp": "2025-05-19T16:30:00Z",
   "venue_id": "uuid",
   "data": {
     "request_id": "uuid",
-    "song": { /* song object */ },
-    "singer": { /* singer object */ },
-    "duration_seconds": 245,
-    "next_request_id": "uuid|null"
+    "song_title": "string",
+    "singer_nickname": "string"
   }
 }
 ```
 
-#### `announcement`
+#### `action.skip` (KJ → Server)
 ```json
 {
-  "event": "announcement",
+  "event": "action.skip",
   "timestamp": "2025-05-19T16:30:00Z",
   "venue_id": "uuid",
   "data": {
-    "type": "info|warning|promotion",
-    "message": "string",
-    "duration_seconds": 10
+    "request_id": "uuid",
+    "reason": "string (optional)"
   }
 }
 ```
-
-### Server-Sent Events (SSE)
-
-For clients that can't maintain WebSockets (older browsers, some mobile apps), SSE is available for read-only events.
-
-**Endpoint**: `https://api.scales.app/v1/events`
-
-**Query Parameters**:
-- `venue_id` — Required, filter to specific venue
-- `types` — Comma-separated event types to subscribe to
-- `token` — JWT token for authentication
-
-**SSE Format**:
-```
-event: queue.updated
-data: {"queue_length": 12, "your_position": 3}
-
-id: 12345
-```
-
----
-
-## Error Handling
-
-All errors follow RFC 7807 (Problem Details).
-
-```json
-{
-  "type": "https://api.scales.app/errors/rate-limit-exceeded",
-  "title": "Rate Limit Exceeded",
-  "status": 429,
-  "detail": "You have exceeded the 3 requests per hour limit for song requests at this venue.",
-  "instance": "/venues/ven_123/queue",
-  "retry_after_minutes": 42
-}
-```
-
-### Common Error Codes
-
-| Status | Code | Description |
-|--------|------|-------------|
-| 400 | `invalid_request` | Malformed request |
-| 401 | `unauthorized` | Missing/invalid token |
-| 403 | `forbidden` | Insufficient permissions |
-| 404 | `not_found` | Resource doesn't exist |
-| 409 | `conflict` | Resource state conflict |
-| 429 | `rate_limit_exceeded` | Too many requests |
-| 500 | `internal_error` | Server error |
-| 503 | `service_unavailable` | Temporary outage |
-
----
-
-## Versioning
-
-API version is in the path (`/v1/`). Breaking changes increment version. Deprecation notices sent via:
-- `Sunset` header on affected endpoints (6 month notice)
-- Email to venue admins
-- Dashboard notification
-
----
-
-## Pagination
-
-List endpoints use cursor-based pagination:
-
-```json
-{
-  "data": [...],
-  "pagination": {
-    "has_more": true,
-    "next_cursor": "base64_encoded_cursor",
-    "total_count": 1234
-  }
-}
-```
-
-Query parameters:
-- `cursor` — From previous `next_cursor`
-- `per_page` — Items per page (default: 20, max: 100)
-
----
-
-## Webhook Security (Dropshippers)
-
-External dropshipper webhooks must include:
-- `X-Webhook-Signature` header with HMAC-SHA256
-- Timestamp in `X-Webhook-Timestamp` (within 5 minutes)
-
-Signature verification:
-```
-signature = hmac_sha256(webhook_secret, timestamp + "." + request_body)
-```
-
----
-
-*Document version: 1.0.0 — Generated for Scales Karaoke Platform*

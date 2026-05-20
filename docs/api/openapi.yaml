@@ -1,0 +1,2120 @@
+openapi: 3.1.0
+info:
+  title: Scales Karaoke Platform API
+  version: 1.1.0
+  description: |
+    REST, WebSocket, and SSE API for the Scales Karaoke Platform.
+    See `api_specification.md` for full narrative and event schemas.
+  contact:
+    name: Scales Engineering
+servers:
+  - url: https://api.scales.app/v1
+    description: Production
+security:
+  - bearerAuth: []
+paths:
+  `/admin/analytics/platform`:
+    get:
+      summary: Platform-wide metrics
+      tags: ["Analytics"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/admin/analytics/retention`:
+    get:
+      summary: Cohort analysis
+      tags: ["Analytics"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/admin/analytics/venues`:
+    get:
+      summary: Cross-venue comparison
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/admin/songs`:
+    get:
+      summary: Global song registry
+      tags: ["Songs"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    post:
+      summary: Add to global catalog
+      tags: ["Songs"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/admin/venues`:
+    get:
+      summary: List all venues (platform-wide)
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/cart/{line_item_id}`:
+    delete:
+      summary: Remove from cart
+      tags: ["Commerce"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/cart`:
+    post:
+      summary: Add item to cart
+      tags: ["Commerce"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    get:
+      summary: View cart
+      tags: ["Commerce"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/checkout`:
+    post:
+      summary: Create Stripe checkout session
+      tags: ["Commerce"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/merch/{product_id}`:
+    get:
+      summary: Get product details
+      tags: ["Commerce"]
+      security:
+  - []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/orders/{order_id}/cancel`:
+    post:
+      summary: Cancel order (if unshipped)
+      tags: ["Commerce"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/orders/{order_id}`:
+    get:
+      summary: Order details + tracking
+      tags: ["Commerce"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/orders`:
+    get:
+      summary: Order history
+      tags: ["Commerce"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/share`:
+    post:
+      summary: Generate shareable link
+      tags: ["Other"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/singer/account`:
+    delete:
+      summary: Delete all personal data (GDPR)
+      tags: ["Other"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/singer/follow/{singer_id}`:
+    post:
+      summary: Follow another singer
+      tags: ["Other"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    delete:
+      summary: Unfollow singer
+      tags: ["Other"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/singer/followers`:
+    get:
+      summary: List followers
+      tags: ["Other"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/singer/following`:
+    get:
+      summary: List following
+      tags: ["Other"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/singer/history`:
+    get:
+      summary: Performance history across venues
+      tags: ["Other"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/singer/loyalty/quests/{quest_id}/claim`:
+    post:
+      summary: Claim quest reward
+      tags: ["Loyalty"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/singer/loyalty/quests`:
+    get:
+      summary: Available quests for singer
+      tags: ["Loyalty"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/singer/loyalty/transactions`:
+    get:
+      summary: Points transaction history
+      tags: ["Loyalty"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/singer/loyalty`:
+    get:
+      summary: Current points and tier status
+      tags: ["Loyalty"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/singer/privacy`:
+    get:
+      summary: Current privacy/consent settings
+      tags: ["Other"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    put:
+      summary: Update consent toggles
+      tags: ["Other"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/singer/profile`:
+    get:
+      summary: Get current singer profile
+      tags: ["Other"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    put:
+      summary: Update profile (nickname, avatar)
+      tags: ["Other"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/singer/stats`:
+    get:
+      summary: Personal stats (songs sung, points earned)
+      tags: ["Other"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/admin`:
+    get:
+      summary: Get full venue config
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/analytics/attendance`:
+    get:
+      summary: Check-ins over time
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/analytics/engagement`:
+    get:
+      summary: Singer retention, repeat visits
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/analytics/loyalty`:
+    get:
+      summary: Points issued, redemptions
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/analytics/peaks`:
+    get:
+      summary: Busiest hours/days
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/analytics/revenue`:
+    get:
+      summary: Merch sales breakdown
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/analytics/songs`:
+    get:
+      summary: Popular songs, genres, artists
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/analytics/summary`:
+    get:
+      summary: Daily/weekly/monthly summary
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/analytics`:
+    get:
+      summary: Venue performance dashboard data
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/branding`:
+    put:
+      summary: Update logo, colors, custom CSS
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/checkin`:
+    post:
+      summary: Anonymous check-in (returns singer token)
+      tags: ["Venues"]
+      security:
+  - []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/exports/csv`:
+    post:
+      summary: Generate CSV export
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/exports/pdf`:
+    post:
+      summary: Generate PDF report
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/exports/schedule`:
+    post:
+      summary: Schedule recurring export
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/exports/{export_id}`:
+    get:
+      summary: Get export download URL
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    delete:
+      summary: Delete export file
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/exports`:
+    get:
+      summary: List available exports
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/favorites/{song_id}`:
+    delete:
+      summary: Remove from favorites
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/favorites`:
+    post:
+      summary: Add song to favorites
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    get:
+      summary: List singer's favorites for venue
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/friends`:
+    get:
+      summary: Friends checked in at venue
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/kj/history`:
+    get:
+      summary: KJ action log
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/kj/sessions/{session_id}`:
+    delete:
+      summary: Force KJ logout
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/kj/sessions`:
+    get:
+      summary: Active KJ sessions
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/kj/state`:
+    get:
+      summary: Download current KJ state
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    put:
+      summary: Upload state snapshot
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/kj/sync`:
+    post:
+      summary: Trigger cross-device sync
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/leaderboard/songs`:
+    get:
+      summary: Most requested songs
+      tags: ["Venues"]
+      security:
+  - []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/leaderboard`:
+    get:
+      summary: Top singers this week/month/all-time
+      tags: ["Venues"]
+      security:
+  - []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/loyalty/config`:
+    get:
+      summary: Get loyalty config
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    put:
+      summary: Update loyalty settings
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/loyalty/quests/{quest_id}`:
+    put:
+      summary: Update quest
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    delete:
+      summary: Delete quest
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/loyalty/quests`:
+    get:
+      summary: Manage venue quests
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    post:
+      summary: Create new quest
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/loyalty/rewards`:
+    get:
+      summary: Manage venue rewards
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    post:
+      summary: Create reward
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/merch/admin`:
+    get:
+      summary: Manage catalog
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/merch/{product_id}`:
+    put:
+      summary: Update product
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    delete:
+      summary: Remove product
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/merch`:
+    get:
+      summary: List merchandise catalog
+      tags: ["Venues"]
+      security:
+  - []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    post:
+      summary: Add product
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/orders/{order_id}/status`:
+    put:
+      summary: Update fulfillment status
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/orders`:
+    get:
+      summary: View venue orders
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/queue/clear`:
+    post:
+      summary: Clear entire queue
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/queue/my`:
+    get:
+      summary: Get singer's active requests
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/queue/reorder`:
+    put:
+      summary: Manual queue reorder
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/queue/{request_id}/complete`:
+    post:
+      summary: Mark as completed
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/queue/{request_id}/skip`:
+    post:
+      summary: Skip current song
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/queue/{request_id}/start`:
+    post:
+      summary: Mark as \"now playing\"
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/queue/{request_id}`:
+    delete:
+      summary: Cancel own request
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    patch:
+      summary: Approve/reject/prioritize request
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    delete:
+      summary: Admin remove request
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/queue`:
+    get:
+      summary: View current queue (public)
+      tags: ["Venues"]
+      security:
+  - []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    post:
+      summary: Submit song request
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/rewards/{reward_id}/redeem`:
+    post:
+      summary: Redeem reward
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/rewards`:
+    get:
+      summary: Redeemable rewards for venue
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/singers/{singer_id}/kick`:
+    post:
+      summary: Remove singer from venue
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/singers/{singer_id}`:
+    get:
+      summary: Get singer details
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/singers`:
+    get:
+      summary: List checked-in singers
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/social/analytics`:
+    get:
+      summary: Social engagement metrics
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/songs/search`:
+    get:
+      summary: Search by title/artist/lyrics
+      tags: ["Venues"]
+      security:
+  - []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/songs/{song_id}/disable`:
+    post:
+      summary: Temporarily disable song
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/songs/{song_id}`:
+    get:
+      summary: Get song metadata
+      tags: ["Venues"]
+      security:
+  - []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    put:
+      summary: Update custom song
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    delete:
+      summary: Remove custom song
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/songs`:
+    get:
+      summary: Browse venue song catalog
+      tags: ["Venues"]
+      security:
+  - []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    post:
+      summary: Add custom song to venue
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}/status`:
+    get:
+      summary: Real-time venue status (open, closed, queue depth)
+      tags: ["Venues"]
+      security:
+  - []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues/{venue_id}`:
+    get:
+      summary: Get venue public profile
+      tags: ["Venues"]
+      security:
+  - []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    put:
+      summary: Update venue settings
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    delete:
+      summary: Deactivate venue (soft delete)
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/venues`:
+    get:
+      summary: List active venues (public discovery)
+      tags: ["Venues"]
+      security:
+  - []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+    post:
+      summary: Create new venue
+      tags: ["Venues"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/webhooks/dropshipper/{provider}`:
+    post:
+      summary: Dropshipper fulfillment webhooks
+      tags: ["Other"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+  `/webhooks/stripe`:
+    post:
+      summary: Stripe webhook handler
+      tags: ["Other"]
+      security:
+  - bearerAuth: []
+      responses:
+        '200':
+          description: Success
+        '429':
+          description: Rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema: {type: integer}
+            X-RateLimit-Remaining:
+              schema: {type: integer}
+            X-RateLimit-Reset:
+              schema: {type: integer}
+            X-RateLimit-Tier:
+              schema: {type: string}
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas: {}
