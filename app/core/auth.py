@@ -115,7 +115,7 @@ def _extract_token(request: Request) -> str:
 
 
 async def require_admin(request: Request) -> dict:
-    """Dependency: enforce role == admin or kj. 403 otherwise. Returns raw token dict."""
+    """Dependency: enforce role == admin or kj and venue_id present in token."""
     token = _extract_token(request)
     payload = decode_token(token)
     if not payload:
@@ -129,6 +129,11 @@ async def require_admin(request: Request) -> dict:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin or KJ access required",
+        )
+    if not payload.get("venue_id"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token missing venue_id",
         )
     return payload
 

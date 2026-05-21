@@ -1,55 +1,433 @@
-"""Venue management router (stubs for Sprint 0 scaffold)."""
+"""Venue CRUD router — multi-tenant backbone for Scales.
 
-from fastapi import APIRouter, Depends, HTTPException, status
+RBAC:
+- platform_admin: full CRUD, access to all venues
+- venue_admin / kj: access to their own venue only
+- singer: list (own venue), get (own venue)
 
+JWT claims carry venue_id for venue_admin, kj, platform_admin.
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+from datetime import datetime, timezone
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+
+from app.core.auth import get_current_user, SingerUser, optional_token
+from app.core.permissions import Role, has_role
+from app.core.db import get_db
+from app.models import Venue, Song, Singer, QueueRequest
 from app.schemas import (
-    VenueCreate, VenueUpdate, VenueOut, VenueStatusOut,
-    PaginatedResponse, ProblemDetail,
+    VenueCreate,
+    VenueUpdate,
+    VenueOut,
+    VenueCompactOut,
+    PaginatedResponse,
+    VenueBranding,
+    VenueAddress,
+    VenueContact,
+    VenueStats,
 )
 
 router = APIRouter()
 
 
-@router.get("", response_model=PaginatedResponse[VenueOut])
-async def list_venues():
-    return PaginatedResponse(items=[], total=0, page=1, per_page=20)
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+
+def _require_platform_admin(current: SingerUser) -> None:
+    if not has_role(current.role, Role.ADMIN):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Platform admin access required",
+        )
+
+
+def _serialize_branding(venue: Venue) -> VenueBranding:
+    raw = venue.branding_json
+    if raw:
+        try:
+            data = json.loads(raw)
+            return VenueBranding(**data)
+        except Exception:
+            pass
+    return VenueBranding()
+
+
+def _serialize_address(venue: Venue) -> VenueAddress:
+    raw = venue.address
+    if raw:
+        try:
+            data = json.loads(raw)
+            return VenueAddress(**data)
+        except Exception:
+            pass
+    return VenueAddress()
+
+
+def _serialize_contact(venue: Venue) -> VenueContact:
+    raw = venue.contact_json
+    if raw:
+        try:
+            data = json.loads(raw)
+            return VenueContact(**data)
+        except Exception:
+            pass
+    return VenueContact()
+
+
+def _venue_out(venue: Venue, stats: VenueStats | None = None) -> VenueOut:
+    return VenueOut(
+        id=venue.id,
+        name=venue.name,
+        slug=venue.slug,
+        address=_serialize_address(venue),
+        contact=_serialize_contact(venue),
+        timezone=venue.timezone or "UTC",
+        branding=_serialize_branding(venue),
+        settings=None,  # stored in venue_configs table; out of scope for now
+        operating_hours=None,  # stored in venue_configs table; out of scope for now
+        is_active=bool(venue.is_active),
+        created_at=venue.created_at,
+        updated_at=venue.updated_at,
+        deleted_at=venue.deleted_at,
+        stats=stats,
+    )
+
+
+def _venue_compact(venue: Venue) -> VenueCompactOut:
+    return VenueCompactOut(
+        id=venue.id,
+        name=venue.name,
+        slug=venue.slug,
+        timezone=venue.timezone or "UTC",
+        is_active=bool(venue.is_active),
+    )
+
+
+def _build_branding_json(body: VenueCreate | VenueUpdate) -> str | None:
+    if body.branding is None:
+        return None
+    data = body.branding.model_dump(exclude_unset=True)
+    if not data:
+        return None
+    return json.dumps(data)
+
+
+def _build_address_json(body: VenueCreate | VenueUpdate) -> str | None:
+    if body.address is None:
+        return None
+    data = body.address.model_dump(exclude_unset=True)
+    if not data:
+        return None
+    return json.dumps(data)
+
+
+def _build_contact_json(body: VenueCreate | VenueUpdate) -> str | None:
+    if body.contact is None:
+        return None
+    data = body.contact.model_dump(exclude_unset=True)
+    if not data:
+        return None
+    return json.dumps(data)
+
+
+async def _compute_venue_stats(db: AsyncSession, venue_id: str) -> VenueStats:
+    """Compute aggregated stats for a venue."""
+    # queue depth: active queue requests
+    queue_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(QueueRequest)
+            .where(
+                QueueRequest.venue_id == venue_id,
+                QueueRequest.status.in_(("pending", "approved", "now_playing")),
+                QueueRequest.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one()
+
+    # total songs
+    song_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(Song)
+            .where(
+                Song.venue_id == venue_id,
+                Song.is_active == 1,
+                Song.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one()
+
+    # total singers
+    singer_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(Singer)
+            .where(
+                Singer.venue_id == venue_id,
+                Singer.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one()
+
+    return VenueStats(
+        queue_depth=queue_count,
+        current_song=None,
+        total_songs=song_count,
+        total_singers=singer_count,
+        active_singers=0,
+    )
+
+
+# ------------------------------------------------------------------
+# LIST
+# ------------------------------------------------------------------
+
+@router.get("", response_model=PaginatedResponse[VenueCompactOut])
+async def list_venues(
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+):
+    """List venues the caller can access.
+
+    - platform_admin: all venues
+    - venue_admin / kj / singer: own venue only
+    """
+    if has_role(current.role, Role.ADMIN):
+        # platform admin sees all
+        filters = [Venue.deleted_at.is_(None)]
+    else:
+        # non-admin only sees their own venue
+        filters = [
+            Venue.id == current.venue_id,
+            Venue.deleted_at.is_(None),
+        ]
+
+    total = (
+        await db.execute(
+            select(func.count()).select_from(Venue).where(*filters)
+        )
+    ).scalar_one()
+
+    offset = (page - 1) * per_page
+    stmt = (
+        select(Venue)
+        .where(*filters)
+        .order_by(Venue.created_at.desc())
+        .offset(offset)
+        .limit(per_page)
+    )
+    result = await db.execute(stmt)
+    items = [_venue_compact(row) for row in result.scalars().all()]
+
+    return PaginatedResponse(
+        items=items,
+        total=total,
+        page=page,
+        per_page=per_page,
+    )
+
+
+# ------------------------------------------------------------------
+# CREATE
+# ------------------------------------------------------------------
 
 @router.post("", response_model=VenueOut, status_code=status.HTTP_201_CREATED)
-async def create_venue(body: VenueCreate):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented in Sprint 0")
+async def create_venue(
+    body: VenueCreate,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new venue. Requires platform admin."""
+    _require_platform_admin(current)
 
+    # slug uniqueness check
+    existing = (
+        await db.execute(
+            select(Venue).where(
+                Venue.slug == body.slug,
+                Venue.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Venue slug already exists",
+        )
+
+    venue = Venue(
+        id=str(uuid.uuid4()),
+        name=body.name,
+        slug=body.slug,
+        address=_build_address_json(body),
+        contact_json=_build_contact_json(body),
+        timezone=body.timezone or "UTC",
+        branding_json=_build_branding_json(body),
+        is_active=1,
+    )
+    db.add(venue)
+    await db.commit()
+    await db.refresh(venue)
+    stats = await _compute_venue_stats(db, venue.id)
+    return _venue_out(venue, stats=stats)
+
+
+# ------------------------------------------------------------------
+# GET
+# ------------------------------------------------------------------
 
 @router.get("/{venue_id}", response_model=VenueOut)
-async def get_venue(venue_id: str):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented in Sprint 0")
+async def get_venue(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get venue details with stats."""
+    venue = (
+        await db.execute(
+            select(Venue).where(
+                Venue.id == venue_id,
+                Venue.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
 
+    if venue is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Venue not found")
+
+    # Cross-venue access control: admin sees all, others see own venue only
+    if not has_role(current.role, Role.ADMIN) and str(current.venue_id) != str(venue_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
+
+    stats = await _compute_venue_stats(db, venue_id)
+    return _venue_out(venue, stats=stats)
+
+
+# ------------------------------------------------------------------
+# UPDATE
+# ------------------------------------------------------------------
 
 @router.put("/{venue_id}", response_model=VenueOut)
-async def update_venue(venue_id: str, body: VenueUpdate):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented in Sprint 0")
+async def update_venue(
+    venue_id: str,
+    body: VenueUpdate,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update venue. platform_admin or venue_admin/kj for own venue."""
+    venue = (
+        await db.execute(
+            select(Venue).where(
+                Venue.id == venue_id,
+                Venue.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
 
+    if venue is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Venue not found")
+
+    own_venue = str(current.venue_id) == str(venue_id)
+    can_admin = has_role(current.role, Role.ADMIN) or (
+        has_role(current.role, Role.KJ) and own_venue
+    )
+    if not can_admin:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Admin or venue operator access required",
+        )
+
+    update_data = body.model_dump(exclude_unset=True)
+
+    # Handle nested schema fields separately
+    if "address" in update_data:
+        venue.address = _build_address_json(body)
+        update_data.pop("address")
+    if "contact" in update_data:
+        venue.contact_json = _build_contact_json(body)
+        update_data.pop("contact")
+    if "branding" in update_data:
+        venue.branding_json = _build_branding_json(body)
+        update_data.pop("branding")
+    if "timezone" in update_data:
+        venue.timezone = body.timezone
+        update_data.pop("timezone")
+    if "name" in update_data:
+        venue.name = body.name
+        update_data.pop("name")
+    if "slug" in update_data:
+        # slug uniqueness check
+        existing = (
+            await db.execute(
+                select(Venue).where(
+                    Venue.slug == body.slug,
+                    Venue.id != venue_id,
+                    Venue.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Venue slug already exists",
+            )
+        venue.slug = body.slug
+        update_data.pop("slug")
+    if "settings" in update_data:
+        update_data.pop("settings")  # out of scope for Sprint 2
+    if "operating_hours" in update_data:
+        update_data.pop("operating_hours")  # out of scope for Sprint 2
+
+    # Any remaining scalar fields
+    for key, value in update_data.items():
+        if value is not None and hasattr(venue, key):
+            setattr(venue, key, value)
+
+    venue.updated_at = _now_iso()
+    await db.commit()
+    await db.refresh(venue)
+    stats = await _compute_venue_stats(db, venue_id)
+    return _venue_out(venue, stats=stats)
+
+
+# ------------------------------------------------------------------
+# DELETE (soft)
+# ------------------------------------------------------------------
 
 @router.delete("/{venue_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_venue(venue_id: str):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented in Sprint 0")
+async def delete_venue(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft-delete a venue. Requires platform admin."""
+    _require_platform_admin(current)
 
+    venue = (
+        await db.execute(
+            select(Venue).where(
+                Venue.id == venue_id,
+                Venue.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
 
-@router.get("/{venue_id}/status", response_model=VenueStatusOut)
-async def venue_status(venue_id: str):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented in Sprint 0")
+    if venue is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Venue not found")
 
-
-@router.get("/{venue_id}/admin")
-async def get_venue_admin(venue_id: str):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented in Sprint 0")
-
-
-@router.put("/{venue_id}/branding")
-async def update_venue_branding(venue_id: str):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented in Sprint 0")
-
-
-@router.get("/{venue_id}/analytics")
-async def get_venue_analytics(venue_id: str):
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="Not implemented in Sprint 0")
+    venue.is_active = 0
+    venue.deleted_at = _now_iso()
+    await db.commit()
+    return None

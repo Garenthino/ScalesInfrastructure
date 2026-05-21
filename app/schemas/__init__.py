@@ -9,13 +9,15 @@ from app.schemas.dto import (
     # Venues
     VenueAddress,
     VenueContact,
+    VenueBranding,
     VenueSettings,
     VenueOperatingHours,
     VenueBase,
     VenueCreate,
     VenueUpdate,
     VenueOut,
-    VenueStatusOut,
+    VenueCompactOut,
+    VenueStats,
     # Songs
     SongBase,
     SongCreate,
@@ -57,6 +59,11 @@ from app.schemas.dto import (
     # Analytics
     AnalyticsSummary,
     TimeRangeQuery,
+    VenueOverviewOut,
+    SingerLeaderboardEntry,
+    SongPopularityEntry,
+    HourlyBreakdownItem,
+    SingerStatsOut,
     # Social
     LeaderboardEntryOut,
     ConsentSettings,

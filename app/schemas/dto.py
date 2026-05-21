@@ -37,6 +37,8 @@ class ProblemDetail(ScalesModel):
 # ---------------------------------------------------------------------------
 
 class VenueAddress(ScalesModel):
+    """Venue address fields; all optional."""
+
     street: str | None = None
     city: str | None = None
     state: str | None = None
@@ -47,6 +49,13 @@ class VenueAddress(ScalesModel):
 class VenueContact(ScalesModel):
     phone: str | None = None
     email: str | None = None
+
+
+class VenueBranding(ScalesModel):
+    primary_color: str | None = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    secondary_color: str | None = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    logo_url: str | None = None
+    favicon_url: str | None = None
 
 
 class VenueSettings(ScalesModel):
@@ -64,10 +73,12 @@ class VenueOperatingHours(ScalesModel):
 class VenueBase(ScalesModel):
     name: str = Field(..., min_length=1, max_length=100)
     slug: str = Field(..., min_length=1, max_length=100)
-    address: VenueAddress = Field(default_factory=VenueAddress)
-    contact: VenueContact = Field(default_factory=VenueContact)
-    settings: VenueSettings = Field(default_factory=VenueSettings)
-    operating_hours: VenueOperatingHours = Field(default_factory=VenueOperatingHours)
+    address: VenueAddress = Field(default_factory=lambda: VenueAddress())
+    contact: VenueContact = Field(default_factory=lambda: VenueContact())
+    timezone: str = Field(default="UTC", max_length=50)
+    branding: VenueBranding = Field(default_factory=lambda: VenueBranding())
+    settings: VenueSettings = Field(default_factory=lambda: VenueSettings())
+    operating_hours: VenueOperatingHours = Field(default_factory=lambda: VenueOperatingHours())
 
 
 class VenueCreate(VenueBase):
@@ -79,22 +90,43 @@ class VenueUpdate(ScalesModel):
     slug: str | None = Field(None, min_length=1, max_length=100)
     address: VenueAddress | None = None
     contact: VenueContact | None = None
+    timezone: str | None = Field(None, max_length=50)
+    branding: VenueBranding | None = None
     settings: VenueSettings | None = None
     operating_hours: VenueOperatingHours | None = None
 
 
-class VenueOut(VenueBase):
+class VenueStats(ScalesModel):
+    queue_depth: int = 0
+    current_song: dict[str, Any] | None = None
+    total_songs: int = 0
+    total_singers: int = 0
+    active_singers: int = 0
+
+
+class VenueOut(ScalesModel):
     id: str
+    name: str = Field(..., min_length=1, max_length=100)
+    slug: str = Field(..., min_length=1, max_length=100)
+    address: VenueAddress = Field(default_factory=lambda: VenueAddress())
+    contact: VenueContact = Field(default_factory=lambda: VenueContact())
+    timezone: str = "UTC"
+    branding: VenueBranding = Field(default_factory=lambda: VenueBranding())
+    settings: VenueSettings | None = None
+    operating_hours: VenueOperatingHours | None = None
     is_active: bool
     created_at: str
     updated_at: str
+    deleted_at: str | None = None
+    stats: VenueStats | None = None
 
 
-class VenueStatusOut(ScalesModel):
-    venue_id: str
-    is_open: bool
-    queue_depth: int
-    current_song: dict[str, Any] | None = None
+class VenueCompactOut(ScalesModel):
+    id: str
+    name: str
+    slug: str
+    timezone: str
+    is_active: bool
 
 
 # ---------------------------------------------------------------------------
@@ -397,6 +429,42 @@ class TimeRangeQuery(ScalesModel):
     from_date: str | None = None
     to_date: str | None = None
     granularity: Literal["hour", "day", "week", "month"] = "day"
+
+
+class VenueOverviewOut(ScalesModel):
+    venue_id: str
+    total_songs_played: int
+    total_singers: int
+    avg_queue_wait_seconds: float | None = None
+    busiest_day: str | None = None
+    busiest_hour: int | None = None
+
+
+class SingerLeaderboardEntry(ScalesModel):
+    rank: int
+    singer_id: str
+    stage_name: str
+    performance_count: int
+
+
+class SongPopularityEntry(ScalesModel):
+    song_id: str
+    title: str
+    artist: str
+    request_count: int
+
+
+class HourlyBreakdownItem(ScalesModel):
+    hour: int = Field(..., ge=0, le=23)
+    request_count: int
+
+
+class SingerStatsOut(ScalesModel):
+    singer_id: str
+    stage_name: str
+    performances_count: int
+    venues_visited: int
+    favorite_genre: str | None = None
 
 
 # ---------------------------------------------------------------------------

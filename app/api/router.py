@@ -17,4 +17,4 @@ api_router.include_router(queue_admin.router, prefix="/venues/{venue_id}/queue/a
 api_router.include_router(loyalty.router, prefix="/singer/loyalty", tags=["Loyalty"])
 api_router.include_router(commerce.router, prefix="/venues/{venue_id}/merch", tags=["Commerce"])
 api_router.include_router(social.router, prefix="/venues/{venue_id}/leaderboard", tags=["Social"])
-api_router.include_router(analytics.router, prefix="/venues/{venue_id}/analytics", tags=["Analytics"])
+api_router.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])

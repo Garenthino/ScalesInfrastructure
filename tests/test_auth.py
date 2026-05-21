@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 
 # Set env BEFORE any app imports
@@ -43,7 +44,7 @@ def anyio_backend():
     return "asyncio"
 
 
-@pytest.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def engine():
     e, _ = _init_test_db()
     async with e.begin() as conn:
@@ -53,7 +54,7 @@ async def engine():
     TEST_DB_PATH.unlink(missing_ok=True)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def session(engine):
     """Fresh session — auto-rollback on teardown."""
     _, factory = _init_test_db()
@@ -62,7 +63,7 @@ async def session(engine):
         await s.rollback()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def client(engine):
     # Patch the module-level session factory so the app uses test engine
     import app.core.db as db_mod
@@ -89,7 +90,7 @@ async def client(engine):
     core_auth_mod.async_session_factory = _orig_core_factory
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def sample_venue(session):
     v = Venue(
         id=str(uuid.uuid4()),
