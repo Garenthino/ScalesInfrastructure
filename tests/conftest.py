@@ -125,12 +125,32 @@ async def client(db) -> AsyncIterator[AsyncClient]:
         yield db
 
     app.dependency_overrides[get_db] = _override_get_db
+
+    # Patch global session factory so auth helpers (get_current_user)
+    # resolve singers from the test DB, not the default engine.
+    from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+    import app.core.db as _db_mod
+    import app.core.auth as _auth_mod
+    import app.routers.auth as _auth_router
+    _orig_db_factory = _db_mod.async_session_factory
+    _orig_auth_factory = _auth_mod.async_session_factory
+    _orig_router_factory = _auth_router.async_session_factory
+    _fresh_factory = async_sessionmaker(
+        db.bind, class_=AsyncSession, expire_on_commit=False, autoflush=False
+    )
+    _db_mod.async_session_factory = _fresh_factory
+    _auth_mod.async_session_factory = _fresh_factory
+    _auth_router.async_session_factory = _fresh_factory
+
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
     ) as c:
         yield c
     app.dependency_overrides.clear()
+    _db_mod.async_session_factory = _orig_db_factory
+    _auth_mod.async_session_factory = _orig_auth_factory
+    _auth_router.async_session_factory = _orig_router_factory
 
 
 @pytest.fixture
