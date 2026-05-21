@@ -1,0 +1,262 @@
+"""Queue management business logic: rotation fairness, VIP priorities, reordering."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from datetime import datetime, timezone
+from typing import Sequence
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, update
+from sqlalchemy.orm import selectinload
+
+from app.models import QueueRequest, Singer, Song, RotationSession
+from app.core.config import settings
+
+_NOW = lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+ROTATION_MODES = {"fifo", "round_robin", "vip_priority"}
+ACTIVE_STATUSES = {"pending", "approved", "now_playing"}
+
+
+class QueueEventPublisher:
+    """Publishes queue events to Redis (if configured) or logs them."""
+
+    _redis = None
+
+    @classmethod
+    async def publish(cls, venue_id: str, event_type: str, data: dict) -> None:
+        payload = json.dumps({"venue_id": venue_id, "event_type": event_type, "data": data})
+        if settings.REDIS_URL:
+            try:
+                import redis.asyncio as aioredis
+                if cls._redis is None:
+                    cls._redis = await aioredis.from_url(settings.REDIS_URL)
+                await cls._redis.publish(f"queue:{venue_id}", payload)
+            except Exception:
+                # Best-effort: don't let Redis failures break queue ops
+                pass
+
+
+# ---------------------------------------------------------------------------
+# Queue Service
+# ---------------------------------------------------------------------------
+
+class QueueService:
+    """High-level queue operations with rotation modes and priority support."""
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    # -----------------------------------------------------------------------
+    # Read
+    # -----------------------------------------------------------------------
+
+    async def get_active_queue(
+        self,
+        venue_id: str,
+        mode: str = "round_robin",
+        include_details: bool = True,
+    ) -> list[QueueRequest]:
+        """Return active queue items ordered by the selected rotation mode."""
+        stmt = (
+            select(QueueRequest)
+            .where(
+                QueueRequest.venue_id == venue_id,
+                QueueRequest.status.in_(list(ACTIVE_STATUSES)),
+                QueueRequest.deleted_at.is_(None),
+            )
+        )
+        if include_details:
+            stmt = stmt.options(selectinload(QueueRequest.singer), selectinload(QueueRequest.song))
+
+        result = await self.db.execute(stmt)
+        items = result.scalars().all()
+        return self._order_by_mode(list(items), mode)
+
+    @staticmethod
+    def _order_by_mode(items: list[QueueRequest], mode: str) -> list[QueueRequest]:
+        if mode == "fifo":
+            return sorted(items, key=lambda i: i.requested_at or "")
+
+        if mode == "vip_priority":
+            # Sort by VIP weight (higher first), then FIFO within equal weight
+            return sorted(
+                items,
+                key=lambda i: (
+                    -_singer_priority_weight(i),
+                    i.requested_at or "",
+                ),
+            )
+
+        # Default: round_robin — group by singer, each singer gets one turn before repeating
+        singer_groups: dict[str, list[QueueRequest]] = {}
+        for item in items:
+            sid = getattr(item, "singer_id", "")
+            singer_groups.setdefault(sid, []).append(item)
+
+        # Order groups by their first request time
+        for sid in singer_groups:
+            singer_groups[sid].sort(key=lambda i: i.requested_at or "")
+
+        ordered_groups = sorted(
+            singer_groups.items(),
+            key=lambda kv: kv[1][0].requested_at or "",
+        )
+
+        # Interleave: take first from each group, then seconds, etc.
+        round_robin: list[QueueRequest] = []
+        group_iters = [iter(g) for _, g in ordered_groups]
+        while group_iters:
+            next_iters = []
+            for it in group_iters:
+                try:
+                    round_robin.append(next(it))
+                except StopIteration:
+                    pass
+                else:
+                    next_iters.append(it)
+            group_iters = next_iters
+        return round_robin
+
+    # -----------------------------------------------------------------------
+    # Write
+    # -----------------------------------------------------------------------
+
+    async def approve(self, venue_id: str, request_id: str) -> QueueRequest:
+        item = await self._get_item(venue_id, request_id)
+        if item.status in {"completed", "skipped", "rejected"}:
+            raise ValueError(f"Cannot approve a request with status '{item.status}'")
+        item.status = "approved"
+        item.updated_at = _NOW()
+        await self.db.commit()
+        await self.db.refresh(item)
+        await QueueEventPublisher.publish(
+            venue_id, "request_approved", {"request_id": request_id, "status": "approved"}
+        )
+        return item
+
+    async def reject(self, venue_id: str, request_id: str, reason: str | None = None) -> QueueRequest:
+        item = await self._get_item(venue_id, request_id)
+        if item.status in {"completed", "skipped", "rejected"}:
+            raise ValueError(f"Cannot reject a request with status '{item.status}'")
+        item.status = "rejected"
+        item.reject_reason = reason
+        item.updated_at = _NOW()
+        await self.db.commit()
+        await self.db.refresh(item)
+        await QueueEventPublisher.publish(
+            venue_id, "request_rejected", {"request_id": request_id, "reason": reason}
+        )
+        return item
+
+    async def complete(self, venue_id: str, request_id: str) -> QueueRequest:
+        item = await self._get_item(venue_id, request_id)
+        if item.status not in {"approved", "now_playing"}:
+            raise ValueError(f"Cannot complete a request with status '{item.status}'")
+        item.status = "completed"
+        item.played_at = _NOW()
+        item.updated_at = _NOW()
+        await self.db.commit()
+        await self.db.refresh(item)
+        await QueueEventPublisher.publish(
+            venue_id, "singer_completed", {"request_id": request_id, "status": "completed"}
+        )
+        return item
+
+    async def remove(self, venue_id: str, request_id: str) -> None:
+        item = await self._get_item(venue_id, request_id)
+        item.deleted_at = _NOW()
+        await self.db.commit()
+        await QueueEventPublisher.publish(
+            venue_id, "queue_updated", {"request_id": request_id, "action": "removed"}
+        )
+
+    async def reorder(
+        self,
+        venue_id: str,
+        ordered_ids: list[str],
+        mode: str = "round_robin",
+    ) -> list[QueueRequest]:
+        """Validate all IDs belong to venue, then rewrite rotation_position."""
+        if not ordered_ids:
+            return await self.get_active_queue(venue_id, mode=mode)
+
+        # Ensure every id belongs to this venue and is active
+        stmt = (
+            select(QueueRequest)
+            .where(
+                QueueRequest.venue_id == venue_id,
+                QueueRequest.status.in_(list(ACTIVE_STATUSES)),
+                QueueRequest.deleted_at.is_(None),
+            )
+        )
+        result = await self.db.execute(stmt)
+        existing = {r.id: r for r in result.scalars().all()}
+
+        if not set(ordered_ids).issubset(existing.keys()):
+            raise ValueError("One or more IDs do not belong to this venue or are not active")
+
+        # Overwrite rotation_position to match the new order
+        for idx, rid in enumerate(ordered_ids, start=1):
+            existing[rid].rotation_position = idx
+            existing[rid].updated_at = _NOW()
+
+        await self.db.commit()
+        await QueueEventPublisher.publish(
+            venue_id, "queue_updated", {"action": "reordered", "new_order": ordered_ids}
+        )
+
+        # Return in the requested order
+        return [existing[rid] for rid in ordered_ids]
+
+    # -----------------------------------------------------------------------
+    # Rotation session helpers
+    # -----------------------------------------------------------------------
+
+    async def get_active_rotation_session(self, venue_id: str) -> RotationSession | None:
+        stmt = (
+            select(RotationSession)
+            .where(
+                RotationSession.venue_id == venue_id,
+                RotationSession.is_active == 1,
+                RotationSession.deleted_at.is_(None),
+            )
+            .order_by(RotationSession.created_at.desc())
+            .limit(1)
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    # -----------------------------------------------------------------------
+    # internals
+    # -----------------------------------------------------------------------
+
+    async def _get_item(self, venue_id: str, request_id: str) -> QueueRequest:
+        stmt = (
+            select(QueueRequest)
+            .where(
+                QueueRequest.id == request_id,
+                QueueRequest.venue_id == venue_id,
+                QueueRequest.deleted_at.is_(None),
+            )
+            .options(selectinload(QueueRequest.singer), selectinload(QueueRequest.song))
+        )
+        result = await self.db.execute(stmt)
+        item = result.scalar_one_or_none()
+        if item is None:
+            raise ValueError("Queue item not found")
+        return item
+
+
+def _singer_priority_weight(item: QueueRequest) -> int:
+    """Higher weight = higher priority. Base is 0; loyalty tiers add."""
+    singer = getattr(item, "singer", None)
+    if singer is None:
+        return 0
+    role = getattr(singer, "role", "")
+    if role in {"admin", "owner", "kj"}:
+        return 100
+    tier = getattr(singer, "loyalty_tier_id", None)
+    return 50 if tier else 0

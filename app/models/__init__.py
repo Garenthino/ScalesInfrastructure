@@ -174,8 +174,9 @@ class QueueRequest(Base):
     venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
     singer_id = Column(String(36), ForeignKey("singers.id"), nullable=False)
     song_id = Column(String(36), ForeignKey("songs.id"), nullable=False)
-    status = Column(Text, nullable=False)  # pending|approved|now_playing|completed|skipped
+    status = Column(Text, nullable=False)  # pending|approved|now_playing|completed|skipped|rejected
     notes = Column(Text)
+    reject_reason = Column(Text)
     rotation_position = Column(Integer)
     kj_id = Column(Text)
     requested_at = Column(Text, default=_now_iso)
@@ -184,11 +185,13 @@ class QueueRequest(Base):
     deleted_at = Column(Text)
 
     __table_args__ = (
-        CheckConstraint("status IN ('pending','approved','now_playing','completed','skipped')"),
+        CheckConstraint("status IN ('pending','approved','now_playing','completed','skipped','rejected')"),
         Index("ix_queue_venue_status", "venue_id", "status"),
     )
 
     venue = relationship("Venue", back_populates="queue_requests")
+    singer = relationship("Singer")
+    song = relationship("Song")
 
 
 class RotationSession(Base):

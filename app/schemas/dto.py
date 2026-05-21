@@ -248,7 +248,32 @@ class QueueAction(ScalesModel):
 
 
 class QueueReorder(ScalesModel):
-    request_ids: list[str]
+    order: list[str]
+
+
+class QueueRejectRequest(ScalesModel):
+    reason: str | None = Field(None, max_length=500)
+
+
+class QueueItemOut(ScalesModel):
+    """Single queue item with full singer and song details for admin panel."""
+    request_id: str
+    venue_id: str
+    position: int | None = None
+    status: str  # Literal expanded to str for runtime flexibility
+    song: SongOut | None = None
+    singer: SingerOut | None = None
+    notes: str | None = None
+    reject_reason: str | None = None
+    requested_at: str
+    updated_at: str | None = None
+    played_at: str | None = None
+
+
+class QueueAdminListOut(ScalesModel):
+    items: list[QueueItemOut]
+    total: int
+    active_mode: Literal["fifo", "round_robin", "vip_priority"] = "round_robin"
 
 
 # ---------------------------------------------------------------------------

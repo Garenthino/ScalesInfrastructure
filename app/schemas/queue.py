@@ -1,0 +1,53 @@
+"""Pydantic DTOs for singer-facing queue operations."""
+from __future__ import annotations
+
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field, ConfigDict
+
+
+class _ScalesModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+# ---------------------------------------------------------------------------
+# Singer Queue Operations
+# ---------------------------------------------------------------------------
+
+class QueueJoinRequest(_ScalesModel):
+    song_id: str
+    notes: str | None = Field(None, max_length=200)
+
+
+class QueueJoinResponse(_ScalesModel):
+    request_id: str
+    estimated_position: int
+    warning: str | None = None
+
+
+class QueueStatusResponse(_ScalesModel):
+    request_id: str
+    position: int
+    status: Literal["pending", "approved", "now_playing", "completed", "skipped"]
+    song_title: str
+    song_artist: str
+    eta_seconds: int | None = None
+
+
+class QueueLeaveAllResponse(_ScalesModel):
+    removed: int
+
+
+class PublicQueueItem(_ScalesModel):
+    position: int
+    status: Literal["pending", "approved", "now_playing", "completed", "skipped"]
+    song_title: str
+    song_artist: str
+    stage_name: str
+    estimated_start: str | None = None
+
+
+class PublicQueueOut(_ScalesModel):
+    venue_id: str
+    items: list[PublicQueueItem]
+    current_song: dict[str, Any] | None = None
