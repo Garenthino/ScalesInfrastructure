@@ -1,0 +1,51 @@
+version: "3.8"
+
+# Sprint 1 Integration Test Environment
+# Usage: docker compose -f docker-compose-test.yml up --build --abort-on-container-exit
+
+services:
+  test-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: scales_test
+      POSTGRES_PASSWORD: scales_test
+      POSTGRES_DB: scales_test
+    ports:
+      - "15432:5432"
+    volumes:
+      - test_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scales_test -d scales_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  test-redis:
+    image: redis:7-alpine
+    ports:
+      - "16379:6379"
+
+  test-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://scales_test:scales_test@test-db:5432/scales_test
+      REDIS_URL: redis://test-redis:6379/0
+      JWT_SECRET_KEY: test-jwt-secret-do-not-use-in-production
+      JWT_ALGORITHM: HS256
+      DEBUG: "true"
+    depends_on:
+      test-db:
+        condition: service_healthy
+      test-redis:
+        condition: service_started
+    volumes:
+      - ./app:/app/app:ro
+      - ./tests:/app/tests:ro
+      - ./pytest.ini:/app/pytest.ini:ro
+    command: >
+      sh -c "alembic upgrade head && pytest tests/ -v --integration"
+
+volumes:
+  test_pgdata:
