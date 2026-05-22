@@ -141,7 +141,7 @@ async def test_register_returns_201_with_id(client, session, sample_venue):
     resp = await client.post("/v1/auth/register", json={
         "venue_id": sample_venue.id,
         "stage_name": "New Singer",
-        "email": "newsinger@example.com",
+        "email": f"{uuid.uuid4().hex[:8]}@example.com",
         "password": "securepass123",
         "real_name": "Alice",
         "pronouns": "she/her",
@@ -155,7 +155,7 @@ async def test_register_returns_201_with_id(client, session, sample_venue):
 
 @pytest.mark.anyio
 async def test_register_duplicate_email_returns_409(client, session, sample_venue):
-    email = "dup@example.com"
+    email = f"{uuid.uuid4().hex[:8]}@example.com"
     r1 = await client.post("/v1/auth/register", json={
         "venue_id": sample_venue.id,
         "stage_name": "First",
