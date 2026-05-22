@@ -163,15 +163,121 @@ class QueueService:
         await QueueEventPublisher.publish(
             venue_id, "singer_completed", {"request_id": request_id, "status": "completed"}
         )
+        # Auto-advance: start next approved item in rotation order
+        await self._auto_advance(venue_id)
+        return item
+
+    async def start(self, venue_id: str, request_id: str) -> QueueRequest:
+        """Mark request as now_playing; enforce only 1 now_playing per venue."""
+        existing = await self._get_now_playing(venue_id)
+        if existing is not None:
+            raise ValueError("Another request is already playing")
+        item = await self._get_item(venue_id, request_id)
+        if item.status not in {"pending", "approved"}:
+            raise ValueError(f"Cannot start a request with status '{item.status}'")
+        item.status = "now_playing"
+        item.updated_at = _NOW()
+        await self.db.commit()
+        await self.db.refresh(item)
+        await QueueEventPublisher.publish(
+            venue_id, "request_started", {"request_id": request_id, "status": "now_playing"}
+        )
+        return item
+
+    async def skip(self, venue_id: str, request_id: str) -> QueueRequest:
+        """Skip a playing or approved request and auto-advance."""
+        item = await self._get_item(venue_id, request_id)
+        if item.status not in {"approved", "now_playing", "pending"}:
+            raise ValueError(f"Cannot skip a request with status '{item.status}'")
+        item.status = "skipped"
+        item.played_at = _NOW()
+        item.updated_at = _NOW()
+        await self.db.commit()
+        await self.db.refresh(item)
+        await QueueEventPublisher.publish(
+            venue_id, "request_skipped", {"request_id": request_id, "status": "skipped"}
+        )
+        # Auto-advance if we skipped the now_playing item
+        if item.status == "skipped":
+            pass  # already committed; _auto_advance looks at DB state
+        await self._auto_advance(venue_id)
         return item
 
     async def remove(self, venue_id: str, request_id: str) -> None:
+        """Alias for cancel (backward compat with queue_admin router)."""
+        return await self.cancel(venue_id, request_id)
+
+    async def cancel(self, venue_id: str, request_id: str) -> None:
+        """Soft-delete (cancel) a queue request."""
         item = await self._get_item(venue_id, request_id)
         item.deleted_at = _NOW()
+        item.updated_at = _NOW()
         await self.db.commit()
         await QueueEventPublisher.publish(
-            venue_id, "queue_updated", {"request_id": request_id, "action": "removed"}
+            venue_id, "queue_updated", {"request_id": request_id, "action": "cancelled"}
         )
+
+    async def update(self, venue_id: str, request_id: str, **kwargs) -> QueueRequest:
+        """Edit notes/dedication on a queue request."""
+        item = await self._get_item(venue_id, request_id)
+        if "notes" in kwargs and kwargs["notes"] is not None:
+            item.notes = kwargs["notes"]
+        if "dedication_to" in kwargs and kwargs["dedication_to"] is not None:
+            item.notes = (item.notes or "") + f"\n[Dedication to {kwargs['dedication_to']}]"
+        item.updated_at = _NOW()
+        await self.db.commit()
+        await self.db.refresh(item)
+        await QueueEventPublisher.publish(
+            venue_id, "queue_updated", {"request_id": request_id, "action": "edited"}
+        )
+        return item
+
+    # -----------------------------------------------------------------------
+    # internals
+    # -----------------------------------------------------------------------
+
+    async def _get_now_playing(self, venue_id: str) -> QueueRequest | None:
+        stmt = (
+            select(QueueRequest)
+            .where(
+                QueueRequest.venue_id == venue_id,
+                QueueRequest.status == "now_playing",
+                QueueRequest.deleted_at.is_(None),
+            )
+            .options(selectinload(QueueRequest.singer), selectinload(QueueRequest.song))
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def _auto_advance(self, venue_id: str) -> QueueRequest | None:
+        """If no now_playing exists, start the next approved item."""
+        existing = await self._get_now_playing(venue_id)
+        if existing is not None:
+            return None
+        # Find next approved item in rotation order
+        stmt = (
+            select(QueueRequest)
+            .where(
+                QueueRequest.venue_id == venue_id,
+                QueueRequest.status.in_(["pending", "approved"]),
+                QueueRequest.deleted_at.is_(None),
+            )
+            .order_by(QueueRequest.rotation_position.asc(), QueueRequest.requested_at.asc())
+            .limit(1)
+            .options(selectinload(QueueRequest.singer), selectinload(QueueRequest.song))
+        )
+        result = await self.db.execute(stmt)
+        next_item = result.scalar_one_or_none()
+        if next_item is not None:
+            next_item.status = "now_playing"
+            next_item.updated_at = _NOW()
+            await self.db.commit()
+            await self.db.refresh(next_item)
+            await QueueEventPublisher.publish(
+                venue_id, "request_started", {"request_id": str(next_item.id), "status": "now_playing", "auto": True}
+            )
+            return next_item
+        return None
 
     async def reorder(
         self,
@@ -191,6 +297,7 @@ class QueueService:
                 QueueRequest.status.in_(list(ACTIVE_STATUSES)),
                 QueueRequest.deleted_at.is_(None),
             )
+            .options(selectinload(QueueRequest.singer), selectinload(QueueRequest.song))
         )
         result = await self.db.execute(stmt)
         existing = {r.id: r for r in result.scalars().all()}

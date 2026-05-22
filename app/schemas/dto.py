@@ -286,6 +286,13 @@ class QueueReorder(ScalesModel):
 class QueueRejectRequest(ScalesModel):
     reason: str | None = Field(None, max_length=500)
 
+class QueueRequestUpdate(ScalesModel):
+    song_id: str | None = None
+    notes: str | None = Field(None, max_length=200)
+    dedication_to: str | None = None
+    priority_boost: bool | None = None
+
+
 
 class QueueItemOut(ScalesModel):
     """Single queue item with full singer and song details for admin panel."""

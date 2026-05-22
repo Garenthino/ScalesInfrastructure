@@ -39,6 +39,7 @@ from app.schemas.dto import (
     QueueAction,
     QueueReorder,
     QueueRejectRequest,
+    QueueRequestUpdate,
     QueueItemOut,
     QueueAdminListOut,
     # Loyalty
