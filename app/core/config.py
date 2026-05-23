@@ -51,5 +51,17 @@ class Settings(BaseSettings):
             )
         return self
 
+    @model_validator(mode="after")
+    def _warn_missing_redis(self):
+        import logging
+        logger = logging.getLogger(__name__)
+        if not self.REDIS_URL:
+            logger.warning(
+                "REDIS_URL is not set. Application will use in-memory fallback for "
+                "rate limiting and queue pub/sub. Set REDIS_URL for production "
+                "horizontal scaling."
+            )
+        return self
+
 
 settings = Settings()

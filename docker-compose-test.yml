@@ -1,51 +1,88 @@
 version: "3.8"
 
-# Sprint 1 Integration Test Environment
-# Usage: docker compose -f docker-compose-test.yml up --build --abort-on-container-exit
+# Sprint 5 Integration Test Environment
+# Usage:
+#   docker compose -f docker-compose-test.yml up -d --build
+#   pytest tests/test_integration_dockerized.py -v --integration
+#   docker compose -f docker-compose-test.yml down -v
 
 services:
-  test-db:
+  test-postgres:
     image: postgres:16-alpine
+    container_name: scales-test-postgres
     environment:
       POSTGRES_USER: scales_test
       POSTGRES_PASSWORD: scales_test
       POSTGRES_DB: scales_test
     ports:
-      - "15432:5432"
+      - "25432:5432"
     volumes:
-      - test_pgdata:/var/lib/postgresql/data
+      - scales_test_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U scales_test -d scales_test"]
       interval: 3s
       timeout: 3s
       retries: 5
+    networks:
+      - scales_test
 
   test-redis:
     image: redis:7-alpine
+    container_name: scales-test-redis
     ports:
-      - "16379:6379"
+      - "26379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+    networks:
+      - scales_test
 
   test-api:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: scales-test-api
     environment:
-      DATABASE_URL: postgresql+asyncpg://scales_test:scales_test@test-db:5432/scales_test
+      APP_NAME: ScalesAPI-Test
+      ENVIRONMENT: test
+      DATABASE_URL: postgresql+asyncpg://scales_test:scales_test@test-postgres:5432/scales_test
       REDIS_URL: redis://test-redis:6379/0
       JWT_SECRET_KEY: test-jwt-secret-do-not-use-in-production
       JWT_ALGORITHM: HS256
       DEBUG: "true"
     depends_on:
-      test-db:
+      test-postgres:
         condition: service_healthy
       test-redis:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./app:/app/app:ro
       - ./tests:/app/tests:ro
       - ./pytest.ini:/app/pytest.ini:ro
-    command: >
-      sh -c "alembic upgrade head && pytest tests/ -v --integration"
+      - ./scripts/entrypoint.sh:/app/entrypoint.sh:ro
+    entrypoint: ["sh", "/app/entrypoint.sh"]
+    ports:
+      - "28000:8000"
+    command:
+      - "--workers"
+      - "1"
+      - "--log-level"
+      - "debug"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - scales_test
 
 volumes:
-  test_pgdata:
+  scales_test_pgdata:
+    driver: local
+
+networks:
+  scales_test:
+    driver: bridge

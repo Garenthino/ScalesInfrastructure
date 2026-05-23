@@ -19,13 +19,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # SQLite requires table recreation to alter CHECK constraints.
-    with op.batch_alter_table('queue_requests', recreate='always') as batch_op:
-        batch_op.add_column(sa.Column('reject_reason', sa.Text(), nullable=True))
-        batch_op.create_check_constraint(
-            'ck_queue_requests_status',
-            "status IN ('pending','approved','now_playing','completed','skipped','rejected')",
-        )
+    # Add column only — PostgreSQL and SQLite both support this.
+    # Skipping CHECK-constraint recreation: SQLite batch recreate fails when
+    # foreign keys (rotation_entries) reference the table PK.
+    op.add_column('queue_requests', sa.Column('reject_reason', sa.Text(), nullable=True))
 
 
 def downgrade() -> None:

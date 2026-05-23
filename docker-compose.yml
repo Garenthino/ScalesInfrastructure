@@ -1,46 +1,87 @@
-version: "3.8"
+# Scales Production Deployment Stack
+# Usage: docker compose up -d --build
+# Override env via .env or inline: JWT_SECRET_KEY=$(openssl rand -hex 32) docker compose up -d --build
 
 services:
-  db:
+  postgres:
     image: postgres:16-alpine
+    container_name: scales-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: scales
       POSTGRES_PASSWORD: scales
       POSTGRES_DB: scales
+    volumes:
+      - scales_pgdata:/var/lib/postgresql/data
     ports:
       - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U scales -d scales"]
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - scales
+
+  redis:
+    image: redis:7-alpine
+    container_name: scales-redis
+    restart: unless-stopped
+    volumes:
+      - scales_redisdata:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - scales
 
   api:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: scales-api
+    restart: unless-stopped
+    environment:
+      APP_NAME: ScalesAPI
+      APP_VERSION: 0.1.0
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://scales:scales@postgres:5432/scales
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_POOL_SIZE: "10"
+      DATABASE_MAX_OVERFLOW: "20"
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+      # CRITICAL: set this in production via .env or secrets manager
+      # JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required in production}
     ports:
       - "8000:8000"
-    environment:
-      DATABASE_URL: postgresql+asyncpg://scales:scales@db:5432/scales
-      REDIS_URL: redis://redis:6379/0
-      DEBUG: "true"
     depends_on:
-      db:
+      postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     volumes:
-      - ./app:/app/app:ro
-    command: >
-      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+      - ./scripts/entrypoint.sh:/app/entrypoint.sh:ro
+    entrypoint: ["sh", "/app/entrypoint.sh"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - scales
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
+networks:
+  scales:
+    driver: bridge
 
 volumes:
-  pgdata:
+  scales_pgdata:
+    driver: local
+  scales_redisdata:
+    driver: local

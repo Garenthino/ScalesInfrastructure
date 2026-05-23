@@ -10,6 +10,9 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 
+def pytest_configure(config):
+    config.addinivalue_line("markers", "integration: mark test as integration (requires docker or external services)")
+
 # Patch app settings BEFORE anything else imports them
 from app.core.config import settings
 

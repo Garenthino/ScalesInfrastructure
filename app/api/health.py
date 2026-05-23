@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from fastapi.responses import PlainTextResponse
 
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.db import engine
@@ -20,7 +21,7 @@ async def health_check():
     db_ok = True
     try:
         async with engine.connect() as conn:
-            await conn.execute("SELECT 1")
+            await conn.execute(text("SELECT 1"))
         checks["database"] = "ok"
     except Exception as exc:
         db_ok = False
@@ -47,6 +48,16 @@ async def health_check():
         timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         checks=checks,
     )
+
+
+@health_router.get("/")
+async def root():
+    return {
+        "message": "Scales API",
+        "version": settings.APP_VERSION,
+        "environment": settings.ENVIRONMENT,
+        "docs": "/docs" if settings.DEBUG else None,
+    }
 
 
 @health_router.get("/metrics", response_class=PlainTextResponse)

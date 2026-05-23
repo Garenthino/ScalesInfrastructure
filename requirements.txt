@@ -7,12 +7,14 @@ aiosqlite>=0.20.0
 alembic==1.14.1
 pydantic>=2.11.0
 pydantic-settings>=2.9.0
+email-validator>=2.2
 python-jose[cryptography]==3.4.0
 bcrypt>=5.0
 python-multipart==0.0.20
 httpx==0.28.1
 structlog==25.1.0
 prometheus-client==0.21.1
+redis>=5.0
 
 # Dev / Test
 pytest==8.3.4

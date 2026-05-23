@@ -95,6 +95,22 @@ def upgrade() -> None:
         sa.Column('created_at', sa.Text, nullable=False),
     )
 
+    # loyalty_tiers  (must exist before singers references it)
+    op.create_table(
+        'loyalty_tiers',
+        sa.Column('id', sa.String(36), primary_key=True),
+        sa.Column('venue_id', sa.String(36), sa.ForeignKey('venues.id'), nullable=False),
+        sa.Column('name', sa.Text, nullable=False),
+        sa.Column('min_points', sa.Integer, server_default='0'),
+        sa.Column('multiplier', sa.REAL, server_default='1.0'),
+        sa.Column('color', sa.Text),
+        sa.Column('icon', sa.Text),
+        sa.Column('is_active', sa.Integer, server_default='1'),
+        sa.Column('created_at', sa.Text, nullable=False),
+        sa.Column('updated_at', sa.Text, nullable=False),
+        sa.Column('deleted_at', sa.Text),
+    )
+
     # singers
     op.create_table(
         'singers',
@@ -176,22 +192,6 @@ def upgrade() -> None:
         sa.Column('deleted_at', sa.Text),
     )
 
-    # loyalty_tiers
-    op.create_table(
-        'loyalty_tiers',
-        sa.Column('id', sa.String(36), primary_key=True),
-        sa.Column('venue_id', sa.String(36), sa.ForeignKey('venues.id'), nullable=False),
-        sa.Column('name', sa.Text, nullable=False),
-        sa.Column('min_points', sa.Integer, server_default='0'),
-        sa.Column('multiplier', sa.REAL, server_default='1.0'),
-        sa.Column('color', sa.Text),
-        sa.Column('icon', sa.Text),
-        sa.Column('is_active', sa.Integer, server_default='1'),
-        sa.Column('created_at', sa.Text, nullable=False),
-        sa.Column('updated_at', sa.Text, nullable=False),
-        sa.Column('deleted_at', sa.Text),
-    )
-
     # loyalty_points
     op.create_table(
         'loyalty_points',
@@ -229,6 +229,20 @@ def upgrade() -> None:
         sa.Column('quest_id', sa.String(36), sa.ForeignKey('loyalty_quests.id'), nullable=False),
         sa.Column('completed_at', sa.Text),
         sa.Column('created_at', sa.Text, nullable=False),
+    )
+
+    # dropshippers
+    op.create_table(
+        'dropshippers',
+        sa.Column('id', sa.String(36), primary_key=True),
+        sa.Column('venue_id', sa.String(36), sa.ForeignKey('venues.id'), nullable=False),
+        sa.Column('name', sa.Text, nullable=False),
+        sa.Column('api_endpoint', sa.Text),
+        sa.Column('auth_config_json', sa.Text),
+        sa.Column('is_active', sa.Integer, server_default='1'),
+        sa.Column('created_at', sa.Text, nullable=False),
+        sa.Column('updated_at', sa.Text, nullable=False),
+        sa.Column('deleted_at', sa.Text),
     )
 
     # products
@@ -275,20 +289,6 @@ def upgrade() -> None:
         sa.Column('quantity', sa.Integer, nullable=False),
         sa.Column('unit_price_cents', sa.Integer, nullable=False),
         sa.Column('created_at', sa.Text, nullable=False),
-    )
-
-    # dropshippers
-    op.create_table(
-        'dropshippers',
-        sa.Column('id', sa.String(36), primary_key=True),
-        sa.Column('venue_id', sa.String(36), sa.ForeignKey('venues.id'), nullable=False),
-        sa.Column('name', sa.Text, nullable=False),
-        sa.Column('api_endpoint', sa.Text),
-        sa.Column('auth_config_json', sa.Text),
-        sa.Column('is_active', sa.Integer, server_default='1'),
-        sa.Column('created_at', sa.Text, nullable=False),
-        sa.Column('updated_at', sa.Text, nullable=False),
-        sa.Column('deleted_at', sa.Text),
     )
 
     # leaderboards
