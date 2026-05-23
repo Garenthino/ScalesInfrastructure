@@ -9,6 +9,12 @@ from app.core.logging import configure_logging
 from app.core.db import engine, async_session_factory
 from app.api.router import api_router
 from app.api.health import health_router
+from app.middleware import (
+    RequestIDMiddleware,
+    SecurityHeadersMiddleware,
+    RateLimitMiddleware,
+    RequestSizeMiddleware,
+)
 
 
 @asynccontextmanager
@@ -27,9 +33,23 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Order: request_id -> security_headers -> rate_limit -> request_size -> CORS -> exception handlers
+app.add_middleware(RequestIDMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(RequestSizeMiddleware)
+
+# CORS
+if settings.DEBUG:
+    origins = ["*"]
+else:
+    origins = []
+    if settings.CORS_ORIGINS_PROD:
+        origins = [o.strip() for o in settings.CORS_ORIGINS_PROD.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.DEBUG else [],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

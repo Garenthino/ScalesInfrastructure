@@ -1,5 +1,8 @@
 """Pydantic-based application settings."""
 
+import os
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +34,24 @@ class Settings(BaseSettings):
 
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "json"
+
+    # Security hardening
+    RATE_LIMIT_REQUESTS: int = 100
+    RATE_LIMIT_WINDOW: int = 60
+    SECURITY_HEADERS_ENABLED: bool = True
+    CORS_ORIGINS_PROD: str | None = None
+    REQUEST_MAX_BODY_SIZE_MB: float = 1.0
+
+    @model_validator(mode="after")
+    def _reject_default_jwt_secret(self):
+        if self.ENVIRONMENT != "development" and (
+            self.JWT_SECRET_KEY == "change-me" or len(self.JWT_SECRET_KEY) < 32
+        ):
+            raise ValueError(
+                "JWT_SECRET_KEY must be at least 32 characters and not the default "
+                "value in non-development environments"
+            )
+        return self
 
 
 settings = Settings()

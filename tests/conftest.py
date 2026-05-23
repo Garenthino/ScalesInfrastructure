@@ -16,6 +16,13 @@ from app.core.config import settings
 settings.JWT_SECRET_KEY = "test-jwt-secret-do-not-use-in-production"
 settings.JWT_ALGORITHM = "HS256"
 
+from app.middleware import security as _sec_mod
+_sec_mod._buckets.clear()
+
+# Prevent rate limiting from interfering with rapid test sequences
+settings.RATE_LIMIT_REQUESTS = 10_000
+settings.RATE_LIMIT_WINDOW = 60
+
 from app.main import app
 from app.core.db import Base, get_db
 from app.models import Venue, Song
