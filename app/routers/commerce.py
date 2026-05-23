@@ -352,6 +352,10 @@ async def checkout(
     # Clear ephemeral cart
     _clear_cart(body.cart_id)
 
+    # Award loyalty points for purchase
+    from app.core.loyalty_service import award_purchase_points
+    await award_purchase_points(db, venue_id, current.id, order_id, total_cents)
+
     return await _build_order_response(db, order)
 
 

@@ -29,8 +29,10 @@ from app.core.db import get_db
 from app.core.queue_service import QueueService, ACTIVE_STATUSES
 from app.core.permissions import Role
 from app.core.dependencies import require_role
-from app.models import QueueRequest, Singer, Song, Venue
+from app.models import QueueRequest, Song, Venue
 from app.schemas import QueueRequestCreate, QueueRequestUpdate, QueueReorder, QueueAdminListOut
+
+from app.core.loyalty_service import award_performance_points
 
 router = APIRouter()
 
@@ -365,6 +367,12 @@ async def complete_song(
         item = await svc.complete(venue_id, request_id)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    # Award loyalty points for performance
+    singer_id = getattr(item, "singer_id", None)
+    if singer_id:
+        await award_performance_points(db, venue_id, str(singer_id), request_id)
+
     try:
         await db.refresh(item, attribute_names=["singer", "song"])
     except Exception:

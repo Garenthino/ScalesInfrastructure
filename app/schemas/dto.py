@@ -3,10 +3,9 @@
 Organized by domain: venues, songs, singers, queue, loyalty, commerce, analytics.
 """
 
-from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +297,7 @@ class QueueRequestUpdate(ScalesModel):
 
 class QueueItemOut(ScalesModel):
     """Single queue item with full singer and song details for admin panel."""
+
     request_id: str
     venue_id: str
     position: int | None = None
@@ -330,6 +330,14 @@ class LoyaltyTierOut(ScalesModel):
     icon: str | None = None
 
 
+class LoyaltyTierCreate(ScalesModel):
+    name: str = Field(..., min_length=1, max_length=50)
+    min_points: int = Field(0, ge=0)
+    multiplier: float = Field(1.0, ge=0.0)
+    color: str | None = None
+    icon: str | None = None
+
+
 class LoyaltySummary(ScalesModel):
     current_points: int
     tier: str | None = None
@@ -345,6 +353,17 @@ class LoyaltyPointsTransaction(ScalesModel):
     created_at: str
 
 
+class QuestCreate(ScalesModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str | None = None
+    quest_type: str = Field(..., pattern=r"^(perform_N_songs|spend_N_currency|visit_N_times)$")
+    target: int = Field(..., ge=1)
+    reward_points: int = Field(..., ge=0)
+    start_date: str | None = None
+    end_date: str | None = None
+    is_recurring: bool = False
+
+
 class QuestOut(ScalesModel):
     id: str
     name: str
@@ -355,6 +374,8 @@ class QuestOut(ScalesModel):
     start_date: str | None = None
     end_date: str | None = None
     is_recurring: bool = False
+    current_progress: int = 0
+    is_claimable: bool = False
 
 
 class RewardOut(ScalesModel):
@@ -363,6 +384,12 @@ class RewardOut(ScalesModel):
     description: str | None = None
     points_cost: int
     is_available: bool = True
+
+
+class ManualAwardRequest(ScalesModel):
+    singer_id: str
+    amount: int = Field(..., ge=1)
+    reason: str | None = None
 
 
 # ---------------------------------------------------------------------------
