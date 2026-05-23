@@ -48,17 +48,24 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
         if not venue_id:
             venue_id = request.path_params.get("venue_id")
 
+        request_id = request.headers.get("x-request-id")
         structlog.contextvars.bind_contextvars(
+            request_id=request_id,
             user_id=user_id,
             venue_id=venue_id,
             method=request.method,
             path=request.url.path,
         )
 
-        response = await call_next(request)
+        from app.middleware.observability_metrics import ACTIVE_CONNECTIONS
+        ACTIVE_CONNECTIONS.inc()
+        try:
+            response = await call_next(request)
+        finally:
+            ACTIVE_CONNECTIONS.dec()
         duration = time.perf_counter() - start
 
-        from app.middleware.observability_metrics import REQUESTS_TOTAL, REQUEST_DURATION, ACTIVE_CONNECTIONS
+        from app.middleware.observability_metrics import REQUESTS_TOTAL, REQUEST_DURATION
 
         status_code = str(response.status_code)
         route = request.scope.get("route")
@@ -67,7 +74,6 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
 
         REQUESTS_TOTAL.labels(method=request.method, handler=handler, status=status_code).inc()
         REQUEST_DURATION.labels(method=request.method, handler=handler).observe(duration)
-        ACTIVE_CONNECTIONS.set(0)
 
         logger.info(
             "http_request",
