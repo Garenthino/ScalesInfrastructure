@@ -4,24 +4,79 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import datetime, timezone
-from typing import Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.models import QueueRequest, Singer, Song, RotationSession
+from app.models import QueueRequest, RotationSession
 from app.core.config import settings
 
-_NOW = lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+logger = logging.getLogger(__name__)
+
+def _NOW():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
 
 ROTATION_MODES = {"fifo", "round_robin", "vip_priority"}
 ACTIVE_STATUSES = {"pending", "approved", "now_playing"}
 
 
+# ---------------------------------------------------------------------------
+# In-memory event bus (fallback when Redis is absent)
+# ---------------------------------------------------------------------------
+
+class InMemoryEventBus:
+    """Asyncio.Queue-based fan-out bus for a single venue."""
+
+    def __init__(self):
+        self._queues: set[asyncio.Queue] = set()
+        self._lock = asyncio.Lock()
+
+    async def subscribe(self) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue(maxsize=256)
+        async with self._lock:
+            self._queues.add(q)
+        return q
+
+    async def unsubscribe(self, q: asyncio.Queue) -> None:
+        async with self._lock:
+            self._queues.discard(q)
+
+    async def publish(self, payload: str) -> None:
+        dead: list[asyncio.Queue] = []
+        async with self._lock:
+            queues = list(self._queues)
+        for q in queues:
+            try:
+                q.put_nowait(payload)
+            except asyncio.QueueFull:
+                dead.append(q)
+        if dead:
+            async with self._lock:
+                for q in dead:
+                    self._queues.discard(q)
+
+
+venues_bus: dict[str, InMemoryEventBus] = {}
+_venues_bus_lock = asyncio.Lock()
+
+
+async def get_venue_bus(venue_id: str) -> InMemoryEventBus:
+    async with _venues_bus_lock:
+        if venue_id not in venues_bus:
+            venues_bus[venue_id] = InMemoryEventBus()
+        return venues_bus[venue_id]
+
+
+# ---------------------------------------------------------------------------
+# Queue Event Publisher
+# ---------------------------------------------------------------------------
+
 class QueueEventPublisher:
-    """Publishes queue events to Redis (if configured) or logs them."""
+    """Publishes queue events to Redis (if configured) or in-memory bus."""
 
     _redis = None
 
@@ -36,7 +91,11 @@ class QueueEventPublisher:
                 await cls._redis.publish(f"queue:{venue_id}", payload)
             except Exception:
                 # Best-effort: don't let Redis failures break queue ops
-                pass
+                logger.debug("redis_publish_failed", exc_info=True)
+
+        # Always broadcast via in-memory bus so WS clients get events regardless of Redis
+        bus = await get_venue_bus(venue_id)
+        await bus.publish(payload)
 
 
 # ---------------------------------------------------------------------------

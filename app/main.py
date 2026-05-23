@@ -15,6 +15,8 @@ from app.middleware import (
     RateLimitMiddleware,
     RequestSizeMiddleware,
 )
+from app.middleware.observability import ObservabilityMiddleware
+from app.websockets.queue_ws import router as ws_router
 
 
 @asynccontextmanager
@@ -33,10 +35,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Order: request_id -> security_headers -> rate_limit -> request_size -> CORS -> exception handlers
+# Order: request_id -> security_headers -> rate_limit -> observability -> request_size -> CORS
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(ObservabilityMiddleware)
 app.add_middleware(RequestSizeMiddleware)
 
 # CORS
@@ -57,3 +60,4 @@ app.add_middleware(
 
 app.include_router(health_router, tags=["Health"])
 app.include_router(api_router, prefix="/v1")
+app.include_router(ws_router, tags=["WebSocket"])

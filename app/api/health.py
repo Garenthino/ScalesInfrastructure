@@ -1,8 +1,11 @@
-"""Health check endpoint."""
+"""Health check and metrics endpoints."""
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
+from fastapi.responses import PlainTextResponse
+
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from app.core.config import settings
 from app.core.db import engine
@@ -23,9 +26,32 @@ async def health_check():
         db_ok = False
         checks["database"] = f"error: {exc}"
 
+    redis_status = None
+    if settings.REDIS_URL:
+        try:
+            import redis.asyncio as aioredis
+            r = aioredis.from_url(settings.REDIS_URL)
+            await r.ping()
+            redis_status = "ok"
+            await r.close()
+        except Exception as exc:
+            redis_status = f"error: {exc}"
+    else:
+        redis_status = "unconfigured"
+
+    checks["redis"] = redis_status
+
     return HealthCheck(
         status="ok" if db_ok else "degraded",
         version=settings.APP_VERSION,
         timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         checks=checks,
+    )
+
+
+@health_router.get("/metrics", response_class=PlainTextResponse)
+async def metrics():
+    return PlainTextResponse(
+        content=generate_latest().decode("utf-8"),
+        media_type=CONTENT_TYPE_LATEST,
     )
