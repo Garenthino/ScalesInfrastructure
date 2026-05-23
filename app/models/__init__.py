@@ -132,6 +132,8 @@ class Singer(Base):
     password_hash = Column(Text)
     loyalty_tier_id = Column(String(36), ForeignKey("loyalty_tiers.id"))
     total_points = Column(Integer, default=0)
+    last_seen = Column(Text)
+    deactivated_at = Column(Text)
     created_at = Column(Text, default=_now_iso)
     updated_at = Column(Text, default=_now_iso, onupdate=_now_iso)
     deleted_at = Column(Text)

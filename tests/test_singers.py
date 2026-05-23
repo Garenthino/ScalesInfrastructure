@@ -404,39 +404,5 @@ async def test_delete_singer_not_found(client, db, venue_with_songs, jwt_encode)
 
 
 # ---------------------------------------------------------------------------
-# 6. SPRINT 0 STUBS (unchanged)
+# 6. SPRINT 0 STUBS (removed — implemented in test_singer_portal.py)
 # ---------------------------------------------------------------------------
-
-@pytest.mark.anyio
-async def test_checkin_still_501(client, db, venue_with_songs):
-    venue_id, _ = venue_with_songs
-    resp = await client.post(f"/v1/venues/{venue_id}/singers/checkin", json={})
-    assert resp.status_code == status.HTTP_501_NOT_IMPLEMENTED
-
-
-@pytest.mark.anyio
-async def test_profile_still_501(client, db, venue_with_songs):
-    venue_id, _ = venue_with_songs
-    resp = await client.get(f"/v1/venues/{venue_id}/singers/profile")
-    assert resp.status_code == status.HTTP_501_NOT_IMPLEMENTED
-
-
-@pytest.mark.anyio
-async def test_history_still_501(client, db, venue_with_songs):
-    venue_id, _ = venue_with_songs
-    resp = await client.get(f"/v1/venues/{venue_id}/singers/history")
-    assert resp.status_code == status.HTTP_501_NOT_IMPLEMENTED
-
-
-@pytest.mark.anyio
-async def test_stats_still_501(client, db, venue_with_songs):
-    venue_id, _ = venue_with_songs
-    resp = await client.get(f"/v1/venues/{venue_id}/singers/stats")
-    assert resp.status_code == status.HTTP_501_NOT_IMPLEMENTED
-
-
-@pytest.mark.anyio
-async def test_account_delete_still_501(client, db, venue_with_songs):
-    venue_id, _ = venue_with_songs
-    resp = await client.delete(f"/v1/venues/{venue_id}/singers/account")
-    assert resp.status_code == status.HTTP_501_NOT_IMPLEMENTED

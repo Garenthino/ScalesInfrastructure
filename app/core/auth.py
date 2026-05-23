@@ -64,7 +64,7 @@ async def get_current_user(request: Request) -> SingerUser:
     async with async_session_factory() as session:
         singer = await _load_singer(session, sub)
 
-    if not singer or singer.deleted_at is not None:
+    if not singer or singer.deleted_at is not None or singer.deactivated_at is not None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Singer not found or deactivated",

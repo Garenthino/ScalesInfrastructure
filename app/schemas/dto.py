@@ -226,6 +226,8 @@ class SingerOut(SingerBase):
     venue_id: str
     total_points: int
     loyalty_tier_id: str | None = None
+    last_seen: str | None = None
+    deactivated_at: str | None = None
     created_at: str
     updated_at: str
 
@@ -516,3 +518,29 @@ class HealthCheck(ScalesModel):
     version: str
     timestamp: str
     checks: dict[str, Any] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Singer Portal (Self-Service)
+# ---------------------------------------------------------------------------
+
+class SingerHistoryItem(ScalesModel):
+    request_id: str
+    song_title: str
+    song_artist: str
+    genre: str | None = None
+    status: str
+    requested_at: str
+    played_at: str | None = None
+    notes: str | None = None
+
+
+class SingerHistoryOut(ScalesModel):
+    items: list[SingerHistoryItem]
+    total: int
+
+
+class SingerPortalStats(ScalesModel):
+    songs_sung: int
+    avg_wait_min: float | None = None
+    favorite_genre: str | None = None

@@ -9,14 +9,16 @@ from sqlalchemy import select, func
 from app.core.auth import get_current_user, SingerUser
 from app.core.permissions import Role, has_role
 from app.core.db import get_db
-from app.models import Singer
+from app.models import Singer, QueueRequest, Song
 from app.schemas import (
     SingerCreate,
     SingerUpdate,
     SingerOut,
     PaginatedResponse,
     CheckInRequest,
-    CheckInResponse,
+    SingerHistoryOut,
+    SingerHistoryItem,
+    SingerPortalStats,
 )
 
 router = APIRouter()
@@ -46,56 +48,237 @@ def _require_venue(venue_id: str, current: SingerUser) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Sprint 0 stubs (static routes first so they match before dynamic params)
+# Singer Self-Service Portal
 # ---------------------------------------------------------------------------
 
 
-@router.post("/checkin", response_model=CheckInResponse)
-async def check_in(venue_id: str, body: CheckInRequest):
-    raise HTTPException(
-        status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Not implemented in Sprint 0",
-    )
+@router.post("/checkin", response_model=SingerOut)
+async def check_in(
+    venue_id: str,
+    body: CheckInRequest,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark singer as present at the venue (updates last_seen)."""
+    _require_venue(venue_id, current)
+
+    singer = (
+        await db.execute(
+            select(Singer).where(
+                Singer.id == current.id,
+                Singer.venue_id == venue_id,
+                Singer.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if singer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
+
+    singer.last_seen = _now_iso()
+    await db.commit()
+    await db.refresh(singer)
+    return _singer_out(singer)
 
 
 @router.get("/profile", response_model=SingerOut)
-async def get_profile():
-    raise HTTPException(
-        status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Not implemented in Sprint 0",
-    )
+async def get_profile(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get own singer profile."""
+    _require_venue(venue_id, current)
+
+    singer = (
+        await db.execute(
+            select(Singer).where(
+                Singer.id == current.id,
+                Singer.venue_id == venue_id,
+                Singer.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if singer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
+
+    return _singer_out(singer)
 
 
 @router.put("/profile", response_model=SingerOut)
-async def update_profile(body: SingerUpdate):
-    raise HTTPException(
-        status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Not implemented in Sprint 0",
+async def update_profile(
+    venue_id: str,
+    body: SingerUpdate,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update own singer profile."""
+    _require_venue(venue_id, current)
+
+    singer = (
+        await db.execute(
+            select(Singer).where(
+                Singer.id == current.id,
+                Singer.venue_id == venue_id,
+                Singer.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if singer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
+
+    update_data = body.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        if value is not None:
+            setattr(singer, key, value)
+
+    singer.updated_at = _now_iso()
+    await db.commit()
+    await db.refresh(singer)
+    return _singer_out(singer)
+
+
+@router.get("/history", response_model=SingerHistoryOut)
+async def get_history(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return queue request history for the authenticated singer, with song titles."""
+    _require_venue(venue_id, current)
+
+    stmt = (
+        select(
+            QueueRequest.id,
+            Song.title,
+            Song.artist,
+            Song.genre,
+            QueueRequest.status,
+            QueueRequest.requested_at,
+            QueueRequest.played_at,
+            QueueRequest.notes,
+        )
+        .join(Song, Song.id == QueueRequest.song_id)
+        .where(
+            QueueRequest.venue_id == venue_id,
+            QueueRequest.singer_id == current.id,
+            QueueRequest.deleted_at.is_(None),
+        )
+        .order_by(QueueRequest.requested_at.desc())
     )
 
+    result = await db.execute(stmt)
+    rows = result.all()
 
-@router.get("/history")
-async def get_history():
-    raise HTTPException(
-        status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Not implemented in Sprint 0",
+    items = [
+        SingerHistoryItem(
+            request_id=str(r.id),
+            song_title=str(r.title) if r.title else "Unknown",
+            song_artist=str(r.artist) if r.artist else "Unknown",
+            genre=str(r.genre) if r.genre else None,
+            status=str(r.status),
+            requested_at=str(r.requested_at),
+            played_at=str(r.played_at) if r.played_at else None,
+            notes=str(r.notes) if r.notes else None,
+        )
+        for r in rows
+    ]
+
+    return SingerHistoryOut(items=items, total=len(items))
+
+
+@router.get("/stats", response_model=SingerPortalStats)
+async def get_stats(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return singer portal stats: songs sung, avg wait time, favorite genre."""
+    _require_venue(venue_id, current)
+
+    # Songs sung: completed queue requests
+    songs_sung_result = await db.execute(
+        select(func.count())
+        .select_from(QueueRequest)
+        .where(
+            QueueRequest.venue_id == venue_id,
+            QueueRequest.singer_id == current.id,
+            QueueRequest.status == "completed",
+            QueueRequest.deleted_at.is_(None),
+        )
     )
+    songs_sung = songs_sung_result.scalar_one() or 0
 
+    # Avg wait (completed requests with played_at)
+    avg_wait_result = await db.execute(
+        select(
+            func.avg(
+                func.strftime("%s", QueueRequest.played_at)
+                - func.strftime("%s", QueueRequest.requested_at)
+            )
+        )
+        .where(
+            QueueRequest.venue_id == venue_id,
+            QueueRequest.singer_id == current.id,
+            QueueRequest.status == "completed",
+            QueueRequest.played_at.isnot(None),
+            QueueRequest.deleted_at.is_(None),
+        )
+    )
+    avg_wait_sec = avg_wait_result.scalar_one()
+    avg_wait_min = round(avg_wait_sec / 60.0, 2) if avg_wait_sec is not None else None
 
-@router.get("/stats")
-async def get_stats():
-    raise HTTPException(
-        status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Not implemented in Sprint 0",
+    # Favorite genre: mode of Song.genre for completed requests
+    fav_genre_result = await db.execute(
+        select(Song.genre, func.count())
+        .join(QueueRequest, QueueRequest.song_id == Song.id)
+        .where(
+            QueueRequest.venue_id == venue_id,
+            QueueRequest.singer_id == current.id,
+            QueueRequest.status == "completed",
+            QueueRequest.deleted_at.is_(None),
+        )
+        .group_by(Song.genre)
+        .order_by(func.count().desc())
+        .limit(1)
+    )
+    fav_genre_row = fav_genre_result.first()
+    favorite_genre = str(fav_genre_row[0]) if fav_genre_row and fav_genre_row[0] else None
+
+    return SingerPortalStats(
+        songs_sung=songs_sung,
+        avg_wait_min=avg_wait_min,
+        favorite_genre=favorite_genre,
     )
 
 
 @router.delete("/account", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_account():
-    raise HTTPException(
-        status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Not implemented in Sprint 0",
-    )
+async def delete_account(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft-delete own account (sets deactivated_at)."""
+    _require_venue(venue_id, current)
+
+    singer = (
+        await db.execute(
+            select(Singer).where(
+                Singer.id == current.id,
+                Singer.venue_id == venue_id,
+                Singer.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if singer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
+
+    singer.deactivated_at = _now_iso()
+    await db.commit()
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +302,7 @@ async def list_singers(
     filters = [
         Singer.venue_id == venue_id,
         Singer.deleted_at.is_(None),
+        Singer.deactivated_at.is_(None),
     ]
 
     total = (

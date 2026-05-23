@@ -70,4 +70,8 @@ from app.schemas.dto import (
     ConsentSettings,
     ShareRequest,
     ShareResponse,
+    # Singer Portal
+    SingerHistoryItem,
+    SingerHistoryOut,
+    SingerPortalStats,
 )
