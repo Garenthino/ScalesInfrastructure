@@ -10,7 +10,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from httpx import AsyncClient, ASGITransport
 
 from app.core.config import settings
-from app.main import app
 
 
 # ---------------------------------------------------------------------------
@@ -81,8 +80,8 @@ async def test_rate_limit_per_user_bucket(limited_client, admin_token):
     headers = {"Authorization": f"Bearer {token}"}
 
     # Authenticated user gets their own bucket
-    r1 = await limited_client.get(f"/v1/venues/{venue_id}/shows", headers=headers)
-    r2 = await limited_client.get(f"/v1/venues/{venue_id}/shows", headers=headers)
+    await limited_client.get(f"/v1/venues/{venue_id}/shows", headers=headers)
+    await limited_client.get(f"/v1/venues/{venue_id}/shows", headers=headers)
     r3 = await limited_client.get(f"/v1/venues/{venue_id}/shows", headers=headers)
 
     # Third should be 429 because limit=2

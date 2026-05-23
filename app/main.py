@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from app.core.config import settings
 from app.core.logging import configure_logging
-from app.core.db import engine, async_session_factory
+from app.core.db import engine
 from app.api.router import api_router
 from app.api.health import health_router
 from app.middleware import (
