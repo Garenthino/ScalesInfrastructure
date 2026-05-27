@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchSingers, fetchSingerStats, updateSinger, checkinSinger } from "@/lib/api";
+import { fetchSingers, fetchSingerStats, updateSinger } from "@/lib/api";
 import { Singer, SingerLoyaltyTier } from "@/lib/types";
 import { SingerFilters } from "@/components/singer-filters";
 import { SingerTable } from "@/components/singer-table";

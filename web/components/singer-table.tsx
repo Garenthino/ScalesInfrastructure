@@ -9,7 +9,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Singer, SingerStatus } from "@/lib/types";
+import { Singer } from "@/lib/types";
 import { SingerTierBadge } from "@/components/singer-tier-badge";
 import { Eye, Ban, UserCheck } from "lucide-react";
 

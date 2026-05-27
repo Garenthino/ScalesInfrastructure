@@ -12,7 +12,6 @@ import {
   SheetClose,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { SingerTierBadge } from "@/components/singer-tier-badge";
 import { useQuery } from "@tanstack/react-query";
 import { fetchSingerHistory } from "@/lib/api";

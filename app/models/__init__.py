@@ -468,3 +468,15 @@ class SyncCheckpoint(Base):
     direction = Column(Text, nullable=False)
     created_at = Column(Text, default=_now_iso)
     updated_at = Column(Text, default=_now_iso, onupdate=_now_iso)
+
+
+class KJDevice(Base):
+    __tablename__ = "kj_devices"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
+    name = Column(Text, nullable=False)
+    api_key_hash = Column(Text, nullable=False)
+    created_at = Column(Text, default=_now_iso)
+    last_seen = Column(Text)
+    revoked_at = Column(Text)
