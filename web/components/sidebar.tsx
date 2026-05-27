@@ -12,12 +12,14 @@ import {
   ShoppingCart,
   Settings,
   Users,
+  Monitor,
 } from "lucide-react";
 
 const navItems = [
   { label: "Queue", href: "/queue", icon: ListMusic },
   { label: "Singers", href: "/singers", icon: Users },
   { label: "Songs", href: "/songs", icon: Music },
+  { label: "KJ Devices", href: "/kj-devices", icon: Monitor },
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
   { label: "Commerce", href: "/commerce", icon: ShoppingCart },
 ];

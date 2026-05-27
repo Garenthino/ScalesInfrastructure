@@ -216,3 +216,40 @@ export interface Song {
   popularity?: number | null;
   created_at?: string | null;
 }
+
+// -- KJ Devices --
+
+export type KJDeviceStatus = "online" | "offline";
+
+export interface KJDeviceQueueItem {
+  position: number;
+  singer_name: string;
+  song_title: string;
+}
+
+export interface KJDeviceNowPlaying {
+  singer_name: string;
+  song_title: string;
+  started_at: string;
+}
+
+export interface KJDevice {
+  device_id: string;
+  name: string;
+  venue_id: string;
+  status: KJDeviceStatus;
+  last_seen_at: string | null;
+  connected_at: string;
+  now_playing: KJDeviceNowPlaying | null;
+  queue: KJDeviceQueueItem[];
+}
+
+export interface KJDevicesListResponse {
+  items: KJDevice[];
+}
+
+export interface KJDeviceMessage {
+  type: "device_update" | "device_connected" | "device_disconnected" | "now_playing" | "queue_update" | "ping";
+  device_id: string;
+  payload: KJDevice | KJDeviceNowPlaying | KJDeviceQueueItem[] | unknown;
+}

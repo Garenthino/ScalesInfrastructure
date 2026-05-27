@@ -17,6 +17,8 @@ import {
   SingerStats,
   SingersListResponse,
   CheckinResponse,
+  KJDevice,
+  KJDevicesListResponse,
 } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -442,4 +444,22 @@ export async function fetchRevenueBreakdown(
   });
   if (!res.ok) throw new Error("Failed to fetch revenue");
   return res.json();
+}
+
+/* ── KJ Devices ───────────────────────────────────────── */
+
+export async function fetchKJDevices(venue_id: string, token?: string): Promise<KJDevicesListResponse> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venue_id)}/kj-devices`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error("Failed to fetch KJ devices");
+  return res.json();
+}
+
+export async function revokeKJDevice(venue_id: string, device_id: string, token?: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venue_id)}/kj-devices/${encodeURIComponent(device_id)}/revoke`, {
+    method: "POST",
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error("Failed to revoke KJ device");
 }
