@@ -571,3 +571,122 @@ class SingerPortalStats(ScalesModel):
     songs_sung: int
     avg_wait_min: float | None = None
     favorite_genre: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Sync (KJ Desktop App)
+# ---------------------------------------------------------------------------
+
+class SyncQueueItem(ScalesModel):
+    request_id: str
+    singer_id: str
+    song_id: str
+    status: Literal["pending", "approved", "now_playing", "completed", "skipped", "rejected"]
+    position: int | None = None
+    notes: str | None = None
+    requested_at: str
+    updated_at: str | None = None
+    played_at: str | None = None
+    reject_reason: str | None = None
+
+
+class SyncQueuePushPayload(ScalesModel):
+    items: list[SyncQueueItem]
+    deleted_ids: list[str] = Field(default_factory=list)
+    last_modified_at: str | None = None
+
+
+class SyncQueuePullOut(ScalesModel):
+    items: list[SyncQueueItem]
+    deleted_ids: list[str] = Field(default_factory=list)
+    server_modified_at: str
+
+
+class SyncSingerItem(ScalesModel):
+    id: str
+    stage_name: str
+    real_name: str | None = None
+    pronouns: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    notes: str | None = None
+    total_points: int = 0
+    loyalty_tier_id: str | None = None
+    last_seen: str | None = None
+    deactivated_at: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class SyncSingersPushPayload(ScalesModel):
+    items: list[SyncSingerItem]
+    deleted_ids: list[str] = Field(default_factory=list)
+    last_modified_at: str | None = None
+
+
+class SyncSingersPullOut(ScalesModel):
+    items: list[SyncSingerItem]
+    deleted_ids: list[str] = Field(default_factory=list)
+    server_modified_at: str
+
+
+class SyncSongItem(ScalesModel):
+    id: str
+    catalog_id: str | None = None
+    title: str
+    artist: str
+    album: str | None = None
+    genre: str | None = None
+    category: str | None = None
+    language: str | None = None
+    duration_ms: int | None = None
+    year: int | None = None
+    is_available: bool = True
+    is_active: bool = True
+    created_at: str
+    updated_at: str
+
+
+class SyncSongsPushPayload(ScalesModel):
+    items: list[SyncSongItem]
+    deleted_ids: list[str] = Field(default_factory=list)
+    plays: list[dict[str, Any]] = Field(default_factory=list)
+    last_modified_at: str | None = None
+
+
+class SyncSongsPullOut(ScalesModel):
+    items: list[SyncSongItem]
+    deleted_ids: list[str] = Field(default_factory=list)
+    server_modified_at: str
+
+
+class SyncSettingItem(ScalesModel):
+    key: str
+    value: str | None = None
+    updated_at: str
+
+
+class SyncSettingsPushPayload(ScalesModel):
+    items: list[SyncSettingItem]
+    last_modified_at: str | None = None
+
+
+class SyncSettingsPullOut(ScalesModel):
+    items: list[SyncSettingItem]
+    server_modified_at: str
+
+
+class SyncConflictDetail(ScalesModel):
+    entity_type: str
+    entity_id: str
+    server_state: dict[str, Any]
+    client_state: dict[str, Any]
+    resolution: Literal["server_wins", "last_write_wins", "client_wins"]
+
+
+class SyncConflictResponse(ScalesModel):
+    type: str = "about:blank"
+    title: str = "Sync conflict detected"
+    status: int = 409
+    detail: str | None = None
+    conflicts: list[SyncConflictDetail] = Field(default_factory=list)
