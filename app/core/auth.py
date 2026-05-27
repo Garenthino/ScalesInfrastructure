@@ -1,8 +1,9 @@
-"""Authentication layer: singer resolution + token helpers + venue scoping.
+"""Authentication layer: singer resolution + token helpers + venue scoping + KJ device auth.
 
-Provides two usage patterns:
+Provides three usage patterns:
 1. SingerUser resolution (auth router, RBAC deps) — get_current_user, SingerUser
 2. Raw token dicts (song catalog router) — require_admin, optional_token, venue_match
+3. KJ device auth (KJ desktop apps) — kj_auth, KJDeviceUser
 """
 from __future__ import annotations
 
@@ -14,9 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.core.db import async_session_factory
-from app.core.security import decode_token
+from app.core.security import decode_token, verify_password, hash_password
 from app.core.permissions import Role
-from app.models import Singer
+from app.models import Singer, KJDevice
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +97,95 @@ async def _load_singer(session: AsyncSession, singer_id: str) -> Singer | None:
         select(Singer).where(Singer.id == singer_id)
     )
     return result.scalar_one_or_none()
+
+
+# ---------------------------------------------------------------------------
+# KJ device auth
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class KJDeviceUser:
+    id: str
+    venue_id: str
+    name: str
+    token_claims: dict[str, object]
+
+
+async def kj_auth(request: Request) -> KJDeviceUser:
+    """Dependency: validate KJ device via x-api-key header or Bearer JWT.
+
+    Priority:
+      1. x-api-key header → look up device by API key hash (bcrypt verify)
+      2. Authorization: Bearer <token> → decode JWT with kj_device_id claim
+    """
+    api_key = request.headers.get("x-api-key")
+    if api_key:
+        return await _kj_auth_by_api_key(api_key)
+
+    auth = request.headers.get("Authorization", "")
+    if auth.lower().startswith("bearer "):
+        token = auth[7:]
+        claims = decode_token(token)
+        if claims and claims.get("kj_device_id"):
+            return _kj_auth_by_token_claims(claims)
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Missing x-api-key or valid KJ Bearer token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+async def _kj_auth_by_api_key(api_key: str) -> KJDeviceUser:
+    """Lookup KJ device by API key. Verify hash, check not revoked, update last_seen."""
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(KJDevice).where(KJDevice.revoked_at.is_(None))
+        )
+        devices = result.scalars().all()
+
+        device: KJDevice | None = None
+        for d in devices:
+            if verify_password(api_key, d.api_key_hash):
+                device = d
+                break
+
+        if not device:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid API key",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        from app.models import _now_iso
+        device.last_seen = _now_iso()
+        await session.commit()
+
+        return KJDeviceUser(
+            id=device.id,
+            venue_id=device.venue_id,
+            name=device.name,
+            token_claims={},
+        )
+
+
+def _kj_auth_by_token_claims(claims: dict) -> KJDeviceUser:
+    """Validate KJ JWT claims and return KJDeviceUser."""
+    device_id = claims.get("kj_device_id")
+    venue_id = claims.get("venue_id")
+    name = claims.get("kj_device_name", "")
+    if not device_id or not venue_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid KJ token claims",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return KJDeviceUser(
+        id=device_id,
+        venue_id=venue_id,
+        name=name,
+        token_claims=claims,
+    )
 
 
 # ---------------------------------------------------------------------------

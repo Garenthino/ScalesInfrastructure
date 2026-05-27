@@ -142,10 +142,12 @@ async def client(db) -> AsyncIterator[AsyncClient]:
     import app.core.db as _db_mod
     import app.core.auth as _auth_mod
     import app.routers.auth as _auth_router
+    import app.routers.kj_auth as _kj_auth_router
     import app.websockets.queue_ws as _ws_mod
     _orig_db_factory = _db_mod.async_session_factory
     _orig_auth_factory = _auth_mod.async_session_factory
     _orig_router_factory = _auth_router.async_session_factory
+    _orig_kj_factory = _kj_auth_router.async_session_factory
     _orig_ws_factory = _ws_mod.async_session_factory
     _fresh_factory = async_sessionmaker(
         db.bind, class_=AsyncSession, expire_on_commit=False, autoflush=False
@@ -153,6 +155,7 @@ async def client(db) -> AsyncIterator[AsyncClient]:
     _db_mod.async_session_factory = _fresh_factory
     _auth_mod.async_session_factory = _fresh_factory
     _auth_router.async_session_factory = _fresh_factory
+    _kj_auth_router.async_session_factory = _fresh_factory
     _ws_mod.async_session_factory = _fresh_factory
 
     async with AsyncClient(
@@ -164,6 +167,7 @@ async def client(db) -> AsyncIterator[AsyncClient]:
     _db_mod.async_session_factory = _orig_db_factory
     _auth_mod.async_session_factory = _orig_auth_factory
     _auth_router.async_session_factory = _orig_router_factory
+    _kj_auth_router.async_session_factory = _orig_kj_factory
     _ws_mod.async_session_factory = _orig_ws_factory
 
 

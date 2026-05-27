@@ -34,11 +34,29 @@ All authenticated human users — singer, kj, venue_admin, and platform_admin �
 
 Role differentiation is carried in the JWT `role` and `venue_id` claims, not by token lifetime. See `security_architecture.md` §Token Architecture for implementation details (device binding, refresh rotation, Keychain/Keystore storage).
 
+#### KJ device authentication (M2M API key + JWT)
+
+KJ desktop apps authenticate using a machine-to-machine flow:
+
+1. **Register** a device (admin only): `POST /v1/kj/register` → returns `api_key` (shown once)
+2. **Exchange** API key for JWT: `POST /v1/kj/token` → returns short-lived `access_token` (15 min)
+3. **Call API** with either:
+   - `x-api-key: <api_key>` header — direct API key auth
+   - `Authorization: Bearer <access_token>` — JWT auth
+
+4. **Manage devices** (admin only):
+   - `GET /v1/kj/devices` — list devices per venue
+   - `POST /v1/kj/devices/{id}/revoke` — revoke a device
+   - `POST /v1/kj/devices/{id}/rotate` — rotate API key (un-revokes if revoked)
+
+API keys are stored as bcrypt hashes. The backend dependency `kj_auth()` validates both header styles.
+
 ### Auth Schemes Per Endpoint
 
 - 🔓 **public** — No authentication required
 - 🔒 **singer** — Requires valid singer session token
 - 🔒 **kj** — Requires valid KJ session token
+- 🔒 **kj_device** — Requires valid KJ device API key or KJ device JWT
 - 🔒 **venue_admin** — Requires venue admin token
 - 🔒 **platform_admin** — Requires platform admin token
 - 🔒 **venue_staff** — Accepts KJ or venue_admin token
