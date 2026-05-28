@@ -56,7 +56,7 @@ services:
       LOG_LEVEL: INFO
       LOG_FORMAT: json
       # CRITICAL: set this in production via .env or secrets manager
-      # JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required in production}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required in production}
     ports:
       - "8000:8000"
     depends_on:
