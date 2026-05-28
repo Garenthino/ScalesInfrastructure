@@ -88,6 +88,7 @@ def _venue_out(venue: Venue, stats: VenueStats | None = None) -> VenueOut:
         id=venue.id,
         name=venue.name,
         slug=venue.slug,
+        venue_code=venue.venue_code,
         address=_serialize_address(venue),
         contact=_serialize_contact(venue),
         timezone=venue.timezone or "UTC",
@@ -107,6 +108,7 @@ def _venue_compact(venue: Venue) -> VenueCompactOut:
         id=venue.id,
         name=venue.name,
         slug=venue.slug,
+        venue_code=venue.venue_code,
         timezone=venue.timezone or "UTC",
         is_active=bool(venue.is_active),
     )
@@ -237,6 +239,35 @@ async def list_venues(
         page=page,
         per_page=per_page,
     )
+
+
+# ------------------------------------------------------------------
+# PUBLIC LOOKUP (no auth — used by mobile onboarding)
+# ------------------------------------------------------------------
+
+@router.get("/lookup", response_model=VenueCompactOut)
+async def lookup_venue_by_code(
+    code: str = Query(..., min_length=6, max_length=6, pattern=r"^[A-Z0-9]{6}$"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Resolve a venue code to a venue (used by singer app onboarding).
+
+    No authentication required — this is a public discovery endpoint.
+    """
+    result = await db.execute(
+        select(Venue).where(
+            Venue.venue_code == code.upper(),
+            Venue.is_active == 1,
+            Venue.deleted_at.is_(None),
+        )
+    )
+    venue = result.scalar_one_or_none()
+    if venue is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Venue not found. Please check your code and try again.",
+        )
+    return _venue_compact(venue)
 
 
 # ------------------------------------------------------------------

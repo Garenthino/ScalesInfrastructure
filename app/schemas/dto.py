@@ -72,6 +72,7 @@ class VenueOperatingHours(ScalesModel):
 class VenueBase(ScalesModel):
     name: str = Field(..., min_length=1, max_length=100)
     slug: str = Field(..., min_length=1, max_length=100)
+    venue_code: str | None = Field(None, min_length=6, max_length=6, pattern=r"^[A-Z0-9]{6}$")
     address: VenueAddress = Field(default_factory=lambda: VenueAddress())
     contact: VenueContact = Field(default_factory=lambda: VenueContact())
     timezone: str = Field(default="UTC", max_length=50)
@@ -107,6 +108,7 @@ class VenueOut(ScalesModel):
     id: str
     name: str = Field(..., min_length=1, max_length=100)
     slug: str = Field(..., min_length=1, max_length=100)
+    venue_code: str
     address: VenueAddress = Field(default_factory=lambda: VenueAddress())
     contact: VenueContact = Field(default_factory=lambda: VenueContact())
     timezone: str = "UTC"
@@ -124,6 +126,7 @@ class VenueCompactOut(ScalesModel):
     id: str
     name: str
     slug: str
+    venue_code: str
     timezone: str
     is_active: bool
 

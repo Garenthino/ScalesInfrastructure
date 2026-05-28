@@ -1,6 +1,7 @@
 """Singer self-service portal tests — checkin, profile, history, stats, account."""
 from __future__ import annotations
 
+import random
 import uuid
 from datetime import datetime, timezone
 
@@ -24,6 +25,7 @@ async def _seed_venue(session, name: str = "Test Venue") -> Venue:
         id=venue_id,
         name=name,
         slug=f"test-{venue_id[:8]}",
+        venue_code="".join(random.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", k=6)),
     )
     session.add(venue)
     await session.commit()

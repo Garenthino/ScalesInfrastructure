@@ -1,6 +1,7 @@
 """Venue CRUD + multi-tenancy tests — full coverage for venues router."""
 from __future__ import annotations
 
+import random
 import uuid
 from datetime import datetime, timezone
 
@@ -24,6 +25,7 @@ async def _seed_venue(session, name: str = "Test Venue", **kwargs) -> Venue:
         id=venue_id,
         name=name,
         slug=kwargs.get("slug") or f"test-{venue_id[:8]}",
+        venue_code=kwargs.get("venue_code") or "".join(random.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", k=6)),
         address=kwargs.get("address"),
         contact_json=kwargs.get("contact_json"),
         timezone=kwargs.get("timezone", "UTC"),

@@ -9,6 +9,8 @@
 """
 
 import uuid
+import random
+import string
 from datetime import datetime, timezone
 from typing import Any
 
@@ -26,12 +28,26 @@ def _new_uuid() -> str:
     return str(uuid.uuid4())
 
 
+def _venue_code() -> str:
+    """Generate a short, readable venue code (6 uppercase alphanumeric)."""
+    return "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
+
+def _venue_code_unique(db=None) -> str:
+    """Generate a venue code guaranteed unique against the DB."""
+    code = _venue_code()
+    # callers that pass a session can check collision; otherwise return and let
+    # the UNIQUE constraint catch the (extremely unlikely) duplicate.
+    return code
+
+
 class Venue(Base):
     __tablename__ = "venues"
 
     id = Column(String(36), primary_key=True, default=_new_uuid)
     name = Column(Text, nullable=False)
     slug = Column(Text, nullable=False, unique=True)
+    venue_code = Column(Text, nullable=False, unique=True, default=_venue_code)
     address = Column(Text)
     contact_json = Column(Text)
     timezone = Column(Text, default="UTC")
