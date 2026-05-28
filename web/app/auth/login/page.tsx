@@ -9,8 +9,8 @@ import { Music } from "lucide-react";
 import Link from "next/link";
 
 export default function LoginPage() {
-  const { login, isAuthenticated, isLoading: authLoading } = useAuth();
-  const [username, setUsername] = useState("");
+  const { login, isAuthenticated } = useAuth();
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -20,7 +20,7 @@ export default function LoginPage() {
     setError("");
     setSubmitting(true);
     try {
-      await login(username, password);
+      await login(email, password);
     } catch (err: any) {
       setError(err?.message || "Invalid credentials");
     } finally {
@@ -28,18 +28,12 @@ export default function LoginPage() {
     }
   };
 
-  if (authLoading) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-muted-foreground border-t-primary" />
-      </div>
-    );
-  }
+  // Auth state loads in background — form renders immediately
 
   if (isAuthenticated) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
-        <div className="text-muted-foreground">Already logged in. Redirecting... <Link href="/" className="underline">Go home</Link></div>
+        <div className="text-muted-foreground">Already logged in. Redirecting... <Link href="/queue" className="underline">Go to queue</Link></div>
       </div>
     );
   }
@@ -59,14 +53,14 @@ export default function LoginPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <label htmlFor="username" className="text-sm font-medium">Username</label>
+              <label htmlFor="email" className="text-sm font-medium">Email</label>
               <Input
-                id="username"
-                type="text"
+                id="email"
+                type="email"
                 required
-                autoComplete="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 disabled={submitting}
               />
             </div>

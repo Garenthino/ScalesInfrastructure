@@ -21,7 +21,7 @@ import {
   KJDevicesListResponse,
 } from "@/lib/types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -37,11 +37,11 @@ function authHeaders(token?: string): Record<string, string> {
 
 /* ── Auth ───────────────────────────────────────────────── */
 
-export async function loginUser(username: string, password: string): Promise<LoginResponse> {
+export async function loginUser(email: string, password: string): Promise<LoginResponse> {
   const res = await fetch(`${API_BASE}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ email, password }),
   });
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: "Login failed" }));

@@ -10,7 +10,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   tokens: TokenPair | null;
   getAccessToken: () => string | null;
@@ -116,15 +116,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
   }, [accessHydrated, accessToken, logout]);
 
-  const login = async (username: string, password: string) => {
+  const login = async (email: string, password: string) => {
     setIsLoading(true);
     try {
-      const data: LoginResponse = await loginUser(username, password);
+      const data: LoginResponse = await loginUser(email, password);
       setAccessToken(data.access_token);
       setRefreshToken(data.refresh_token);
       const u = await fetchMe(data.access_token);
       setUser(u);
-      router.push("/");
+      router.push("/queue");
     } catch (err) {
       throw err;
     } finally {
