@@ -13,6 +13,7 @@ import {
   Settings,
   Users,
   Monitor,
+  Building2,
 } from "lucide-react";
 
 const navItems = [
@@ -22,6 +23,7 @@ const navItems = [
   { label: "KJ Devices", href: "/kj-devices", icon: Monitor },
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
   { label: "Commerce", href: "/commerce", icon: ShoppingCart },
+  { label: "Venue", href: "/venue", icon: Building2 },
 ];
 
 const adminItems = [

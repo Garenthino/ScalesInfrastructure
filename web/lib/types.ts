@@ -2,6 +2,7 @@ export interface User {
   user_id: string;
   username: string;
   role: "owner" | "admin" | "operator" | "kj";
+  venue_id?: string;
 }
 
 export interface TokenPair {
