@@ -298,10 +298,31 @@ async def create_venue(
             detail="Venue slug already exists",
         )
 
+    # If no venue_code provided, let the model default generator run.
+    # If provided, validate it is unique.
+    venue_code = body.venue_code
+    if venue_code:
+        existing_code = (
+            await db.execute(
+                select(Venue).where(
+                    Venue.venue_code == venue_code.upper(),
+                    Venue.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_code is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Venue code already exists",
+            )
+    else:
+        venue_code = None  # let model default handle it
+
     venue = Venue(
         id=str(uuid.uuid4()),
         name=body.name,
         slug=body.slug,
+        venue_code=venue_code,
         address=_build_address_json(body),
         contact_json=_build_contact_json(body),
         timezone=body.timezone or "UTC",
@@ -416,6 +437,25 @@ async def update_venue(
             )
         venue.slug = body.slug
         update_data.pop("slug")
+    if "venue_code" in update_data:
+        # venue_code uniqueness check
+        new_code = body.venue_code.upper()
+        existing_code = (
+            await db.execute(
+                select(Venue).where(
+                    Venue.venue_code == new_code,
+                    Venue.id != venue_id,
+                    Venue.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_code is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Venue code already exists",
+            )
+        venue.venue_code = new_code
+        update_data.pop("venue_code")
     if "settings" in update_data:
         update_data.pop("settings")  # out of scope for Sprint 2
     if "operating_hours" in update_data:

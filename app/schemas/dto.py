@@ -88,6 +88,7 @@ class VenueCreate(VenueBase):
 class VenueUpdate(ScalesModel):
     name: str | None = Field(None, min_length=1, max_length=100)
     slug: str | None = Field(None, min_length=1, max_length=100)
+    venue_code: str | None = Field(None, min_length=6, max_length=6, pattern=r"^[A-Z0-9]{6}$")
     address: VenueAddress | None = None
     contact: VenueContact | None = None
     timezone: str | None = Field(None, max_length=50)
