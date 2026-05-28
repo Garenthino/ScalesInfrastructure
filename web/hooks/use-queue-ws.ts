@@ -25,7 +25,7 @@ export function useQueueWS(venueId: string = DEFAULT_VENUE_ID) {
     if (!mountedRef.current) return;
     if (typeof window === "undefined") return;
 
-    const url = `${WS_BASE}/venue/${venueId}/queue`;
+    const url = `${WS_BASE}/venues/${venueId}/queue`;
     try {
       const ws = new WebSocket(url);
       wsRef.current = ws;
