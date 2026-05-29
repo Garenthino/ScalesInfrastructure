@@ -25,7 +25,13 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://dancingdragonservic
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  try { return localStorage.getItem("scales_access_token"); } catch { return null; }
+  try {
+    const raw = localStorage.getItem("scales_access_token");
+    if (!raw) return null;
+    // useLocalStorage stores with JSON.stringify; parse if quoted, else raw
+    if (raw.startsWith('"')) return JSON.parse(raw);
+    return raw;
+  } catch { return null; }
 }
 
 function authHeaders(token?: string): Record<string, string> {

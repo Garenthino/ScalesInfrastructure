@@ -5,9 +5,12 @@ import { QueueTable } from "@/components/queue/queue-table";
 import { QueueStatsCards } from "@/components/queue/queue-stats";
 import { NowPlayingBanner } from "@/components/queue/now-playing-banner";
 import { useQueueWS } from "@/hooks/use-queue-ws";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function QueuePage() {
-  const { queue, nowPlaying, stats, connectionState, lastError } = useQueueWS("venue-1");
+  const { user } = useAuth();
+  const venueId = user?.venue_id || "";
+  const { queue, nowPlaying, stats, connectionState, lastError } = useQueueWS(venueId);
   const isConnected = connectionState === "open";
 
   return (
