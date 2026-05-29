@@ -4,7 +4,7 @@ from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, cast, DateTime
 
 from app.core.auth import get_current_user, SingerUser
 from app.core.permissions import Role, has_role
@@ -173,7 +173,7 @@ async def list_checked_in_singers(
     venue_id: str,
     current: SingerUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=0),
     per_page: int = Query(20, ge=1, le=100),
 ):
     """List singers currently checked in at this venue (web portal / KJ view)."""
@@ -209,7 +209,8 @@ async def list_checked_in_singers(
         )
     ).scalar_one()
 
-    offset = (page - 1) * per_page
+    effective_page = page if page >= 1 else 1
+    offset = (effective_page - 1) * per_page
     stmt = (
         select(Singer)
         .where(*filters)
@@ -382,8 +383,8 @@ async def get_stats(
     avg_wait_result = await db.execute(
         select(
             func.avg(
-                func.strftime("%s", QueueRequest.played_at)
-                - func.strftime("%s", QueueRequest.requested_at)
+                func.extract('epoch', cast(QueueRequest.played_at, DateTime))
+                - func.extract('epoch', cast(QueueRequest.requested_at, DateTime))
             )
         )
         .where(
@@ -460,7 +461,7 @@ async def list_singers(
     venue_id: str,
     current: SingerUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=0),
     per_page: int = Query(20, ge=1, le=100),
 ):
     """List singers for the current user's venue (soft-deleted excluded)."""
@@ -478,7 +479,8 @@ async def list_singers(
         )
     ).scalar_one()
 
-    offset = (page - 1) * per_page
+    effective_page = page if page >= 1 else 1
+    offset = (effective_page - 1) * per_page
     stmt = (
         select(Singer)
         .where(*filters)
