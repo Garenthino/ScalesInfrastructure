@@ -230,9 +230,21 @@ class SingerOut(SingerBase):
     total_points: int
     loyalty_tier_id: str | None = None
     last_seen: str | None = None
+    is_checked_in: bool = False
+    checked_in_at: str | None = None
     deactivated_at: str | None = None
     created_at: str
     updated_at: str
+
+
+class CheckInSessionOut(ScalesModel):
+    id: str
+    singer_id: str
+    venue_id: str
+    checked_in_at: str
+    expires_at: str | None = None
+    table_number: str | None = None
+    created_at: str
 
 
 class CheckInRequest(ScalesModel):

@@ -159,6 +159,27 @@ class Singer(Base):
     )
 
     venue = relationship("Venue", back_populates="singers")
+    check_in_sessions = relationship("CheckInSession", back_populates="singer", lazy="selectin")
+
+
+class CheckInSession(Base):
+    __tablename__ = "check_in_sessions"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    singer_id = Column(String(36), ForeignKey("singers.id"), nullable=False)
+    venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
+    checked_in_at = Column(Text, default=_now_iso)
+    expires_at = Column(Text)
+    table_number = Column(Text)
+    created_at = Column(Text, default=_now_iso)
+
+    __table_args__ = (
+        Index("ix_checkin_venue_expires", "venue_id", "expires_at"),
+        Index("ix_checkin_singer_expires", "singer_id", "expires_at"),
+    )
+
+    singer = relationship("Singer", back_populates="check_in_sessions")
+    venue = relationship("Venue")
 
 
 class SongCategory(Base):

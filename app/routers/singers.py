@@ -1,6 +1,6 @@
 """Singer CRUD router — venue-scoped with RBAC."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,7 +9,7 @@ from sqlalchemy import select, func
 from app.core.auth import get_current_user, SingerUser
 from app.core.permissions import Role, has_role
 from app.core.db import get_db
-from app.models import Singer, QueueRequest, Song
+from app.models import Singer, QueueRequest, Song, CheckInSession
 from app.schemas import (
     SingerCreate,
     SingerUpdate,
@@ -59,7 +59,7 @@ async def check_in(
     current: SingerUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Mark singer as present at the venue (updates last_seen)."""
+    """Mark singer as present at the venue (creates check-in session, updates last_seen)."""
     _require_venue(venue_id, current)
 
     singer = (
@@ -75,10 +75,160 @@ async def check_in(
     if singer is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
 
-    singer.last_seen = _now_iso()
+    now = _now_iso()
+    expire_before = (
+        datetime.now(timezone.utc) - timedelta(hours=4)
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Expire any existing active sessions for this singer at this venue
+    existing_sessions = (
+        await db.execute(
+            select(CheckInSession).where(
+                CheckInSession.singer_id == current.id,
+                CheckInSession.venue_id == venue_id,
+                CheckInSession.expires_at > expire_before,
+            )
+        )
+    ).scalars().all()
+
+    for sess in existing_sessions:
+        sess.expires_at = now
+
+    # Create new session with 4-hour default timeout
+    expires_at = (
+        datetime.now(timezone.utc) + timedelta(hours=4)
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    new_session = CheckInSession(
+        singer_id=current.id,
+        venue_id=venue_id,
+        checked_in_at=now,
+        expires_at=expires_at,
+        table_number=body.table_number,
+    )
+    db.add(new_session)
+
+    singer.last_seen = now
+    singer.updated_at = now
     await db.commit()
     await db.refresh(singer)
-    return _singer_out(singer)
+
+    # Hydrate is_checked_in / checked_in_at on the response
+    out = _singer_out(singer)
+    out.is_checked_in = True
+    out.checked_in_at = now
+    return out
+
+
+@router.post("/checkout", response_model=SingerOut)
+async def check_out(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """End the singer's active check-in session at this venue."""
+    _require_venue(venue_id, current)
+
+    singer = (
+        await db.execute(
+            select(Singer).where(
+                Singer.id == current.id,
+                Singer.venue_id == venue_id,
+                Singer.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if singer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
+
+    now = _now_iso()
+
+    # Expire all active sessions for this singer at this venue
+    active_sessions = (
+        await db.execute(
+            select(CheckInSession).where(
+                CheckInSession.singer_id == current.id,
+                CheckInSession.venue_id == venue_id,
+                CheckInSession.expires_at > now,
+            )
+        )
+    ).scalars().all()
+
+    for sess in active_sessions:
+        sess.expires_at = now
+
+    singer.updated_at = now
+    await db.commit()
+    await db.refresh(singer)
+
+    out = _singer_out(singer)
+    out.is_checked_in = False
+    return out
+
+
+@router.get("/checked-in", response_model=PaginatedResponse[SingerOut])
+async def list_checked_in_singers(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+):
+    """List singers currently checked in at this venue (web portal / KJ view)."""
+    _require_venue(venue_id, current)
+    if not has_role(current.role, Role.KJ):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Admin or KJ access required",
+        )
+
+    now = _now_iso()
+
+    # Subquery: singer IDs with active check-in sessions
+    subq = (
+        select(CheckInSession.singer_id)
+        .where(
+            CheckInSession.venue_id == venue_id,
+            CheckInSession.expires_at > now,
+        )
+        .distinct()
+    )
+
+    filters = [
+        Singer.id.in_(subq),
+        Singer.venue_id == venue_id,
+        Singer.deleted_at.is_(None),
+        Singer.deactivated_at.is_(None),
+    ]
+
+    total = (
+        await db.execute(
+            select(func.count()).select_from(Singer).where(*filters)
+        )
+    ).scalar_one()
+
+    offset = (page - 1) * per_page
+    stmt = (
+        select(Singer)
+        .where(*filters)
+        .order_by(Singer.last_seen.desc())
+        .offset(offset)
+        .limit(per_page)
+    )
+    result = await db.execute(stmt)
+    items = [_singer_out(row) for row in result.scalars().all()]
+
+    # Hydrate checked-in state for each
+    for item in items:
+        item.is_checked_in = True
+
+    return PaginatedResponse(
+        items=items,
+        total=total,
+        page=page,
+        per_page=per_page,
+    )
 
 
 @router.get("/profile", response_model=SingerOut)

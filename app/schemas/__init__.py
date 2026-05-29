@@ -30,6 +30,7 @@ from app.schemas.dto import (
     SingerCreate,
     SingerUpdate,
     SingerOut,
+    CheckInSessionOut,
     CheckInRequest,
     CheckInResponse,
     # Queue
