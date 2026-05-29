@@ -38,7 +38,7 @@ export function SingerDetailSheet({ singer, open, onOpenChange, onCheckin, onTog
 
   const { data: history, isLoading: historyLoading } = useQuery({
     queryKey: ["singer-history", singer?.singer_id],
-    queryFn: () => fetchSingerHistory(singer!.singer_id),
+    queryFn: () => fetchSingerHistory(venueId, singer!.singer_id),
     enabled: !!singer,
   });
 

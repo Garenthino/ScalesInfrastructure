@@ -35,7 +35,7 @@ export function CheckinDialog({ open, preselectedSinger, venueId, onOpenChange, 
 
   const { data, isLoading } = useQuery({
     queryKey: ["checkin-search", debouncedQuery],
-    queryFn: () => fetchSingers({ query: debouncedQuery, page_size: 10 }),
+    queryFn: () => fetchSingers(venueId, { query: debouncedQuery, page_size: 10 }),
     enabled: debouncedQuery.length >= 1,
   });
 

@@ -37,7 +37,7 @@ export default function SingersPage() {
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["singers", page, pageSize, query, tier, minVisits, maxVisits],
     queryFn: () =>
-      fetchSingers({
+      fetchSingers(venueId, {
         page,
         page_size: pageSize,
         query: query || undefined,
@@ -49,7 +49,7 @@ export default function SingersPage() {
 
   const { data: stats } = useQuery({
     queryKey: ["singer-stats"],
-    queryFn: () => fetchSingerStats(),
+    queryFn: () => fetchSingerStats(venueId),
   });
 
   const { data: checkedInData } = useQuery({
@@ -66,7 +66,7 @@ export default function SingersPage() {
   const handleToggleBan = async (singer: Singer) => {
     const nextStatus = singer.status === "banned" ? "active" : "banned";
     try {
-      await updateSinger(singer.singer_id, { status: nextStatus });
+      await updateSinger(venueId, singer.singer_id, { status: nextStatus });
       await refetch();
       if (detailSinger?.singer_id === singer.singer_id) {
         setDetailSinger((prev) => (prev ? { ...prev, status: nextStatus } : prev));
@@ -112,7 +112,7 @@ export default function SingersPage() {
 
   const handleSaveNotes = async (id: string, notes: string) => {
     try {
-      await updateSinger(id, { notes });
+      await updateSinger(venueId, id, { notes });
       await refetch();
       if (detailSinger?.singer_id === id) {
         setDetailSinger((prev) => (prev ? { ...prev, notes } : prev));

@@ -36,7 +36,7 @@ export function NewSingerDialog({ open, onOpenChange, onSuccess }: NewSingerDial
     setError(null);
     setSaving(true);
     try {
-      await createSinger({
+      await createSinger(venueId, {
         name: name.trim(),
         phone: phone.trim() || null,
         email: email.trim() || null,

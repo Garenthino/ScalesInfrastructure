@@ -23,7 +23,7 @@ export function AddToQueueDialog({ song, open, onClose, onSuccess }: AddToQueueD
 
   useEffect(() => {
     if (!open) return;
-    listSingers()
+    listSingers(venueId)
       .then(setSingers)
       .catch(() => setError("Failed to load singers"));
     setSelected("");

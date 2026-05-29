@@ -141,13 +141,14 @@ export async function deleteSong(song_id: string, token?: string): Promise<void>
 
 /* ── Singers ────────────────────────────────────────────── */
 
-export async function listSingers(token?: string): Promise<Singer[]> {
+export async function listSingers(venueId="", token?: string): Promise<Singer[]> {
   const res = await fetch(`${API_BASE}/singers`, { headers: authHeaders(token) });
   if (!res.ok) throw new Error("Failed to fetch singers");
   return res.json();
 }
 
 export async function fetchSingers(
+  venueId="",
   filters?: {
     query?: string;
     page?: number;
@@ -173,13 +174,13 @@ export async function fetchSingers(
   return res.json();
 }
 
-export async function fetchSingerStats(token?: string): Promise<SingerGlobalStats> {
+export async function fetchSingerStats(venueId="", token?: string): Promise<SingerGlobalStats> {
   const res = await fetch(`${API_BASE}/singers/stats`, { headers: authHeaders(token) });
   if (!res.ok) throw new Error("Failed to fetch singer stats");
   return res.json();
 }
 
-export async function createSinger(payload: Partial<Singer>, token?: string): Promise<Singer> {
+export async function createSinger(venueId="", payload: Partial<Singer>, token?: string): Promise<Singer> {
   const res = await fetch(`${API_BASE}/singers`, {
     method: "POST",
     headers: authHeaders(token),
@@ -190,6 +191,7 @@ export async function createSinger(payload: Partial<Singer>, token?: string): Pr
 }
 
 export async function updateSinger(
+  venueId="",
   id: string,
   payload: Partial<Singer>,
   token?: string
@@ -229,7 +231,7 @@ export async function fetchCheckedInSingers(
   return res.json();
 }
 
-export async function fetchSingerHistory(id: string, token?: string): Promise<SingerHistoryEntry[]> {
+export async function fetchSingerHistory(venueId="", id: string, token?: string): Promise<SingerHistoryEntry[]> {
   const res = await fetch(`${API_BASE}/singers/${encodeURIComponent(id)}/history`, {
     headers: authHeaders(token),
   });
