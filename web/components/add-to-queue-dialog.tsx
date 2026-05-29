@@ -8,14 +8,14 @@ import { addToQueue, listSingers } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 
 interface AddToQueueDialogProps {
-  venueId: string;
+  venueId?: string;
   song: Song | null;
   open: boolean;
   onClose: () => void;
   onSuccess?: () => void;
 }
 
-export function AddToQueueDialog({ song, open, onClose, onSuccess }: AddToQueueDialogProps) {
+export function AddToQueueDialog({ song, venueId = "", open, onClose, onSuccess }: AddToQueueDialogProps) {
   const { getAccessToken } = useAuth();
   const [singers, setSingers] = useState<Singer[]>([]);
   const [selected, setSelected] = useState("");

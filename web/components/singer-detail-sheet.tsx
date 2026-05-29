@@ -19,8 +19,6 @@ import { Ban, UserCheck, ClipboardList, Loader2 } from "lucide-react";
 
 interface SingerDetailSheetProps {
   venueId: string;
-  singer: Singer | null;|interface SingerDetailSheetProps {
-  venueId: string;
   singer: Singer | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -41,7 +39,7 @@ export function SingerDetailSheet({ singer, venueId, open, onOpenChange, onCheck
 
   const { data: history, isLoading: historyLoading } = useQuery({
     queryKey: ["singer-history", singer?.singer_id],
-    queryFn: () => fetchSingerHistory(venueId, venueId, singer!.singer_id),
+    queryFn: () => fetchSingerHistory(venueId, singer!.singer_id),
     enabled: !!singer,
   });
 
@@ -53,9 +51,7 @@ export function SingerDetailSheet({ singer, venueId, open, onOpenChange, onCheck
     }
   };
 
-  if (!singer) returninterface SingerDetailSheetProps {
-  venueId: string;
-  singer: Singer | null;
+  if (!singer) return null;
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
