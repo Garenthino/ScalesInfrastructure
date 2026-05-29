@@ -33,6 +33,7 @@ from app.schemas.dto import (
     CheckInSessionOut,
     CheckInRequest,
     CheckInResponse,
+    CheckInSessionOut,
     # Queue
     QueueRequestBase,
     QueueRequestCreate,

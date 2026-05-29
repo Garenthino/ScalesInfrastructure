@@ -9,7 +9,8 @@ import pytest
 from fastapi import status
 
 from app.core.security import hash_password
-from app.models import Singer, Venue, QueueRequest, Song
+from app.models import Singer, Venue, QueueRequest, Song, CheckInSession
+from sqlalchemy import select
 
 
 AUTHORIZATION = lambda token: {"Authorization": f"Bearer {token}"}
@@ -458,3 +459,152 @@ async def test_account_delete_wrong_venue(client, db, venue_with_songs, jwt_enco
         headers=AUTHORIZATION(token),
     )
     assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+
+# ---------------------------------------------------------------------------
+# 7. CHECK-IN SESSION (real presence tracking)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_checkin_creates_session_and_sets_checked_in(client, db, venue_with_songs, jwt_encode):
+    venue_id, _ = venue_with_songs
+    singer = await _seed_singer(db, venue_id, stage_name="CheckinMe")
+    token = _token_for_singer(jwt_encode, singer)
+    resp = await client.post(
+        f"/v1/venues/{venue_id}/singers/checkin",
+        json={"table_number": "12"},
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert data["is_checked_in"] is True
+    assert data["checked_in_at"] is not None
+    assert "T" in data["checked_in_at"]
+    # last_seen also updated
+    assert data["last_seen"] is not None
+
+
+@pytest.mark.anyio
+async def test_checkout_clears_session(client, db, venue_with_songs, jwt_encode):
+    venue_id, _ = venue_with_songs
+    singer = await _seed_singer(db, venue_id, stage_name="CheckoutMe")
+    token = _token_for_singer(jwt_encode, singer)
+    # check in first
+    resp_in = await client.post(
+        f"/v1/venues/{venue_id}/singers/checkin",
+        json={},
+        headers=AUTHORIZATION(token),
+    )
+    assert resp_in.status_code == status.HTTP_200_OK
+    assert resp_in.json()["is_checked_in"] is True
+
+    # check out
+    resp_out = await client.post(
+        f"/v1/venues/{venue_id}/singers/checkout",
+        json={},
+        headers=AUTHORIZATION(token),
+    )
+    assert resp_out.status_code == status.HTTP_200_OK
+    data = resp_out.json()
+    assert data["is_checked_in"] is False
+    assert data["checked_in_at"] is None
+
+
+@pytest.mark.anyio
+async def test_list_checked_in_requires_kj_or_admin(client, db, venue_with_songs, jwt_encode):
+    venue_id, _ = venue_with_songs
+    singer = await _seed_singer(db, venue_id, stage_name="Singer")
+    token = _token_for_singer(jwt_encode, singer)
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/singers/checked-in",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.anyio
+async def test_list_checked_in_returns_checked_in_singers(client, db, venue_with_songs, jwt_encode):
+    venue_id, _ = venue_with_songs
+    # Seed two singers, check one in
+    s1 = await _seed_singer(db, venue_id, stage_name="CheckedIn")
+    s2 = await _seed_singer(db, venue_id, stage_name="NotCheckedIn")
+
+    token1 = _token_for_singer(jwt_encode, s1)
+    await client.post(
+        f"/v1/venues/{venue_id}/singers/checkin",
+        json={},
+        headers=AUTHORIZATION(token1),
+    )
+
+    admin = await _seed_singer(db, venue_id, stage_name="Admin", role="admin")
+    admin_token = _token_for_singer(jwt_encode, admin)
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/singers/checked-in",
+        headers=AUTHORIZATION(admin_token),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert data["total"] == 1
+    assert len(data["items"]) == 1
+    assert data["items"][0]["stage_name"] == "CheckedIn"
+    assert data["items"][0]["is_checked_in"] is True
+
+
+@pytest.mark.anyio
+async def test_checkin_expires_previous_session(client, db, venue_with_songs, jwt_encode):
+    venue_id, _ = venue_with_songs
+    singer = await _seed_singer(db, venue_id, stage_name="DoubleCheckin")
+    token = _token_for_singer(jwt_encode, singer)
+    # First check-in
+    r1 = await client.post(
+        f"/v1/venues/{venue_id}/singers/checkin",
+        json={"table_number": "1"},
+        headers=AUTHORIZATION(token),
+    )
+    assert r1.status_code == status.HTTP_200_OK
+
+    # Second check-in should still succeed and expire the first
+    r2 = await client.post(
+        f"/v1/venues/{venue_id}/singers/checkin",
+        json={"table_number": "2"},
+        headers=AUTHORIZATION(token),
+    )
+    assert r2.status_code == status.HTTP_200_OK
+    assert r2.json()["is_checked_in"] is True
+
+    # Only one active session in DB (the second one)
+    from app.models import CheckInSession
+    result = await db.execute(
+        select(CheckInSession).where(
+            CheckInSession.singer_id == singer.id,
+            CheckInSession.venue_id == venue_id,
+        )
+    )
+    sessions = result.scalars().all()
+    assert len(sessions) == 2
+    active = [s for s in sessions if s.expires_at > datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")]
+    assert len(active) == 1
+    assert active[0].table_number == "2"
+
+
+@pytest.mark.anyio
+async def test_checked_in_list_venue_scoped(client, db, venue_with_songs, jwt_encode):
+    venue_id, _ = venue_with_songs
+    other = await _seed_venue(db, "Other")
+    s = await _seed_singer(db, other.id, stage_name="OtherVenue")
+    token = _token_for_singer(jwt_encode, s)
+    await client.post(
+        f"/v1/venues/{other.id}/singers/checkin",
+        json={},
+        headers=AUTHORIZATION(token),
+    )
+
+    admin = await _seed_singer(db, venue_id, stage_name="Admin", role="admin")
+    admin_token = _token_for_singer(jwt_encode, admin)
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/singers/checked-in",
+        headers=AUTHORIZATION(admin_token),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert data["total"] == 0
