@@ -16,6 +16,7 @@ from app.schemas import (
     SingerOut,
     PaginatedResponse,
     CheckInRequest,
+    CheckInResponse,
     SingerHistoryOut,
     SingerHistoryItem,
     SingerPortalStats,
@@ -219,9 +220,25 @@ async def list_checked_in_singers(
     result = await db.execute(stmt)
     items = [_singer_out(row) for row in result.scalars().all()]
 
-    # Hydrate checked-in state for each
+    # Hydrate checked-in state for each by looking up their CheckInSession
     for item in items:
         item.is_checked_in = True
+        # Fetch latest active session for this singer to get checked_in_at
+        session_result = await db.execute(
+            select(CheckInSession)
+            .where(
+                CheckInSession.singer_id == item.id,
+                CheckInSession.venue_id == venue_id,
+                CheckInSession.expires_at > now,
+            )
+            .order_by(CheckInSession.checked_in_at.desc())
+            .limit(1)
+        )
+        session_row = session_result.scalar_one_or_none()
+        if session_row:
+            item.checked_in_at = session_row.checked_in_at
+        else:
+            item.checked_in_at = None
 
     return PaginatedResponse(
         items=items,
