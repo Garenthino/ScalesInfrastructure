@@ -6,6 +6,16 @@ import { QueueRequest, NowPlaying, QueueStats, QueueMessage } from "@/lib/types"
 const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
 const DEFAULT_VENUE_ID = process.env.NEXT_PUBLIC_DEFAULT_VENUE_ID || "default";
 
+function getWsToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem("scales_access_token");
+    if (!raw) return null;
+    if (raw.startsWith('"')) return JSON.parse(raw);
+    return raw;
+  } catch { return null; }
+}
+
 export type ConnectionState = "connecting" | "open" | "closed" | "error";
 
 export function useQueueWS(venueId: string = DEFAULT_VENUE_ID) {
@@ -25,7 +35,9 @@ export function useQueueWS(venueId: string = DEFAULT_VENUE_ID) {
     if (!mountedRef.current) return;
     if (typeof window === "undefined") return;
 
-    const url = `${WS_BASE}/venues/${venueId}/queue`;
+    const token = getWsToken();
+    const base = `${WS_BASE}/venues/${venueId}/queue`;
+    const url = token ? `${base}?token=${encodeURIComponent(token)}` : base;
     try {
       const ws = new WebSocket(url);
       wsRef.current = ws;
