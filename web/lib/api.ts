@@ -203,13 +203,29 @@ export async function updateSinger(
   return res.json();
 }
 
-export async function checkinSinger(singerId: string, addToQueue?: boolean, token?: string): Promise<CheckinResponse> {
-  const res = await fetch(`${API_BASE}/singers/checkin`, {
+export async function checkinSinger(
+  venue_id: string,
+  singerId: string,
+  addToQueue?: boolean,
+  token?: string
+): Promise<CheckinResponse> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venue_id)}/singers/checkin`, {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify({ singer_id: singerId, add_to_queue: addToQueue }),
   });
   if (!res.ok) throw new Error("Failed to check in singer");
+  return res.json();
+}
+
+export async function fetchCheckedInSingers(
+  venue_id: string,
+  token?: string
+): Promise<SingersListResponse> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venue_id)}/singers/checked-in`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error("Failed to fetch checked-in singers");
   return res.json();
 }
 

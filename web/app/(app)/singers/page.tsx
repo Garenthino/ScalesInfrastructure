@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchSingers, fetchSingerStats, updateSinger } from "@/lib/api";
+import { fetchSingers, fetchSingerStats, fetchCheckedInSingers, updateSinger } from "@/lib/api";
 import { Singer, SingerLoyaltyTier } from "@/lib/types";
+import { useAuth } from "@/hooks/use-auth";
 import { SingerFilters } from "@/components/singer-filters";
 import { SingerTable } from "@/components/singer-table";
 import { SingerDetailSheet } from "@/components/singer-detail-sheet";
@@ -16,6 +17,8 @@ import { UserCheck, UserPlus, Download } from "lucide-react";
 
 export default function SingersPage() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const venueId = user?.venue_id || "";
   const [page, setPage] = useState(0);
   const pageSize = 20;
   const [query, setQuery] = useState("");
@@ -47,6 +50,12 @@ export default function SingersPage() {
   const { data: stats } = useQuery({
     queryKey: ["singer-stats"],
     queryFn: () => fetchSingerStats(),
+  });
+
+  const { data: checkedInData } = useQuery({
+    queryKey: ["checked-in-singers", venueId],
+    queryFn: () => fetchCheckedInSingers(venueId),
+    enabled: !!venueId,
   });
 
   const viewSinger = (singer: Singer) => {
@@ -87,6 +96,8 @@ export default function SingersPage() {
                   total_visits: s.total_visits + 1,
                   last_visit_date: nowIso,
                   status: s.status === "banned" ? "active" : s.status,
+                  is_checked_in: true,
+                  checked_in_at: nowIso,
                 }
               : s
           ),
@@ -95,6 +106,7 @@ export default function SingersPage() {
     );
     await refetch();
     queryClient.invalidateQueries({ queryKey: ["singer-stats"] });
+    queryClient.invalidateQueries({ queryKey: ["checked-in-singers"] });
     setDetailOpen(false);
   };
 
@@ -144,11 +156,12 @@ export default function SingersPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <StatCard label="Total Singers" value={stats?.total_singers ?? 0} />
         <StatCard label="Active" value={stats?.active_singers ?? 0} />
         <StatCard label="Banned" value={stats?.banned_singers ?? 0} />
         <StatCard label="Avg Visits" value={Number(stats?.avg_visits ?? 0).toFixed(1)} />
+        <StatCard label="Checked In Tonight" value={checkedInData?.total ?? 0} />
       </div>
 
       {/* Filters + Actions */}
@@ -209,6 +222,7 @@ export default function SingersPage() {
       <CheckinDialog
         open={checkinOpen}
         preselectedSinger={checkinSinger}
+        venueId={venueId}
         onOpenChange={setCheckinOpen}
         onSuccess={handleCheckinSuccess}
       />

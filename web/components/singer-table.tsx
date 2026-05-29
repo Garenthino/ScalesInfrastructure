@@ -39,13 +39,14 @@ export function SingerTable({ singers, onView, onToggleBan, onCheckin, loading }
               <TableHead>Visits</TableHead>
               <TableHead>Last Visit</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Checked In</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {Array.from({ length: 5 }).map((_, i) => (
               <TableRow key={i}>
-                <TableCell colSpan={6}>
+                <TableCell colSpan={7}>
                   <div className="h-4 w-32 animate-pulse rounded bg-muted" />
                 </TableCell>
               </TableRow>
@@ -73,6 +74,7 @@ export function SingerTable({ singers, onView, onToggleBan, onCheckin, loading }
             <TableHead>Visits</TableHead>
             <TableHead>Last Visit</TableHead>
             <TableHead>Status</TableHead>
+            <TableHead>Checked In</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -100,6 +102,19 @@ export function SingerTable({ singers, onView, onToggleBan, onCheckin, loading }
                 >
                   {singer.status}
                 </span>
+              </TableCell>
+              <TableCell>
+                {singer.is_checked_in ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600">
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                    </span>
+                    {singer.checked_in_at ? new Date(singer.checked_in_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "Now"}
+                  </span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">—</span>
+                )}
               </TableCell>
               <TableCell className="text-right">
                 <div className="flex items-center justify-end gap-1">

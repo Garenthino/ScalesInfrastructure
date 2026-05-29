@@ -106,6 +106,8 @@ export interface Singer {
   loyalty_points?: number;
   queue_position?: number | null;
   songs_queued?: number;
+  is_checked_in?: boolean;
+  checked_in_at?: string | null;
 }
 
 export interface SingerHistoryEntry {

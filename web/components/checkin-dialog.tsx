@@ -20,11 +20,12 @@ import { Search, Loader2, UserCheck } from "lucide-react";
 interface CheckinDialogProps {
   open: boolean;
   preselectedSinger?: Singer | null;
+  venueId?: string;
   onOpenChange: (open: boolean) => void;
   onSuccess?: (singer: Singer) => void;
 }
 
-export function CheckinDialog({ open, preselectedSinger, onOpenChange, onSuccess }: CheckinDialogProps) {
+export function CheckinDialog({ open, preselectedSinger, venueId, onOpenChange, onSuccess }: CheckinDialogProps) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Singer | null>(preselectedSinger ?? null);
   const [addToQueue, setAddToQueue] = useState(false);
@@ -39,10 +40,10 @@ export function CheckinDialog({ open, preselectedSinger, onOpenChange, onSuccess
   });
 
   const handleCheckin = async () => {
-    if (!selected) return;
+    if (!selected || !venueId) return;
     setCheckingIn(true);
     try {
-      await checkinSinger(selected.singer_id, addToQueue);
+      await checkinSinger(venueId, selected.singer_id, addToQueue);
       onSuccess?.(selected);
       onOpenChange(false);
       setSelected(null);
