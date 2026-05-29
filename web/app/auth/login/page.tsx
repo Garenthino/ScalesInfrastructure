@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +10,14 @@ import { Music } from "lucide-react";
 import Link from "next/link";
 
 export default function LoginPage() {
-  const { login, isAuthenticated } = useAuth();
+  const { login, isAuthenticated, isLoading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.replace("/queue");
+    }
+  }, [isAuthenticated, router]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -30,10 +38,18 @@ export default function LoginPage() {
 
   // Auth state loads in background — form renders immediately
 
+  if (isLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-muted-foreground border-t-primary" />
+      </div>
+    );
+  }
+
   if (isAuthenticated) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
-        <div className="text-muted-foreground">Already logged in. Redirecting... <Link href="/queue" className="underline">Go to queue</Link></div>
+        <div className="text-muted-foreground">Already logged in. <Link href="/queue" className="underline">Go to queue</Link></div>
       </div>
     );
   }

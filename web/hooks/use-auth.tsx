@@ -39,6 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const getAccessToken = useCallback(() => accessToken, [accessToken]);
 
@@ -68,27 +69,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     const scheduleRefresh = () => {
-      if (!refreshTokenValue) return;
+      if (!refreshTokenValue || isRefreshing) return;
       const exp = decodeExp(accessToken);
       if (!exp) return;
       const now = Date.now();
       const buffer = 60_000; // refresh 1 min before expiry
       const delay = exp - now - buffer;
       if (delay <= 0) {
-        performRefresh();
+        // Token already expired — log out instead of hammering refresh endpoint
+        logout();
         return;
       }
       timer = setTimeout(performRefresh, delay);
     };
 
     const performRefresh = async () => {
-      if (!refreshTokenValue) return;
+      if (!refreshTokenValue || isRefreshing) return;
+      setIsRefreshing(true);
       try {
         const data = await refreshToken(refreshTokenValue);
         setAccessToken(data.access_token);
         scheduleRefresh();
       } catch {
         logout();
+      } finally {
+        setIsRefreshing(false);
       }
     };
 
