@@ -142,7 +142,7 @@ export async function deleteSong(song_id: string, token?: string): Promise<void>
 /* ── Singers ────────────────────────────────────────────── */
 
 export async function listSingers(venueId="", token?: string): Promise<Singer[]> {
-  const res = await fetch(`${API_BASE}/singers`, { headers: authHeaders(token) });
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/singers`, { headers: authHeaders(token) });
   if (!res.ok) throw new Error("Failed to fetch singers");
   return res.json();
 }
@@ -168,20 +168,20 @@ export async function fetchSingers(
   if (filters?.min_visits !== undefined) qs.set("min_visits", String(filters.min_visits));
   if (filters?.max_visits !== undefined) qs.set("max_visits", String(filters.max_visits));
   if (filters?.sort) qs.set("sort", filters.sort);
-  const url = qs.toString() ? `${API_BASE}/singers?${qs.toString()}` : `${API_BASE}/singers`;
+  const url = qs.toString() ? `${API_BASE}/venues/${encodeURIComponent(venueId)}/singers?${qs.toString()}` : `${API_BASE}/venues/${encodeURIComponent(venueId)}/singers`;
   const res = await fetch(url, { headers: authHeaders(token) });
   if (!res.ok) throw new Error("Failed to fetch singers");
   return res.json();
 }
 
 export async function fetchSingerStats(venueId="", token?: string): Promise<SingerGlobalStats> {
-  const res = await fetch(`${API_BASE}/singers/stats`, { headers: authHeaders(token) });
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/singers/stats`, { headers: authHeaders(token) });
   if (!res.ok) throw new Error("Failed to fetch singer stats");
   return res.json();
 }
 
 export async function createSinger(venueId="", payload: Partial<Singer>, token?: string): Promise<Singer> {
-  const res = await fetch(`${API_BASE}/singers`, {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/singers`, {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify(payload),
@@ -196,7 +196,7 @@ export async function updateSinger(
   payload: Partial<Singer>,
   token?: string
 ): Promise<Singer> {
-  const res = await fetch(`${API_BASE}/singers/${encodeURIComponent(id)}`, {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/singers/${encodeURIComponent(id)}`, {
     method: "PUT",
     headers: authHeaders(token),
     body: JSON.stringify(payload),
@@ -232,7 +232,7 @@ export async function fetchCheckedInSingers(
 }
 
 export async function fetchSingerHistory(venueId="", id: string, token?: string): Promise<SingerHistoryEntry[]> {
-  const res = await fetch(`${API_BASE}/singers/${encodeURIComponent(id)}/history`, {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/singers/${encodeURIComponent(id)}/history`, {
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error("Failed to fetch singer history");

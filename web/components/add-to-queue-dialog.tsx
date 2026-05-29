@@ -8,6 +8,7 @@ import { addToQueue, listSingers } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 
 interface AddToQueueDialogProps {
+  venueId: string;
   song: Song | null;
   open: boolean;
   onClose: () => void;

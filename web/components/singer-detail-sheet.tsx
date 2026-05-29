@@ -18,6 +18,9 @@ import { fetchSingerHistory } from "@/lib/api";
 import { Ban, UserCheck, ClipboardList, Loader2 } from "lucide-react";
 
 interface SingerDetailSheetProps {
+  venueId: string;
+  singer: Singer | null;|interface SingerDetailSheetProps {
+  venueId: string;
   singer: Singer | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -32,13 +35,13 @@ function formatDateTime(iso?: string | null) {
   return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-export function SingerDetailSheet({ singer, open, onOpenChange, onCheckin, onToggleBan, onSaveNotes }: SingerDetailSheetProps) {
+export function SingerDetailSheet({ singer, venueId, open, onOpenChange, onCheckin, onToggleBan, onSaveNotes }: SingerDetailSheetProps) {
   const [editNotes, setEditNotes] = useState("");
   const [notesDirty, setNotesDirty] = useState(false);
 
   const { data: history, isLoading: historyLoading } = useQuery({
     queryKey: ["singer-history", singer?.singer_id],
-    queryFn: () => fetchSingerHistory(venueId, singer!.singer_id),
+    queryFn: () => fetchSingerHistory(venueId, venueId, singer!.singer_id),
     enabled: !!singer,
   });
 
@@ -50,7 +53,9 @@ export function SingerDetailSheet({ singer, open, onOpenChange, onCheckin, onTog
     }
   };
 
-  if (!singer) return null;
+  if (!singer) returninterface SingerDetailSheetProps {
+  venueId: string;
+  singer: Singer | null;
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>

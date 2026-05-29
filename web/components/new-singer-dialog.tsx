@@ -18,9 +18,10 @@ interface NewSingerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
+  venueId?: string;
 }
 
-export function NewSingerDialog({ open, onOpenChange, onSuccess }: NewSingerDialogProps) {
+export function NewSingerDialog({ open, onOpenChange, onSuccess, venueId }: NewSingerDialogProps) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");

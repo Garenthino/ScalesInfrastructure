@@ -212,6 +212,7 @@ export default function SingersPage() {
 
       <SingerDetailSheet
         singer={detailSinger}
+        venueId={venueId}
         open={detailOpen}
         onOpenChange={setDetailOpen}
         onCheckin={handleCheckin}
