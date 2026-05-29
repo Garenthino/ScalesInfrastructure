@@ -226,7 +226,14 @@ class SingerUpdate(ScalesModel):
 
 class SingerOut(SingerBase):
     id: str
+    singer_id: str  # alias for id (frontend compat)
     venue_id: str
+    name: str       # alias for stage_name (frontend compat)
+    display_name: str | None = None  # alias for stage_name
+    tier: str = "none"  # alias for loyalty_tier_id
+    total_visits: int = 0
+    last_visit_date: str | None = None  # alias for last_seen
+    status: str = "active"  # computed from deactivated_at
     total_points: int
     loyalty_tier_id: str | None = None
     last_seen: str | None = None

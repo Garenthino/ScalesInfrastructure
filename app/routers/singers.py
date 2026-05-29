@@ -30,12 +30,20 @@ def _now_iso() -> str:
 
 
 def _singer_out(singer: Singer) -> SingerOut:
-    """Map ORM Singer to Pydantic SingerOut."""
+    """Map ORM Singer to Pydantic SingerOut with frontend-compatible aliases."""
     data = {
         k: getattr(singer, k, None)
         for k in Singer.__table__.columns.keys()
         if k != "password_hash"
     }
+    # Frontend-compatible aliases
+    data["singer_id"] = data["id"]
+    data["name"] = data.get("stage_name", "")
+    data["display_name"] = data.get("stage_name", "")
+    data["tier"] = data.get("loyalty_tier_id", "none") or "none"
+    data["total_visits"] = 0  # TODO: compute from check-in sessions
+    data["last_visit_date"] = data.get("last_seen", None)
+    data["status"] = "banned" if data.get("deactivated_at") else "active"
     return SingerOut(**data)
 
 
