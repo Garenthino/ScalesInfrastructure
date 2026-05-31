@@ -97,3 +97,4 @@ from app.schemas.dto import (
 )
 
 from app.schemas.favorites import FavoriteBase, FavoriteCreate, FavoriteOut
+from app.schemas.social import FollowCreate, FollowOut, FollowStatusOut

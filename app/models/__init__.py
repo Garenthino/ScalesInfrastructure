@@ -79,6 +79,24 @@ class SingerFavorite(Base):
     venue = relationship("Venue", back_populates="singer_favorites")
 
 
+class SingerFollow(Base):
+    __tablename__ = "singer_follows"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
+    follower_id = Column(String(36), ForeignKey("singers.id"), nullable=False)
+    followee_id = Column(String(36), ForeignKey("singers.id"), nullable=False)
+    created_at = Column(Text, default=_now_iso)
+    deleted_at = Column(Text)
+
+    __table_args__ = (
+        UniqueConstraint("venue_id", "follower_id", "followee_id", name="uq_follow"),
+        Index("ix_singer_follows_venue", "venue_id"),
+        Index("ix_singer_follows_follower", "follower_id"),
+        Index("ix_singer_follows_followee", "followee_id"),
+    )
+
+
 class VenueConfig(Base):
     __tablename__ = "venue_configs"
 
