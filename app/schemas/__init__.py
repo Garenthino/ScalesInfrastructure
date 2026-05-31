@@ -33,7 +33,6 @@ from app.schemas.dto import (
     CheckInSessionOut,
     CheckInRequest,
     CheckInResponse,
-    CheckInSessionOut,
     # Queue
     QueueRequestBase,
     QueueRequestCreate,
@@ -70,8 +69,6 @@ from app.schemas.dto import (
     SongPopularityEntry,
     HourlyBreakdownItem,
     SingerStatsOut,
-    SingerProfileStats,
-    SingerMeUpdate,
     # Social
     LeaderboardEntryOut,
     ConsentSettings,
@@ -81,6 +78,13 @@ from app.schemas.dto import (
     SingerHistoryItem,
     SingerHistoryOut,
     SingerPortalStats,
+    SingerProfileStats,
+    SingerQueueItem,
+    SingerQueueOut,
+    SingerQueueHistoryItem,
+    SingerQueueHistoryOut,
+    SingerQueueStatus,
+    SingerMeUpdate,
     # Sync
     SyncQueueItem,
     SyncQueuePushPayload,
@@ -98,5 +102,14 @@ from app.schemas.dto import (
     SyncConflictResponse,
 )
 
+
 from app.schemas.favorites import FavoriteBase, FavoriteCreate, FavoriteOut
 from app.schemas.social import FollowCreate, FollowOut, FollowStatusOut
+from app.schemas.queue import (
+    QueueJoinRequest,
+    QueueJoinResponse,
+    QueueStatusResponse,
+    QueueLeaveAllResponse,
+    PublicQueueItem,
+    PublicQueueOut,
+)

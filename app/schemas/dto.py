@@ -603,6 +603,48 @@ class SingerPortalStats(ScalesModel):
     favorite_genre: str | None = None
 
 
+class SingerQueueItem(ScalesModel):
+    request_id: str
+    position: int
+    status: str
+    song_title: str
+    song_artist: str
+    song_duration_ms: int | None = None
+    eta_seconds: int | None = None
+    notes: str | None = None
+    requested_at: str
+
+
+class SingerQueueOut(ScalesModel):
+    items: list[SingerQueueItem]
+    total: int
+
+
+class SingerQueueHistoryItem(ScalesModel):
+    request_id: str
+    song_title: str
+    song_artist: str
+    genre: str | None = None
+    status: str
+    requested_at: str
+    played_at: str | None = None
+    notes: str | None = None
+
+
+class SingerQueueHistoryOut(ScalesModel):
+    items: list[SingerQueueHistoryItem]
+    total: int
+    page: int
+    per_page: int
+
+
+class SingerQueueStatus(ScalesModel):
+    status: Literal["active", "waiting", "completed"]
+    position: int | None = None
+    eta_seconds: int | None = None
+    request_id: str | None = None
+
+
 class SingerProfileStats(ScalesModel):
     """Extended self-service stats: songs sung, check-ins, total points, top songs."""
     songs_sung: int

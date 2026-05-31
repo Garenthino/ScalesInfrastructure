@@ -608,3 +608,128 @@ async def test_checked_in_list_venue_scoped(client, db, venue_with_songs, jwt_en
     assert resp.status_code == status.HTTP_200_OK
     data = resp.json()
     assert data["total"] == 0
+
+
+# ---------------------------------------------------------------------------
+# 8. MY QUEUE POSITION / ETA / HISTORY / STATUS
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_my_queue_requires_auth(client, db, venue_with_songs):
+    venue_id, _ = venue_with_songs
+    resp = await client.get(f"/v1/venues/{venue_id}/singers/me/queue")
+    assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@pytest.mark.anyio
+async def test_my_queue_wrong_venue(client, db, venue_with_songs, jwt_encode):
+    venue_id, _ = venue_with_songs
+    other = await _seed_venue(db, "Other")
+    singer = await _seed_singer(db, other.id, stage_name="Outsider")
+    token = _token_for_singer(jwt_encode, singer)
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/singers/me/queue",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.anyio
+async def test_my_queue_empty(client, db, venue_with_songs, jwt_encode):
+    venue_id, _ = venue_with_songs
+    singer = await _seed_singer(db, venue_id, stage_name="NoQueue")
+    token = _token_for_singer(jwt_encode, singer)
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/singers/me/queue",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert data["items"] == []
+    assert data["total"] == 0
+
+
+@pytest.mark.anyio
+async def test_my_queue_returns_position_eta(client, db, venue_with_songs, jwt_encode):
+    venue_id, _ = venue_with_songs
+    singer = await _seed_singer(db, venue_id, stage_name="QueueMe")
+    song1 = await _seed_song(db, venue_id, title="Song A", genre="Rock")
+    song2 = await _seed_song(db, venue_id, title="Song B", genre="Pop")
+
+    # Seed active queue requests
+    req1 = await _seed_queue_request(db, venue_id, singer.id, song1.id, status="pending")
+    req2 = await _seed_queue_request(db, venue_id, singer.id, song2.id, status="pending")
+
+    token = _token_for_singer(jwt_encode, singer)
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/singers/me/queue",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert data["total"] == 2
+    positions = [item["position"] for item in data["items"]]
+    assert all(p > 0 for p in positions)
+    assert all("eta_seconds" in item for item in data["items"])
+    assert all(item["song_title"] in {"Song A", "Song B"} for item in data["items"])
+    assert all(item["status"] == "pending" for item in data["items"])
+
+
+@pytest.mark.anyio
+async def test_my_queue_history_paginated(client, db, venue_with_songs, jwt_encode):
+    venue_id, _ = venue_with_songs
+    singer = await _seed_singer(db, venue_id, stage_name="HistoryMe")
+    song1 = await _seed_song(db, venue_id, title="Song A", genre="Rock")
+    song2 = await _seed_song(db, venue_id, title="Song B", genre="Pop")
+    await _seed_queue_request(db, venue_id, singer.id, song1.id, status="completed")
+    await _seed_queue_request(db, venue_id, singer.id, song2.id, status="skipped")
+
+    token = _token_for_singer(jwt_encode, singer)
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/singers/me/queue/history?page=1&per_page=1",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert data["total"] == 2
+    assert len(data["items"]) == 1
+    assert data["page"] == 1
+    assert data["per_page"] == 1
+
+
+@pytest.mark.anyio
+async def test_my_queue_status_active(client, db, venue_with_songs, jwt_encode):
+    venue_id, _ = venue_with_songs
+    singer = await _seed_singer(db, venue_id, stage_name="ActiveMe")
+    song = await _seed_song(db, venue_id, title="Song A")
+    req = await _seed_queue_request(db, venue_id, singer.id, song.id, status="pending")
+
+    token = _token_for_singer(jwt_encode, singer)
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/singers/me/queue/status",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert data["status"] == "active"
+    assert data["position"] is not None
+    assert data["request_id"] == req.id
+    assert "eta_seconds" in data
+
+
+@pytest.mark.anyio
+async def test_my_queue_status_waiting_no_active(client, db, venue_with_songs, jwt_encode):
+    venue_id, _ = venue_with_songs
+    singer = await _seed_singer(db, venue_id, stage_name="WaitingMe")
+    token = _token_for_singer(jwt_encode, singer)
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/singers/me/queue/status",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert data["status"] == "waiting"
+    assert data["position"] is None
+    assert data["request_id"] is None
+    assert data["eta_seconds"] is None
+

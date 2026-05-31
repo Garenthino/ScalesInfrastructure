@@ -24,9 +24,39 @@ from app.schemas import (
     SingerPortalStats,
     SingerProfileStats,
     SingerMeUpdate,
+    SingerQueueItem,
+    SingerQueueOut,
+    SingerQueueHistoryItem,
+    SingerQueueHistoryOut,
+    SingerQueueStatus,
 )
 
+from app.core.queue_service import QueueService, ACTIVE_STATUSES
+
 router = APIRouter()
+
+DEFAULT_AVG_SONG_MS = 210_000  # 3.5 min fallback
+
+
+async def _avg_song_ms(db: AsyncSession, venue_id: str) -> int:
+    """Average duration of available songs at this venue, or default."""
+    result = await db.execute(
+        select(func.coalesce(func.avg(Song.duration_ms), DEFAULT_AVG_SONG_MS)).where(
+            Song.venue_id == venue_id,
+            Song.is_available == 1,
+            Song.is_active == 1,
+            Song.deleted_at.is_(None),
+        )
+    )
+    avg = result.scalar_one()
+    return int(avg) if avg else DEFAULT_AVG_SONG_MS
+
+
+async def _compute_positions(db: AsyncSession, venue_id: str, mode: str = "round_robin") -> dict[str, int]:
+    """Return mapping request_id -> position for active queue items."""
+    svc = QueueService(db)
+    items = await svc.get_active_queue(venue_id, mode=mode, include_details=False)
+    return {str(item.id): idx + 1 for idx, item in enumerate(items)}
 
 
 def _now_iso() -> str:
@@ -431,6 +461,161 @@ async def get_stats(
         songs_sung=songs_sung,
         avg_wait_min=avg_wait_min,
         favorite_genre=favorite_genre,
+    )
+
+
+@router.get("/me/queue", response_model=SingerQueueOut)
+async def get_my_queue(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """GET /singers/me/queue — current position, ETA, song info."""
+    _require_venue(venue_id, current)
+
+    avg_ms = await _avg_song_ms(db, venue_id)
+    positions = await _compute_positions(db, venue_id)
+
+    result = await db.execute(
+        select(QueueRequest, Song.title, Song.artist, Song.duration_ms)
+        .join(Song, Song.id == QueueRequest.song_id)
+        .where(
+            QueueRequest.venue_id == venue_id,
+            QueueRequest.singer_id == current.id,
+            QueueRequest.status.in_(list(ACTIVE_STATUSES)),
+            QueueRequest.deleted_at.is_(None),
+        )
+        .order_by(QueueRequest.rotation_position)
+    )
+    rows = result.all()
+    items: list[SingerQueueItem] = []
+    for item, title, artist, dur in rows:
+        pos = positions.get(str(item.id))
+        eta = ((pos or 1) - 1) * avg_ms // 1000 if pos else None
+        items.append(
+            SingerQueueItem(
+                request_id=str(item.id),
+                position=pos or 0,
+                status=str(item.status),
+                song_title=title or "Unknown",
+                song_artist=artist or "Unknown",
+                song_duration_ms=dur,
+                eta_seconds=eta,
+                notes=str(item.notes) if item.notes else None,
+                requested_at=str(item.requested_at),
+            )
+        )
+    return SingerQueueOut(items=items, total=len(items))
+
+
+@router.get("/me/queue/history", response_model=SingerQueueHistoryOut)
+async def get_my_queue_history(
+    venue_id: str,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """GET /singers/me/queue/history — paginated past entries."""
+    _require_venue(venue_id, current)
+
+    filters = [
+        QueueRequest.venue_id == venue_id,
+        QueueRequest.singer_id == current.id,
+        QueueRequest.deleted_at.is_(None),
+        QueueRequest.status.in_(("completed", "skipped", "rejected")),
+    ]
+    total = (
+        await db.execute(
+            select(func.count())
+            .select_from(QueueRequest)
+            .where(*filters)
+        )
+    ).scalar_one()
+
+    offset = (page - 1) * per_page
+    stmt = (
+        select(QueueRequest, Song.title, Song.artist, Song.genre)
+        .join(Song, Song.id == QueueRequest.song_id)
+        .where(*filters)
+        .order_by(QueueRequest.requested_at.desc())
+        .offset(offset)
+        .limit(per_page)
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+    items = [
+        SingerQueueHistoryItem(
+            request_id=str(r.QueueRequest.id),
+            song_title=r.title or "Unknown",
+            song_artist=r.artist or "Unknown",
+            genre=str(r.genre) if r.genre else None,
+            status=str(r.QueueRequest.status),
+            requested_at=str(r.QueueRequest.requested_at),
+            played_at=str(r.QueueRequest.played_at) if r.QueueRequest.played_at else None,
+            notes=str(r.QueueRequest.notes) if r.QueueRequest.notes else None,
+        )
+        for r in rows
+    ]
+
+    return SingerQueueHistoryOut(items=items, total=total, page=page, per_page=per_page)
+
+
+@router.get("/me/queue/status", response_model=SingerQueueStatus)
+async def get_my_queue_status(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """GET /singers/me/queue/status: active/waiting/completed."""
+    _require_venue(venue_id, current)
+
+    avg_ms = await _avg_song_ms(db, venue_id)
+    positions = await _compute_positions(db, venue_id)
+
+    result = await db.execute(
+        select(QueueRequest)
+        .where(
+            QueueRequest.venue_id == venue_id,
+            QueueRequest.singer_id == current.id,
+            QueueRequest.status.in_(list(ACTIVE_STATUSES)),
+            QueueRequest.deleted_at.is_(None),
+        )
+        .order_by(QueueRequest.rotation_position)
+        .limit(1)
+    )
+    item = result.scalar_one_or_none()
+
+    if item is None:
+        # Check if there are any completed/skipped requests today
+        from datetime import datetime, timezone, timedelta
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        result2 = await db.execute(
+            select(func.count())
+            .select_from(QueueRequest)
+            .where(
+                QueueRequest.venue_id == venue_id,
+                QueueRequest.singer_id == current.id,
+                QueueRequest.status.in_(("completed", "skipped")),
+                QueueRequest.deleted_at.is_(None),
+                QueueRequest.requested_at >= today,
+            )
+        )
+        count = result2.scalar_one()
+        return SingerQueueStatus(
+            status="completed" if count > 0 else "waiting",
+            position=None,
+            eta_seconds=None,
+            request_id=None,
+        )
+
+    pos = positions.get(str(item.id))
+    eta = ((pos or 1) - 1) * avg_ms // 1000 if pos else None
+    return SingerQueueStatus(
+        status="active",
+        position=pos,
+        eta_seconds=eta,
+        request_id=str(item.id),
     )
 
 
