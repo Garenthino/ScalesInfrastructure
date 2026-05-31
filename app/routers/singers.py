@@ -33,6 +33,8 @@ from app.schemas import (
     SingerQueueStatus,
     AchievementOut,
     PointsLedgerOut,
+    BanRequest,
+    BanResponse,
 )
 
 class TipRequest(BaseModel):
@@ -1057,6 +1059,54 @@ async def delete_singer(
     singer.deleted_at = _now_iso()
     await db.commit()
     return None
+
+
+# --- Ban (venue-scoped) -------------------------------------------------------
+
+
+@router.post("/{singer_id}/ban", response_model=BanResponse)
+async def ban_singer(
+    venue_id: str,
+    singer_id: str,
+    body: BanRequest,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ban a singer at this venue (admin or kj only). Sets deactivated_at."""
+    from app.schemas import BanRequest, BanResponse
+    _require_venue(venue_id, current)
+    if not has_role(current.role, Role.KJ):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Admin or KJ access required",
+        )
+
+    singer = (
+        await db.execute(
+            select(Singer)
+            .where(
+                Singer.id == singer_id,
+                Singer.venue_id == venue_id,
+                Singer.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if singer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
+
+    now = _now_iso()
+    singer.deactivated_at = now
+    singer.updated_at = now
+    await db.commit()
+    await db.refresh(singer)
+
+    return BanResponse(
+        singer_id=str(singer.id),
+        status="banned",
+        banned_at=now,
+        reason=body.reason,
+    )
 
 
 # ---------------------------------------------------------------------------

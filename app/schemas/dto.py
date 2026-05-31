@@ -344,7 +344,43 @@ class QueueItemOut(ScalesModel):
 class QueueAdminListOut(ScalesModel):
     items: list[QueueItemOut]
     total: int
-    active_mode: Literal["fifo", "round_robin", "vip_priority"] = "round_robin"
+    active_mode: Literal["fifo", "round_robin", "vip_priority", "balanced"] = "round_robin"
+
+
+class QueueReorderBySinger(ScalesModel):
+    singer_ids: list[str]
+
+
+class QueueSkipToEnd(ScalesModel):
+    request_id: str
+
+
+class RotationModeSet(ScalesModel):
+    mode: Literal["fifo", "round_robin", "vip_priority", "balanced"]
+
+
+class RotationModeOut(ScalesModel):
+    mode: str
+    venue_id: str
+
+
+class QueueAnalyticsOut(ScalesModel):
+    total_requests_today: int
+    completed_today: int
+    avg_wait_seconds: float | None
+    top_songs: list[dict[str, Any]]
+    throughput_per_hour: list[dict[str, Any]]
+
+
+class BanRequest(ScalesModel):
+    reason: str | None = Field(None, max_length=500)
+
+
+class BanResponse(ScalesModel):
+    singer_id: str
+    status: str
+    banned_at: str
+    reason: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +470,7 @@ class PaymentCreate(ScalesModel):
 class TipRequest(PaymentCreate):
     recipient_id: str
     kj_id: str | None = None  # Optional: if different from recipient
+    message: str | None = Field(None, max_length=200)
 
 
 class PriorityBumpRequest(PaymentCreate):
@@ -453,7 +490,10 @@ class PaymentOut(ScalesModel):
     amount_cents: int
     currency: str
     payment_type: Literal["tip", "priority_bump"]
-    status: Literal["pending", "succeeded", "failed", "canceled"]
+    status: Literal["pending", "succeeded", "failed", "canceled", "refunded", "partially_refunded"]
+    message: str | None = None
+    refunded_at: str | None = None
+    refund_amount_cents: int = 0
     created_at: str
     updated_at: str
     formatted_amount: str | None = None
@@ -464,6 +504,26 @@ class PaymentHistoryOut(ScalesModel):
     total: int
     page: int
     per_page: int
+
+
+class RefundRequest(ScalesModel):
+    amount_cents: int | None = Field(None, ge=1, description="Partial refund amount; null = full refund")
+    reason: str | None = Field(None, max_length=200)
+
+
+class RefundOut(ScalesModel):
+    payment_id: str
+    status: Literal["refunded", "partially_refunded"]
+    refund_amount_cents: int
+    original_amount_cents: int
+    refunded_at: str
+    reason: str | None = None
+
+
+class WebhookSimulationRequest(ScalesModel):
+    event_type: Literal["payment_intent.succeeded", "payment_intent.payment_failed"]
+    payment_id: str
+    stripe_payment_intent_id: str | None = None  # optional override
 
 
 # ---------------------------------------------------------------------------

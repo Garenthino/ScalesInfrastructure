@@ -214,17 +214,20 @@ class Payment(Base):
     currency = Column(Text, default="USD")
     payment_type = Column(Text, nullable=False)  # tip | priority_bump
     stripe_payment_intent_id = Column(Text, unique=True)
-    status = Column(Text, nullable=False, default="pending")  # pending | succeeded | failed | canceled
+    status = Column(Text, nullable=False, default="pending")  # pending | succeeded | failed | canceled | refunded
+    message = Column(Text)  # tip message from sender (HTML-escaped on display)
     metadata_json = Column(Text)
     reference_type = Column(Text)  # e.g. queue_request
     reference_id = Column(Text)
+    refunded_at = Column(Text)
+    refund_amount_cents = Column(Integer, default=0)
     created_at = Column(Text, default=_now_iso)
     updated_at = Column(Text, default=_now_iso, onupdate=_now_iso)
     deleted_at = Column(Text)
 
     __table_args__ = (
         CheckConstraint("payment_type IN ('tip','priority_bump')"),
-        CheckConstraint("status IN ('pending','succeeded','failed','canceled')"),
+        CheckConstraint("status IN ('pending','succeeded','failed','canceled','refunded','partially_refunded')"),
         Index("ix_payments_venue_singer", "venue_id", "singer_id"),
         Index("ix_payments_stripe_pi", "stripe_payment_intent_id"),
     )

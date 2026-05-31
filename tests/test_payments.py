@@ -386,3 +386,417 @@ async def test_payment_out_formatting():
     assert _format_cents(500) == "$5.00"
     assert _format_cents(1234) == "$12.34"
     assert _format_cents(0) == "$0.00"
+
+
+# ---------------------------------------------------------------------------
+# Webhook simulation (admin/KJ gated)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_webhook_simulate_tip_succeeded(client: AsyncClient, db: AsyncSession, _payment_venue):
+    venue_id, _, singer, _, _, _ = _payment_venue
+    payment = Payment(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=singer.id,
+        recipient_id=None,
+        amount_cents=500,
+        currency="USD",
+        payment_type="tip",
+        status="pending",
+        created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        updated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    db.add(payment)
+    await db.commit()
+    from tests.conftest import _admin_token
+    admin_tok = _admin_token(venue_id, role="admin")
+
+    r = await client.post(
+        f"/v1/venues/{venue_id}/payments/simulate-webhook",
+        json={
+            "event_type": "payment_intent.succeeded",
+            "payment_id": payment.id,
+            "stripe_payment_intent_id": "pi_sim_123",
+        },
+        headers={"Authorization": f"Bearer {admin_tok}"},
+    )
+    assert r.status_code == status.HTTP_200_OK
+    data = r.json()
+    assert data["status"] == "ok"
+    assert data["new_status"] == "succeeded"
+    assert data["payment_id"] == payment.id
+
+    # Verify payment status updated
+    result = await db.execute(select(Payment).where(Payment.id == payment.id))
+    updated = result.scalar_one()
+    assert updated.status == "succeeded"
+    assert updated.stripe_payment_intent_id == "pi_sim_123"
+
+
+@pytest.mark.asyncio
+async def test_webhook_simulate_payment_failed(client: AsyncClient, db: AsyncSession, _payment_venue):
+    venue_id, _, singer, _, _, _ = _payment_venue
+    payment = Payment(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=singer.id,
+        recipient_id=None,
+        amount_cents=200,
+        currency="USD",
+        payment_type="priority_bump",
+        status="pending",
+        created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        updated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    db.add(payment)
+    await db.commit()
+    from tests.conftest import _admin_token
+    admin_tok = _admin_token(venue_id, role="admin")
+
+    r = await client.post(
+        f"/v1/venues/{venue_id}/payments/simulate-webhook",
+        json={
+            "event_type": "payment_intent.payment_failed",
+            "payment_id": payment.id,
+        },
+        headers={"Authorization": f"Bearer {admin_tok}"},
+    )
+    assert r.status_code == status.HTTP_200_OK
+    data = r.json()
+    assert data["new_status"] == "failed"
+
+    result = await db.execute(select(Payment).where(Payment.id == payment.id))
+    updated = result.scalar_one()
+    assert updated.status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_webhook_simulate_payment_not_found(client: AsyncClient, _payment_venue):
+    venue_id, _, _, _, _, _ = _payment_venue
+    from tests.conftest import _admin_token
+    admin_tok = _admin_token(venue_id, role="admin")
+
+    r = await client.post(
+        f"/v1/venues/{venue_id}/payments/simulate-webhook",
+        json={
+            "event_type": "payment_intent.succeeded",
+            "payment_id": str(uuid.uuid4()),
+        },
+        headers={"Authorization": f"Bearer {admin_tok}"},
+    )
+    assert r.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_webhook_simulate_singer_forbidden(client: AsyncClient, _payment_venue):
+    venue_id, _, singer, _, _, _ = _payment_venue
+    token = _token(singer)
+
+    r = await client.post(
+        f"/v1/venues/{venue_id}/payments/simulate-webhook",
+        json={
+            "event_type": "payment_intent.succeeded",
+            "payment_id": str(uuid.uuid4()),
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.asyncio
+async def test_webhook_simulate_wrong_venue(client: AsyncClient, _payment_venue):
+    _, _, _, _, _, _ = _payment_venue
+    from tests.conftest import _admin_token
+    admin_tok = _admin_token(str(uuid.uuid4()), role="admin")
+
+    r = await client.post(
+        f"/v1/venues/{str(uuid.uuid4())}/payments/simulate-webhook",
+        json={
+            "event_type": "payment_intent.succeeded",
+            "payment_id": str(uuid.uuid4()),
+        },
+        headers={"Authorization": f"Bearer {admin_tok}"},
+    )
+    assert r.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+
+
+# ---------------------------------------------------------------------------
+# Refund
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_refund_full(client: AsyncClient, db: AsyncSession, _payment_venue):
+    venue_id, _, singer, _, _, _ = _payment_venue
+    # Create a succeeded payment
+    payment = Payment(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=singer.id,
+        amount_cents=500,
+        currency="USD",
+        payment_type="tip",
+        status="succeeded",
+        created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        updated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    db.add(payment)
+    await db.commit()
+    token = _token(singer)
+
+    r = await client.post(
+        f"/v1/venues/{venue_id}/payments/{payment.id}/refund",
+        json={},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == status.HTTP_200_OK
+    data = r.json()
+    assert data["status"] == "refunded"
+    assert data["refund_amount_cents"] == 500
+    assert data["original_amount_cents"] == 500
+    assert data["refunded_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_refund_partial(client: AsyncClient, db: AsyncSession, _payment_venue):
+    venue_id, _, singer, _, _, _ = _payment_venue
+    payment = Payment(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=singer.id,
+        amount_cents=500,
+        currency="USD",
+        payment_type="tip",
+        status="succeeded",
+        created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        updated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    db.add(payment)
+    await db.commit()
+    token = _token(singer)
+
+    r = await client.post(
+        f"/v1/venues/{venue_id}/payments/{payment.id}/refund",
+        json={"amount_cents": 200, "reason": "Customer request"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == status.HTTP_200_OK
+    data = r.json()
+    assert data["status"] == "partially_refunded"
+    assert data["refund_amount_cents"] == 200
+    assert data["original_amount_cents"] == 500
+    assert data["reason"] == "Customer request"
+
+
+@pytest.mark.asyncio
+async def test_refund_exceeds_amount(client: AsyncClient, db: AsyncSession, _payment_venue):
+    venue_id, _, singer, _, _, _ = _payment_venue
+    payment = Payment(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=singer.id,
+        amount_cents=100,
+        currency="USD",
+        payment_type="tip",
+        status="succeeded",
+        created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        updated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    db.add(payment)
+    await db.commit()
+    token = _token(singer)
+
+    r = await client.post(
+        f"/v1/venues/{venue_id}/payments/{payment.id}/refund",
+        json={"amount_cents": 200},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.asyncio
+async def test_refund_wrong_venue(client: AsyncClient, db: AsyncSession, _payment_venue):
+    venue_id, _, singer, _, _, _ = _payment_venue
+    payment = Payment(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=singer.id,
+        amount_cents=500,
+        currency="USD",
+        payment_type="tip",
+        status="succeeded",
+        created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        updated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    db.add(payment)
+    await db.commit()
+    token = _token(singer)
+
+    r = await client.post(
+        f"/v1/venues/{str(uuid.uuid4())}/payments/{payment.id}/refund",
+        json={},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.asyncio
+async def test_refund_not_found(client: AsyncClient, _payment_venue):
+    venue_id, _, singer, _, _, _ = _payment_venue
+    token = _token(singer)
+
+    r = await client.post(
+        f"/v1/venues/{venue_id}/payments/{str(uuid.uuid4())}/refund",
+        json={},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_refund_pending_payment(client: AsyncClient, db: AsyncSession, _payment_venue):
+    venue_id, _, singer, _, _, _ = _payment_venue
+    payment = Payment(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=singer.id,
+        amount_cents=500,
+        currency="USD",
+        payment_type="tip",
+        status="pending",
+        created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        updated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    db.add(payment)
+    await db.commit()
+    token = _token(singer)
+
+    r = await client.post(
+        f"/v1/venues/{venue_id}/payments/{payment.id}/refund",
+        json={},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.asyncio
+async def test_refund_other_singer_forbidden(client: AsyncClient, db: AsyncSession, _payment_venue):
+    venue_id, _, singer, singer2, _, _ = _payment_venue
+    # singer2 creates payment but singer tries to refund it
+    payment = Payment(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=singer2.id,
+        amount_cents=500,
+        currency="USD",
+        payment_type="tip",
+        status="succeeded",
+        created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        updated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    db.add(payment)
+    await db.commit()
+    token = _token(singer)  # singer trying to refund singer2's payment
+
+    r = await client.post(
+        f"/v1/venues/{venue_id}/payments/{payment.id}/refund",
+        json={},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.asyncio
+async def test_refund_admin_can_refund_any(client: AsyncClient, db: AsyncSession, _payment_venue):
+    venue_id, _, singer, _, _, _ = _payment_venue
+    # Create an admin singer in the DB
+    from app.models import Singer
+    admin_singer = Singer(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        stage_name="Admin One",
+        role="admin",
+    )
+    db.add(admin_singer)
+    await db.commit()
+
+    admin_tok = _token(admin_singer)  # _token creates JWT for a real Singer object
+    payment = Payment(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=singer.id,
+        amount_cents=500,
+        currency="USD",
+        payment_type="tip",
+        status="succeeded",
+        created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        updated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    db.add(payment)
+    await db.commit()
+
+    r = await client.post(
+        f"/v1/venues/{venue_id}/payments/{payment.id}/refund",
+        json={},
+        headers={"Authorization": f"Bearer {admin_tok}"},
+    )
+    assert r.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.asyncio
+async def test_refund_status_endpoint(client: AsyncClient, db: AsyncSession, _payment_venue):
+    venue_id, _, singer, _, _, _ = _payment_venue
+    payment = Payment(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=singer.id,
+        amount_cents=500,
+        currency="USD",
+        payment_type="tip",
+        status="succeeded",
+        created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        updated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    db.add(payment)
+    await db.commit()
+    token = _token(singer)
+
+    r = await client.get(
+        f"/v1/venues/{venue_id}/payments/{payment.id}/refund/status",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == status.HTTP_200_OK
+    data = r.json()
+    assert data["payment_id"] == payment.id
+    assert data["refund_amount_cents"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Tip with message
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+@patch("app.routers.payments._stripe_client", None)
+@patch("app.routers.payments._get_stripe")
+async def test_tip_with_message(mock_get_stripe, client: AsyncClient, db: AsyncSession, _payment_venue):
+    mock_get_stripe.return_value = _mock_stripe()
+    venue_id, kj, singer, _, _, _ = _payment_venue
+    token = _token(singer)
+
+    r = await client.post(
+        f"/v1/venues/{venue_id}/payments/tip",
+        json={"amount_cents": 500, "currency": "USD", "recipient_id": kj.id, "message": "Great show!"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == status.HTTP_200_OK
+    data = r.json()
+    assert data["payment_intent_id"] == "pi_test_123"
+
+    # Verify message persisted via history endpoint
+    hr = await client.get(
+        f"/v1/venues/{venue_id}/payments/history",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert hr.status_code == status.HTTP_200_OK
+    history = hr.json()
+    assert any(item.get("message") == "Great show!" for item in history["items"])

@@ -9,12 +9,26 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
-from app.core.auth import require_admin, venue_match
+from app.core.auth import require_admin, venue_match, get_current_user, SingerUser
+from app.core.dependencies import require_role
+from app.core.permissions import Role
 from app.core.db import get_db
-from app.core.queue_service import QueueService, ACTIVE_STATUSES
-from app.schemas import QueueAdminListOut, QueueItemOut, QueueRejectRequest, QueueReorder, SongOut, SingerOut
-from app.models import QueueRequest
+from app.core.queue_service import QueueService, ROTATION_MODES, ACTIVE_STATUSES
+from app.schemas import (
+    QueueAdminListOut,
+    QueueItemOut,
+    QueueRejectRequest,
+    QueueReorder,
+    QueueReorderBySinger,
+    QueueSkipToEnd,
+    QueueAnalyticsOut,
+    RotationModeSet,
+    SongOut,
+    SingerOut,
+)
+from app.models import QueueRequest, RotationSession
 
 router = APIRouter()
 
@@ -152,11 +166,40 @@ async def complete_request(
 
 
 # ---------------------------------------------------------------------------
-# REORDER
+# REORDER (by singer_id)
 # ---------------------------------------------------------------------------
 
-@router.post("/reorder", response_model=QueueAdminListOut)
+@router.put("/reorder", response_model=QueueAdminListOut)
 async def reorder_queue(
+    venue_id: str,
+    body: QueueReorderBySinger,
+    db: AsyncSession = Depends(get_db),
+    token: dict = Depends(require_admin),
+):
+    if not venue_match(venue_id, token):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
+
+    if not body.singer_ids or not isinstance(body.singer_ids, list):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Body must contain 'singer_ids': list of singer IDs",
+        )
+
+    svc = QueueService(db)
+    try:
+        items = await svc.reorder_by_singer(venue_id, body.singer_ids)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    out_items = [_queue_item_out(item, position=idx + 1) for idx, item in enumerate(items)]
+    return QueueAdminListOut(items=out_items, total=len(out_items), active_mode="round_robin")
+
+
+# ---------------------------------------------------------------------------
+# REORDER BY REQUEST ID (legacy compatibility)
+# ---------------------------------------------------------------------------
+
+@router.post("/reorder-by-request", response_model=QueueAdminListOut)
+async def reorder_queue_by_request(
     venue_id: str,
     body: QueueReorder,
     db: AsyncSession = Depends(get_db),
@@ -181,6 +224,29 @@ async def reorder_queue(
 
 
 # ---------------------------------------------------------------------------
+# SKIP TO END
+# ---------------------------------------------------------------------------
+
+@router.post("/skip-to-end")
+async def skip_to_end(
+    venue_id: str,
+    body: QueueSkipToEnd,
+    db: AsyncSession = Depends(get_db),
+    token: dict = Depends(require_admin),
+):
+    """Move a request to the end of the queue."""
+    if not venue_match(venue_id, token):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
+
+    svc = QueueService(db)
+    try:
+        item = await svc.skip_to_end(venue_id, body.request_id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return _queue_item_out(item)
+
+
+# ---------------------------------------------------------------------------
 # DELETE
 # ---------------------------------------------------------------------------
 
@@ -200,3 +266,84 @@ async def remove_request(
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return None
+
+
+# ---------------------------------------------------------------------------
+# ANALYTICS
+# ---------------------------------------------------------------------------
+
+@router.get("/analytics", response_model=QueueAnalyticsOut)
+async def get_queue_analytics(
+    venue_id: str,
+    db: AsyncSession = Depends(get_db),
+    token: dict = Depends(require_admin),
+):
+    """Queue throughput, avg wait, top songs — KJ/Admin only."""
+    if not venue_match(venue_id, token):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
+
+    svc = QueueService(db)
+    data = await svc.get_analytics(venue_id)
+    return QueueAnalyticsOut(**data)
+
+
+# ---------------------------------------------------------------------------
+# ROTATION MODE
+# ---------------------------------------------------------------------------
+
+@router.get("/mode")
+async def get_rotation_mode(
+    venue_id: str,
+    db: AsyncSession = Depends(get_db),
+    token: dict = Depends(require_admin),
+):
+    """Get the active rotation mode for this venue."""
+    if not venue_match(venue_id, token):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
+
+    svc = QueueService(db)
+    session = await svc.get_active_rotation_session(venue_id)
+    mode = session.mode if session else "round_robin"
+    return {"venue_id": venue_id, "mode": mode}
+
+
+@router.put("/mode")
+async def set_rotation_mode(
+    venue_id: str,
+    body: RotationModeSet,
+    db: AsyncSession = Depends(get_db),
+    token: dict = Depends(require_admin),
+):
+    """Set the active rotation mode for this venue."""
+    if not venue_match(venue_id, token):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
+
+    if body.mode not in ROTATION_MODES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid mode. Must be one of: {', '.join(sorted(ROTATION_MODES))}",
+        )
+
+    svc = QueueService(db)
+    # Deactivate existing session
+    existing = await svc.get_active_rotation_session(venue_id)
+    if existing:
+        existing.is_active = 0
+        from app.models import _now_iso
+        existing.ended_at = _now_iso()
+        existing.updated_at = _now_iso()
+        await db.commit()
+
+    # Create new rotation session
+    from app.models import RotationSession, _now_iso
+    new_session = RotationSession(
+        id=str(__import__("uuid").uuid4()),
+        venue_id=venue_id,
+        mode=body.mode,
+        started_at=_now_iso(),
+        is_active=1,
+    )
+    db.add(new_session)
+    await db.commit()
+
+    return {"venue_id": venue_id, "mode": body.mode}

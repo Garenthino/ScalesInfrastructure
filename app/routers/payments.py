@@ -35,6 +35,9 @@ from app.schemas import (
     PaymentOut,
     PaymentHistoryOut,
     PaginatedResponse,
+    RefundRequest,
+    RefundOut,
+    WebhookSimulationRequest,
 )
 
 router = APIRouter()
@@ -113,6 +116,9 @@ def _payment_out(payment: Payment) -> PaymentOut:
         currency=payment.currency,
         payment_type=payment.payment_type,  # type: ignore[arg-type]
         status=payment.status,  # type: ignore[arg-type]
+        message=payment.message,
+        refunded_at=payment.refunded_at,
+        refund_amount_cents=payment.refund_amount_cents or 0,
         created_at=payment.created_at,
         updated_at=payment.updated_at,
         formatted_amount=_format_cents(payment.amount_cents, payment.currency),
@@ -160,6 +166,7 @@ async def create_tip_intent(
         currency=body.currency,
         payment_type="tip",
         status="pending",
+        message=body.message,
         created_at=_NOW(),
         updated_at=_NOW(),
     )
@@ -472,3 +479,174 @@ async def _handle_priority_bump_success(db: AsyncSession, payment: Payment) -> N
         queue_req.rotation_position = new_pos
         queue_req.updated_at = _NOW()
         await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# REFUND
+# ---------------------------------------------------------------------------
+
+@router.post("/{payment_id}/refund", response_model=RefundOut)
+async def refund_payment(
+    venue_id: str,
+    payment_id: str,
+    body: RefundRequest,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Refund a payment. Only admin/KJ or the original payer may refund."""
+    if str(current.venue_id) != str(venue_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
+
+    payment = (
+        await db.execute(
+            select(Payment).where(
+                Payment.id == payment_id,
+                Payment.venue_id == venue_id,
+                Payment.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if payment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Payment not found")
+
+    # Authorization: admin/KJ can refund any; singers can only refund their own
+    if current.role.value not in ("admin", "kj") and str(payment.singer_id) != str(current.id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Cannot refund this payment")
+
+    if payment.status not in ("succeeded", "refunded", "partially_refunded"):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Cannot refund payment with status '{payment.status}'",
+        )
+
+    refund_amount = body.amount_cents if body.amount_cents is not None else payment.amount_cents
+    if refund_amount < 1 or refund_amount > payment.amount_cents:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid refund amount",
+        )
+
+    # Check if total refunds exceed payment amount
+    already_refunded = payment.refund_amount_cents or 0
+    if already_refunded + refund_amount > payment.amount_cents:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Refund amount exceeds remaining balance",
+        )
+
+    refunded_at = _NOW()
+    payment.refunded_at = refunded_at
+    payment.refund_amount_cents = already_refunded + refund_amount
+    payment.updated_at = refunded_at
+
+    if payment.refund_amount_cents >= payment.amount_cents:
+        payment.status = "refunded"
+    else:
+        payment.status = "partially_refunded"
+
+    await db.commit()
+
+    return RefundOut(
+        payment_id=str(payment.id),
+        status=payment.status,  # type: ignore[arg-type]
+        refund_amount_cents=payment.refund_amount_cents,
+        original_amount_cents=payment.amount_cents,
+        refunded_at=refunded_at,
+        reason=body.reason,
+    )
+
+
+@router.get("/{payment_id}/refund/status", response_model=RefundOut)
+async def refund_status(
+    venue_id: str,
+    payment_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get refund status for a payment."""
+    if str(current.venue_id) != str(venue_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
+
+    payment = (
+        await db.execute(
+            select(Payment).where(
+                Payment.id == payment_id,
+                Payment.venue_id == venue_id,
+                Payment.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if payment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Payment not found")
+
+    # Authorization
+    if current.role.value not in ("admin", "kj") and str(payment.singer_id) != str(current.id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Cannot view this payment")
+
+    refund_at = payment.refunded_at or _NOW()
+    status_val = "refunded" if (payment.refund_amount_cents or 0) >= (payment.amount_cents or 0) else "partially_refunded"
+    if payment.status == "refunded" or payment.status == "partially_refunded":
+        status_val = payment.status  # type: ignore
+
+    return RefundOut(
+        payment_id=str(payment.id),
+        status=status_val,  # type: ignore[arg-type]
+        refund_amount_cents=payment.refund_amount_cents or 0,
+        original_amount_cents=payment.amount_cents,
+        refunded_at=payment.refunded_at if payment.refunded_at else "",
+        reason=None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# WEBHOOK SIMULATION (admin/KJ gated — useful for CI and staging)
+# ---------------------------------------------------------------------------
+
+from app.core.auth import require_admin
+
+@router.post("/simulate-webhook")
+async def simulate_webhook(
+    venue_id: str,
+    body: WebhookSimulationRequest,
+    _admin=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Simulate a Stripe webhook event for testing — admin/KJ only."""
+    payment = (
+        await db.execute(
+            select(Payment).where(
+                Payment.id == body.payment_id,
+                Payment.venue_id == venue_id,
+                Payment.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if payment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Payment not found")
+
+    now = _NOW()
+
+    if body.event_type == "payment_intent.succeeded":
+        payment.status = "succeeded"
+        payment.updated_at = now
+        if body.stripe_payment_intent_id:
+            payment.stripe_payment_intent_id = body.stripe_payment_intent_id
+        await db.commit()
+
+        # Trigger side effects
+        if payment.payment_type == "tip":
+            await _handle_tip_success(db, payment)
+        elif payment.payment_type == "priority_bump":
+            await _handle_priority_bump_success(db, payment)
+
+    elif body.event_type == "payment_intent.payment_failed":
+        payment.status = "failed"
+        payment.updated_at = now
+        await db.commit()
+
+    return {
+        "status": "ok",
+        "event_type": body.event_type,
+        "payment_id": str(payment.id),
+        "new_status": payment.status,
+    }

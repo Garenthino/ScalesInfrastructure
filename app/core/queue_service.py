@@ -20,7 +20,7 @@ def _NOW():
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-ROTATION_MODES = {"fifo", "round_robin", "vip_priority"}
+ROTATION_MODES = {"fifo", "round_robin", "vip_priority", "balanced"}
 ACTIVE_STATUSES = {"pending", "approved", "now_playing"}
 
 
@@ -149,13 +149,26 @@ class QueueService:
                 ),
             )
 
-        # Default: round_robin — group by singer, each singer gets one turn before repeating
+        if mode == "balanced":
+            # Sort by min number of completed requests per singer (spread the love),
+            # then by FIFO within same count
+            def _balanced_key(item: QueueRequest):
+                singer = getattr(item, "singer", None)
+                perf_count = getattr(singer, "total_points", 0)  # proxy for activity level
+                perf_count = perf_count // 25 if perf_count else 0
+                return (perf_count, item.requested_at or "")
+            return sorted(items, key=_balanced_key)
+
+        # Default: round_robin
+        return QueueService._interleave_by_singer(items)
+
+    @staticmethod
+    def _interleave_by_singer(items: list[QueueRequest]) -> list[QueueRequest]:
         singer_groups: dict[str, list[QueueRequest]] = {}
         for item in items:
             sid = getattr(item, "singer_id", "")
             singer_groups.setdefault(sid, []).append(item)
 
-        # Order groups by their first request time
         for sid in singer_groups:
             singer_groups[sid].sort(key=lambda i: i.requested_at or "")
 
@@ -164,7 +177,6 @@ class QueueService:
             key=lambda kv: kv[1][0].requested_at or "",
         )
 
-        # Interleave: take first from each group, then seconds, etc.
         round_robin: list[QueueRequest] = []
         group_iters = [iter(g) for _, g in ordered_groups]
         while group_iters:
@@ -382,9 +394,208 @@ class QueueService:
         # Return in the requested order
         return [existing[rid] for rid in ordered_ids]
 
-    # -----------------------------------------------------------------------
-    # Rotation session helpers
-    # -----------------------------------------------------------------------
+    async def reorder_by_singer(
+        self,
+        venue_id: str,
+        singer_ids: list[str],
+        mode: str = "round_robin",
+    ) -> list[QueueRequest]:
+        """Reorder the queue by providing an ordered list of singer_ids.
+
+        For each singer in the list, fetch their active requests at this venue,
+        ordered by requested_at (FIFO), then concatenate. Singers not in the
+        list are appended after in FIFO order.
+        """
+        if not singer_ids:
+            return await self.get_active_queue(venue_id, mode=mode)
+
+        # Get all active requests at this venue
+        from sqlalchemy.orm import selectinload
+        stmt = (
+            select(QueueRequest)
+            .where(
+                QueueRequest.venue_id == venue_id,
+                QueueRequest.status.in_(list(ACTIVE_STATUSES)),
+                QueueRequest.deleted_at.is_(None),
+            )
+            .options(selectinload(QueueRequest.singer), selectinload(QueueRequest.song))
+        )
+        result = await self.db.execute(stmt)
+        all_items = list(result.scalars().all())
+
+        # Group by singer_id
+        by_singer: dict[str, list[QueueRequest]] = {}
+        for item in all_items:
+            sid = str(item.singer_id)
+            by_singer.setdefault(sid, []).append(item)
+        for sid in by_singer:
+            by_singer[sid].sort(key=lambda i: i.requested_at or "")
+
+        # Build ordered output
+        ordered: list[QueueRequest] = []
+        seen_singers: set[str] = set()
+        for sid in singer_ids:
+            if sid in by_singer:
+                ordered.extend(by_singer[sid])
+                seen_singers.add(sid)
+
+        # Append remaining singers not in the input list, in FIFO order
+        remaining = [sid for sid in by_singer if sid not in seen_singers]
+        for sid in remaining:
+            ordered.extend(by_singer[sid])
+
+        # Rewrite rotation_position
+        for idx, item in enumerate(ordered, start=1):
+            item.rotation_position = idx
+            item.updated_at = _NOW()
+
+        await self.db.commit()
+        await QueueEventPublisher.publish(
+            venue_id, "queue_updated", {"action": "reordered_by_singer"}
+        )
+        return ordered
+
+    async def skip_to_end(self, venue_id: str, request_id: str) -> QueueRequest:
+        """Move a request to the end of the queue (max rotation_position + 1)."""
+        item = await self._get_item(venue_id, request_id)
+        if item.status not in {"pending", "approved", "now_playing"}:
+            raise ValueError(f"Cannot skip a request with status '{item.status}'")
+        # Find max rotation position
+        from sqlalchemy import func
+        max_pos = (
+            await self.db.execute(
+                select(func.coalesce(func.max(QueueRequest.rotation_position), 0))
+                .select_from(QueueRequest)
+                .where(
+                    QueueRequest.venue_id == venue_id,
+                    QueueRequest.status.in_(list(ACTIVE_STATUSES)),
+                    QueueRequest.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one()
+        item.rotation_position = max_pos + 1
+        item.updated_at = _NOW()
+        await self.db.commit()
+        await self.db.refresh(item)
+        await QueueEventPublisher.publish(
+            venue_id, "queue_updated", {"request_id": request_id, "action": "skipped_to_end"}
+        )
+        return item
+
+    async def get_analytics(self, venue_id: str) -> dict[str, Any]:
+        """Return queue throughput, avg wait, top songs for the venue."""
+        from sqlalchemy import func
+        from datetime import datetime, timezone
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today_prefix = today[:10]
+
+        # total requests today
+        total_today = (
+            await self.db.execute(
+                select(func.count())
+                .select_from(QueueRequest)
+                .where(
+                    QueueRequest.venue_id == venue_id,
+                    QueueRequest.requested_at.like(f"{today_prefix}%"),
+                    QueueRequest.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one()
+
+        # completed today
+        completed_today = (
+            await self.db.execute(
+                select(func.count())
+                .select_from(QueueRequest)
+                .where(
+                    QueueRequest.venue_id == venue_id,
+                    QueueRequest.status == "completed",
+                    QueueRequest.played_at.like(f"{today_prefix}%"),
+                    QueueRequest.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one()
+
+        # avg wait seconds (all completed requests)
+        wait_rows = (
+            await self.db.execute(
+                select(QueueRequest.requested_at, QueueRequest.played_at)
+                .where(
+                    QueueRequest.venue_id == venue_id,
+                    QueueRequest.status == "completed",
+                    QueueRequest.deleted_at.is_(None),
+                )
+            )
+        ).all()
+        waits = []
+        for req_at, play_at in wait_rows:
+            if req_at and play_at:
+                try:
+                    dt_req = datetime.fromisoformat(req_at.replace("Z", "+00:00"))
+                    dt_play = datetime.fromisoformat(play_at.replace("Z", "+00:00"))
+                    waits.append((dt_play - dt_req).total_seconds())
+                except Exception:
+                    pass
+        avg_wait = round(sum(waits) / len(waits), 2) if waits else None
+
+        # top songs (all time, by request count)
+        from app.models import Song
+        top_rows = (
+            await self.db.execute(
+                select(
+                    QueueRequest.song_id,
+                    Song.title,
+                    Song.artist,
+                    func.count().label("cnt"),
+                )
+                .join(Song, QueueRequest.song_id == Song.id)
+                .where(
+                    QueueRequest.venue_id == venue_id,
+                    QueueRequest.deleted_at.is_(None),
+                )
+                .group_by(QueueRequest.song_id, Song.title, Song.artist)
+                .order_by(func.count().desc())
+                .limit(10)
+            )
+        ).all()
+        top_songs = [
+            {"song_id": str(r.song_id), "title": r.title, "artist": r.artist, "request_count": r.cnt}
+            for r in top_rows
+        ]
+
+        # throughput per hour for today
+        hour_rows = (
+            await self.db.execute(
+                select(QueueRequest.played_at)
+                .where(
+                    QueueRequest.venue_id == venue_id,
+                    QueueRequest.status.in_(["completed", "skipped"]),
+                    QueueRequest.played_at.like(f"{today_prefix}%"),
+                    QueueRequest.deleted_at.is_(None),
+                )
+            )
+        ).all()
+        hour_counts = {h: 0 for h in range(24)}
+        for (ts,) in hour_rows:
+            if ts:
+                try:
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    hour_counts[dt.hour] += 1
+                except Exception:
+                    pass
+        throughput = [
+            {"hour": h, "count": hour_counts[h]}
+            for h in range(24)
+        ]
+
+        return {
+            "total_requests_today": total_today,
+            "completed_today": completed_today,
+            "avg_wait_seconds": avg_wait,
+            "top_songs": top_songs,
+            "throughput_per_hour": throughput,
+        }
 
     async def get_active_rotation_session(self, venue_id: str) -> RotationSession | None:
         stmt = (
