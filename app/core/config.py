@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     CORS_ORIGINS_PROD: str | None = None
     REQUEST_MAX_BODY_SIZE_MB: float = 1.0
 
+    # Stripe
+    STRIPE_TEST_SECRET_KEY: str | None = None
+    STRIPE_WEBHOOK_SECRET: str | None = None
+
     @model_validator(mode="after")
     def _reject_default_jwt_secret(self):
         if self.ENVIRONMENT != "development" and (

@@ -89,6 +89,13 @@ from app.schemas.dto import (
     SingerQueueHistoryOut,
     SingerQueueStatus,
     SingerMeUpdate,
+    # Payments
+    PaymentCreate,
+    TipRequest,
+    PriorityBumpRequest,
+    PaymentIntentOut,
+    PaymentOut,
+    PaymentHistoryOut,
     # Sync
     SyncQueueItem,
     SyncQueuePushPayload,

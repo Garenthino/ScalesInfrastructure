@@ -203,6 +203,33 @@ class CheckInSession(Base):
     venue = relationship("Venue")
 
 
+class Payment(Base):
+    __tablename__ = "payments"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
+    singer_id = Column(String(36), ForeignKey("singers.id"), nullable=False)
+    recipient_id = Column(String(36), ForeignKey("singers.id"), nullable=True)  # tip recipient
+    amount_cents = Column(Integer, nullable=False)
+    currency = Column(Text, default="USD")
+    payment_type = Column(Text, nullable=False)  # tip | priority_bump
+    stripe_payment_intent_id = Column(Text, unique=True)
+    status = Column(Text, nullable=False, default="pending")  # pending | succeeded | failed | canceled
+    metadata_json = Column(Text)
+    reference_type = Column(Text)  # e.g. queue_request
+    reference_id = Column(Text)
+    created_at = Column(Text, default=_now_iso)
+    updated_at = Column(Text, default=_now_iso, onupdate=_now_iso)
+    deleted_at = Column(Text)
+
+    __table_args__ = (
+        CheckConstraint("payment_type IN ('tip','priority_bump')"),
+        CheckConstraint("status IN ('pending','succeeded','failed','canceled')"),
+        Index("ix_payments_venue_singer", "venue_id", "singer_id"),
+        Index("ix_payments_stripe_pi", "stripe_payment_intent_id"),
+    )
+
+
 class SongCategory(Base):
     __tablename__ = "song_categories"
 

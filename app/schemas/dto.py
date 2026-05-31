@@ -423,6 +423,50 @@ class ManualAwardRequest(ScalesModel):
 
 
 # ---------------------------------------------------------------------------
+# Payments
+# ---------------------------------------------------------------------------
+
+class PaymentCreate(ScalesModel):
+    amount_cents: int = Field(..., ge=100, description="Minimum $1 (100 cents)")
+    currency: str = "USD"
+
+
+class TipRequest(PaymentCreate):
+    recipient_id: str
+    kj_id: str | None = None  # Optional: if different from recipient
+
+
+class PriorityBumpRequest(PaymentCreate):
+    request_id: str
+
+
+class PaymentIntentOut(ScalesModel):
+    client_secret: str
+    payment_intent_id: str
+
+
+class PaymentOut(ScalesModel):
+    id: str
+    venue_id: str
+    singer_id: str
+    recipient_id: str | None = None
+    amount_cents: int
+    currency: str
+    payment_type: Literal["tip", "priority_bump"]
+    status: Literal["pending", "succeeded", "failed", "canceled"]
+    created_at: str
+    updated_at: str
+    formatted_amount: str | None = None
+
+
+class PaymentHistoryOut(ScalesModel):
+    items: list[PaymentOut]
+    total: int
+    page: int
+    per_page: int
+
+
+# ---------------------------------------------------------------------------
 # Commerce
 # ---------------------------------------------------------------------------
 
