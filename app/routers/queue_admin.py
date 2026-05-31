@@ -32,6 +32,14 @@ def _singer_out_model(singer) -> SingerOut | None:
     if singer is None:
         return None
     data = {k: getattr(singer, k) for k in singer.__table__.columns.keys()}
+    # Frontend-compatible aliases (must match SingerOut expectations)
+    data["singer_id"] = data["id"]
+    data["name"] = data.get("stage_name", "")
+    data["display_name"] = data.get("stage_name", "")
+    data["tier"] = data.get("loyalty_tier_id", "none") or "none"
+    data["total_visits"] = 0
+    data["last_visit_date"] = data.get("last_seen", None)
+    data["status"] = "banned" if data.get("deactivated_at") else "active"
     return SingerOut(**data)
 
 

@@ -70,6 +70,8 @@ from app.schemas.dto import (
     SongPopularityEntry,
     HourlyBreakdownItem,
     SingerStatsOut,
+    SingerProfileStats,
+    SingerMeUpdate,
     # Social
     LeaderboardEntryOut,
     ConsentSettings,

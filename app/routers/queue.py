@@ -67,21 +67,35 @@ def _song_out(song) -> dict[str, Any]:
     }
 
 
-def _singer_out(singer) -> dict[str, Any]:
+def _singer_out(singer) -> dict[str, Any] | None:
     if singer is None:
-        return {"id": None, "stage_name": "Unknown", "venue_id": None, "total_points": 0, "loyalty_tier_id": None, "created_at": None, "updated_at": None}
+        return None
     data = {k: getattr(singer, k) for k in singer.__table__.columns.keys()}
     return {
         "id": data["id"],
+        "singer_id": data["id"],
         "venue_id": data["venue_id"],
+        "name": data["stage_name"],
         "stage_name": data["stage_name"],
+        "display_name": data.get("stage_name"),
         "real_name": data.get("real_name"),
         "pronouns": data.get("pronouns"),
         "email": data.get("email"),
         "phone": data.get("phone"),
         "notes": data.get("notes"),
+        "bio": data.get("bio"),
+        "avatar_url": data.get("avatar_url"),
+        "social_links": data.get("social_links"),
         "total_points": data.get("total_points", 0),
         "loyalty_tier_id": data.get("loyalty_tier_id"),
+        "tier": data.get("loyalty_tier_id", "none") or "none",
+        "total_visits": 0,
+        "last_visit_date": data.get("last_seen"),
+        "last_seen": data.get("last_seen"),
+        "status": "banned" if data.get("deactivated_at") else "active",
+        "is_checked_in": False,
+        "checked_in_at": None,
+        "deactivated_at": data.get("deactivated_at"),
         "created_at": data["created_at"],
         "updated_at": data["updated_at"],
     }

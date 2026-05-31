@@ -63,3 +63,4 @@ logs/
 temp/
 tmp/
 *.tmp
+uploads/

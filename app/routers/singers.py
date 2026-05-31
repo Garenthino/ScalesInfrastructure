@@ -1,8 +1,10 @@
 """Singer CRUD router — venue-scoped with RBAC."""
 
 from datetime import datetime, timezone, timedelta
+import os
+import uuid as _uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, cast, DateTime
 
@@ -20,6 +22,8 @@ from app.schemas import (
     SingerHistoryOut,
     SingerHistoryItem,
     SingerPortalStats,
+    SingerProfileStats,
+    SingerMeUpdate,
 )
 
 router = APIRouter()
@@ -425,6 +429,208 @@ async def get_stats(
 
     return SingerPortalStats(
         songs_sung=songs_sung,
+        avg_wait_min=avg_wait_min,
+        favorite_genre=favorite_genre,
+    )
+
+
+_AVATAR_UPLOAD_DIR = os.environ.get(
+    "AVATAR_UPLOAD_DIR",
+    os.path.join(os.path.dirname(__file__), "..", "..", "uploads", "avatars"),
+)
+_MAX_AVATAR_BYTES = 5 * 1024 * 1024
+_ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+
+
+@router.put("/me", response_model=SingerOut)
+async def update_me(
+    venue_id: str,
+    body: SingerMeUpdate,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update own singer profile (self-service, narrow scope)."""
+    _require_venue(venue_id, current)
+
+    singer = (
+        await db.execute(
+            select(Singer).where(
+                Singer.id == current.id,
+                Singer.venue_id == venue_id,
+                Singer.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if singer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
+
+    update_data = body.model_dump(exclude_unset=True)
+    allowed = {"stage_name", "real_name", "pronouns", "phone", "bio", "social_links"}
+    for key, value in update_data.items():
+        if key in allowed:
+            if value is not None:
+                setattr(singer, key, value)
+
+    singer.updated_at = _now_iso()
+    await db.commit()
+    await db.refresh(singer)
+    return _singer_out(singer)
+
+
+@router.post("/me/avatar", response_model=SingerOut)
+async def upload_avatar(
+    venue_id: str,
+    file: UploadFile = File(...),
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload singer avatar image (self-service). Max 5MB. JPEG/PNG/WebP/GIF only."""
+    _require_venue(venue_id, current)
+
+    singer = (
+        await db.execute(
+            select(Singer).where(
+                Singer.id == current.id,
+                Singer.venue_id == venue_id,
+                Singer.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if singer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
+
+    content_type = file.content_type or ""
+    if content_type not in _ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Invalid image type: {content_type}. Allowed: JPEG, PNG, WebP, GIF",
+        )
+
+    contents = await file.read()
+    if len(contents) > _MAX_AVATAR_BYTES:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Avatar too large. Max {_MAX_AVATAR_BYTES // (1024 * 1024)}MB allowed.",
+        )
+
+    os.makedirs(_AVATAR_UPLOAD_DIR, exist_ok=True)
+    ext = content_type.split("/")[-1].replace("jpeg", "jpg")
+    filename = f"{singer.id}_{_uuid.uuid4().hex[:8]}.{ext}"
+    filepath = os.path.join(_AVATAR_UPLOAD_DIR, filename)
+
+    with open(filepath, "wb") as f:
+        f.write(contents)
+
+    singer.avatar_url = f"/uploads/avatars/{filename}"
+    singer.updated_at = _now_iso()
+    await db.commit()
+    await db.refresh(singer)
+    return _singer_out(singer)
+
+
+@router.get("/me/stats", response_model=SingerProfileStats)
+async def get_me_stats(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return comprehensive self-service stats for the authenticated singer."""
+    _require_venue(venue_id, current)
+
+    # Songs sung
+    songs_sung_result = await db.execute(
+        select(func.count())
+        .select_from(QueueRequest)
+        .where(
+            QueueRequest.venue_id == venue_id,
+            QueueRequest.singer_id == current.id,
+            QueueRequest.status == "completed",
+            QueueRequest.deleted_at.is_(None),
+        )
+    )
+    songs_sung = songs_sung_result.scalar_one() or 0
+
+    # Total check-ins (count of sessions ever created)
+    checkins_result = await db.execute(
+        select(func.count())
+        .select_from(CheckInSession)
+        .where(
+            CheckInSession.venue_id == venue_id,
+            CheckInSession.singer_id == current.id,
+        )
+    )
+    total_checkins = checkins_result.scalar_one() or 0
+
+    # Avg wait
+    avg_wait_result = await db.execute(
+        select(
+            func.avg(
+                func.extract('epoch', cast(QueueRequest.played_at, DateTime))
+                - func.extract('epoch', cast(QueueRequest.requested_at, DateTime))
+            )
+        )
+        .where(
+            QueueRequest.venue_id == venue_id,
+            QueueRequest.singer_id == current.id,
+            QueueRequest.status == "completed",
+            QueueRequest.played_at.isnot(None),
+            QueueRequest.deleted_at.is_(None),
+        )
+    )
+    avg_wait_sec = avg_wait_result.scalar_one()
+    avg_wait_min = round(avg_wait_sec / 60.0, 2) if avg_wait_sec is not None else None
+
+    # Favorite genre
+    fav_genre_result = await db.execute(
+        select(Song.genre, func.count())
+        .join(QueueRequest, QueueRequest.song_id == Song.id)
+        .where(
+            QueueRequest.venue_id == venue_id,
+            QueueRequest.singer_id == current.id,
+            QueueRequest.status == "completed",
+            QueueRequest.deleted_at.is_(None),
+        )
+        .group_by(Song.genre)
+        .order_by(func.count().desc())
+        .limit(1)
+    )
+    fav_genre_row = fav_genre_result.first()
+    favorite_genre = str(fav_genre_row[0]) if fav_genre_row and fav_genre_row[0] else None
+
+    # Top songs
+    top_songs_result = await db.execute(
+        select(Song.title, Song.artist, func.count())
+        .join(QueueRequest, QueueRequest.song_id == Song.id)
+        .where(
+            QueueRequest.venue_id == venue_id,
+            QueueRequest.singer_id == current.id,
+            QueueRequest.status.in_(("completed", "now_playing")),
+            QueueRequest.deleted_at.is_(None),
+        )
+        .group_by(Song.id)
+        .order_by(func.count().desc())
+        .limit(5)
+    )
+    top_songs = [
+        {"title": str(row[0]), "artist": str(row[1]), "count": row[2]}
+        for row in top_songs_result.all()
+    ]
+
+    # Total points from singer record
+    singer = (
+        await db.execute(
+            select(Singer).where(Singer.id == current.id, Singer.venue_id == venue_id)
+        )
+    ).scalar_one_or_none()
+    total_points = singer.total_points if singer else 0
+
+    return SingerProfileStats(
+        songs_sung=songs_sung,
+        total_checkins=total_checkins,
+        total_points=total_points,
+        top_songs=top_songs,
         avg_wait_min=avg_wait_min,
         favorite_genre=favorite_genre,
     )

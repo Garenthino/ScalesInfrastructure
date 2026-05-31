@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import os
 
 from app.core.config import settings
 from app.core.logging import configure_logging
@@ -17,6 +18,8 @@ from app.middleware import (
 )
 from app.middleware.observability import ObservabilityMiddleware
 from app.websockets.queue_ws import router as ws_router
+
+from fastapi.staticfiles import StaticFiles
 
 
 @asynccontextmanager
@@ -60,4 +63,9 @@ app.add_middleware(
 
 app.include_router(health_router, tags=["Health"])
 app.include_router(api_router, prefix="/v1")
+
+# Serve static uploads (avatars etc.)
+_UPLOADS_ROOT = os.path.join(os.path.dirname(__file__), "..", "uploads")
+app.mount("/uploads", StaticFiles(directory=_UPLOADS_ROOT, check_dir=False), name="uploads")
+
 app.include_router(ws_router, tags=["WebSocket"])

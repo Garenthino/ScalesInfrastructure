@@ -222,6 +222,10 @@ class SingerUpdate(ScalesModel):
     email: str | None = None
     phone: str | None = None
     notes: str | None = None
+    bio: str | None = Field(None, max_length=500)
+    avatar_url: str | None = Field(None, max_length=500)
+    social_links: str | None = Field(None, max_length=1000)
+    loyalty_tier_id: str | None = None
 
 
 class SingerOut(SingerBase):
@@ -239,6 +243,9 @@ class SingerOut(SingerBase):
     last_seen: str | None = None
     is_checked_in: bool = False
     checked_in_at: str | None = None
+    bio: str | None = None
+    avatar_url: str | None = None
+    social_links: str | None = None
     deactivated_at: str | None = None
     created_at: str
     updated_at: str
@@ -594,6 +601,26 @@ class SingerPortalStats(ScalesModel):
     songs_sung: int
     avg_wait_min: float | None = None
     favorite_genre: str | None = None
+
+
+class SingerProfileStats(ScalesModel):
+    """Extended self-service stats: songs sung, check-ins, total points, top songs."""
+    songs_sung: int
+    total_checkins: int
+    total_points: int
+    top_songs: list[dict]
+    avg_wait_min: float | None = None
+    favorite_genre: str | None = None
+
+
+class SingerMeUpdate(ScalesModel):
+    """Self-service profile update body (singer can update only their own profile)."""
+    stage_name: str | None = Field(None, min_length=1, max_length=50)
+    real_name: str | None = None
+    pronouns: str | None = None
+    phone: str | None = None
+    bio: str | None = Field(None, max_length=500)
+    social_links: str | None = Field(None, max_length=1000)
 
 
 # ---------------------------------------------------------------------------
