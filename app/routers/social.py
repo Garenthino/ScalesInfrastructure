@@ -1,11 +1,10 @@
-"""Social / leaderboard router — share achievements and view rankings.
+"""Social router — leaderboard + share.
 
 Endpoints
 ---------
 Public / Authenticated:
-    GET  /venues/{venue_id}/leaderboard         — venue-wide rankings
-    GET  /venues/{venue_id}/leaderboard/{singer_id} — single entry
-    POST /venues/{venue_id}/leaderboard/share  — generate share link
+    GET  /venues/{venue_id}/leaderboard         — venue-wide rankings by period
+    POST /venues/{venue_id}/leaderboard/share   — generate share link
 """
 
 from __future__ import annotations
@@ -19,18 +18,15 @@ from sqlalchemy import select, func
 
 from app.core.auth import get_current_user, SingerUser
 from app.core.db import get_db
-from app.models import Singer, QueueRequest, ShareEvent, Venue
+from app.models import Venue, Singer, ShareEvent, QueueRequest
 from app.schemas import LeaderboardEntryOut, PaginatedResponse, ShareRequest, ShareResponse
+from app.core.points_service import get_points_leaderboard
 
 router = APIRouter()
 
 
 def NOW() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _now_plus(days: int) -> str:
-    return (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 async def _require_venue(db: AsyncSession, venue_id: str) -> Venue:
@@ -49,225 +45,39 @@ async def _require_venue(db: AsyncSession, venue_id: str) -> Venue:
 
 
 # ---------------------------------------------------------------------------
-# Leaderboard helpers
-# ---------------------------------------------------------------------------
-
-async def _rank_by_points(
-    db: AsyncSession, venue_id: str, page: int, per_page: int
-) -> tuple[list[LeaderboardEntryOut], int]:
-    """Rank singers by total_points (highest first)."""
-    total = (
-        await db.execute(
-            select(func.count())
-            .select_from(Singer)
-            .where(
-                Singer.venue_id == venue_id,
-                Singer.deleted_at.is_(None),
-                Singer.deactivated_at.is_(None),
-            )
-        )
-    ).scalar_one()
-
-    offset = (page - 1) * per_page
-    singers = (
-        await db.execute(
-            select(Singer)
-            .where(
-                Singer.venue_id == venue_id,
-                Singer.deleted_at.is_(None),
-                Singer.deactivated_at.is_(None),
-            )
-            .order_by(Singer.total_points.desc().nulls_last(), Singer.created_at.asc())
-            .offset(offset)
-            .limit(per_page)
-        )
-    ).scalars().all()
-
-    items: list[LeaderboardEntryOut] = []
-    for idx, singer in enumerate(singers, start=offset + 1):
-        items.append(
-            LeaderboardEntryOut(
-                rank=idx,
-                singer_id=str(singer.id),
-                nickname=singer.stage_name or None,
-                avatar_url=None,
-                score=float(singer.total_points or 0),
-                songs_sung=0,  # filled below
-                trend="stable",
-            )
-        )
-    return items, total
-
-
-async def _rank_by_songs(
-    db: AsyncSession, venue_id: str, page: int, per_page: int
-) -> tuple[list[LeaderboardEntryOut], int]:
-    """Rank singers by completed songs count."""
-    stmt = (
-        select(
-            Singer,
-            func.count(QueueRequest.id).label("songs_sung"),
-        )
-        .outerjoin(
-            QueueRequest,
-            (Singer.id == QueueRequest.singer_id)
-            & (QueueRequest.status == "completed")
-            & (QueueRequest.deleted_at.is_(None)),
-        )
-        .where(
-            Singer.venue_id == venue_id,
-            Singer.deleted_at.is_(None),
-            Singer.deactivated_at.is_(None),
-        )
-        .group_by(Singer.id)
-        .order_by(func.count(QueueRequest.id).desc(), Singer.created_at.asc())
-    )
-
-    total = (
-        await db.execute(
-            select(func.count())
-            .select_from(Singer)
-            .where(
-                Singer.venue_id == venue_id,
-                Singer.deleted_at.is_(None),
-                Singer.deactivated_at.is_(None),
-            )
-        )
-    ).scalar_one()
-
-    offset = (page - 1) * per_page
-    result = await db.execute(stmt.offset(offset).limit(per_page))
-
-    items: list[LeaderboardEntryOut] = []
-    for idx, (singer, songs_sung) in enumerate(result.all(), start=offset + 1):
-        items.append(
-            LeaderboardEntryOut(
-                rank=idx,
-                singer_id=str(singer.id),
-                nickname=singer.stage_name or None,
-                avatar_url=None,
-                score=float(songs_sung or 0),
-                songs_sung=int(songs_sung or 0),
-                trend="stable",
-            )
-        )
-    return items, total
-
-
-async def _rank_by_participation(
-    db: AsyncSession, venue_id: str, page: int, per_page: int
-) -> tuple[list[LeaderboardEntryOut], int]:
-    """Rank singers by total queue requests (participation)."""
-    stmt = (
-        select(
-            Singer,
-            func.count(QueueRequest.id).label("participation"),
-        )
-        .outerjoin(
-            QueueRequest,
-            (Singer.id == QueueRequest.singer_id)
-            & (QueueRequest.deleted_at.is_(None)),
-        )
-        .where(
-            Singer.venue_id == venue_id,
-            Singer.deleted_at.is_(None),
-            Singer.deactivated_at.is_(None),
-        )
-        .group_by(Singer.id)
-        .order_by(func.count(QueueRequest.id).desc(), Singer.created_at.asc())
-    )
-
-    total = (
-        await db.execute(
-            select(func.count())
-            .select_from(Singer)
-            .where(
-                Singer.venue_id == venue_id,
-                Singer.deleted_at.is_(None),
-                Singer.deactivated_at.is_(None),
-            )
-        )
-    ).scalar_one()
-
-    offset = (page - 1) * per_page
-    result = await db.execute(stmt.offset(offset).limit(per_page))
-
-    items: list[LeaderboardEntryOut] = []
-    for idx, (singer, part) in enumerate(result.all(), start=offset + 1):
-        items.append(
-            LeaderboardEntryOut(
-                rank=idx,
-                singer_id=str(singer.id),
-                nickname=singer.stage_name or None,
-                avatar_url=None,
-                score=float(part or 0),
-                songs_sung=0,  # filled below if needed
-                trend="stable",
-            )
-        )
-    return items, total
-
-
-async def _fill_songs_counts(
-    db: AsyncSession, venue_id: str, items: list[LeaderboardEntryOut]
-) -> None:
-    """Back-fill songs_sung for singer rows in the result set."""
-    singer_ids = [item.singer_id for item in items]
-    if not singer_ids:
-        return
-    result = await db.execute(
-        select(QueueRequest.singer_id, func.count(QueueRequest.id))
-        .where(
-            QueueRequest.venue_id == venue_id,
-            QueueRequest.singer_id.in_(singer_ids),
-            QueueRequest.status == "completed",
-            QueueRequest.deleted_at.is_(None),
-        )
-        .group_by(QueueRequest.singer_id)
-    )
-    counts = {str(sid): int(cnt) for sid, cnt in result.all()}
-    for item in items:
-        item.songs_sung = counts.get(item.singer_id, 0)
-
-
-# ---------------------------------------------------------------------------
-# Endpoints
+# Leaderboard
 # ---------------------------------------------------------------------------
 
 @router.get("", response_model=PaginatedResponse[LeaderboardEntryOut])
 async def get_leaderboard(
     venue_id: str,
-    sort_by: str = Query("points", pattern=r"^(points|songs|participation)$"),
+    period: str = Query("alltime", pattern=r"^(week|month|alltime)$"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
-    """Venue-wide rankings. Sortable by total_points, songs_sung, or participation."""
+    """Venue-wide leaderboard ranked by points for the given period."""
     await _require_venue(db, venue_id)
-
-    if sort_by == "songs":
-        items, total = await _rank_by_songs(db, venue_id, page, per_page)
-    elif sort_by == "participation":
-        items, total = await _rank_by_participation(db, venue_id, page, per_page)
-    else:
-        items, total = await _rank_by_points(db, venue_id, page, per_page)
-
-    # Always enrich songs_sung
-    await _fill_songs_counts(db, venue_id, items)
-
-    # Re-score for points mode so score == points
-    if sort_by == "points":
-        for item in items:
-            item.score = float(item.score)  # already points
-
-    return PaginatedResponse(items=items, total=total, page=page, per_page=per_page)
+    items, total = await get_points_leaderboard(db, venue_id, period, page, per_page)
+    out = [
+        LeaderboardEntryOut(
+            rank=i["rank"],
+            singer_id=i["singer_id"],
+            nickname=i.get("nickname"),
+            avatar_url=i.get("avatar_url"),
+            score=i["score"],
+            songs_sung=i.get("songs_sung", 0),
+            trend="stable",
+        )
+        for i in items
+    ]
+    return PaginatedResponse(items=out, total=total, page=page, per_page=per_page)
 
 
 @router.get("/{singer_id}", response_model=LeaderboardEntryOut)
 async def get_leaderboard_entry(
     venue_id: str,
     singer_id: str,
-    sort_by: str = Query("points", pattern=r"^(points|songs|participation)$"),
     db: AsyncSession = Depends(get_db),
 ):
     """Return a single singer's leaderboard standing."""
@@ -286,20 +96,46 @@ async def get_leaderboard_entry(
     if singer is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
 
-    if sort_by == "songs":
-        all_entries, _ = await _rank_by_songs(db, venue_id, page=1, per_page=100_000)
-    elif sort_by == "participation":
-        all_entries, _ = await _rank_by_participation(db, venue_id, page=1, per_page=100_000)
-    else:
-        all_entries, _ = await _rank_by_points(db, venue_id, page=1, per_page=100_000)
+    # Compute rank
+    rank_stmt = (
+        select(func.count())
+        .select_from(Singer)
+        .where(
+            Singer.venue_id == venue_id,
+            Singer.deleted_at.is_(None),
+            Singer.deactivated_at.is_(None),
+            Singer.total_points > singer.total_points,
+        )
+    )
+    rank_result = await db.execute(rank_stmt)
+    rank = int(rank_result.scalar_one() or 0) + 1
 
-    await _fill_songs_counts(db, venue_id, all_entries)
+    songs_sung_result = await db.execute(
+        select(func.count())
+        .select_from(QueueRequest)
+        .where(
+            QueueRequest.venue_id == venue_id,
+            QueueRequest.singer_id == singer_id,
+            QueueRequest.status == "completed",
+            QueueRequest.deleted_at.is_(None),
+        )
+    )
+    songs_sung = int(songs_sung_result.scalar_one() or 0)
 
-    entry = next((entry for entry in all_entries if entry.singer_id == singer_id), None)
-    if entry is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not ranked")
-    return entry
+    return LeaderboardEntryOut(
+        rank=rank,
+        singer_id=str(singer.id),
+        nickname=singer.stage_name,
+        avatar_url=singer.avatar_url,
+        score=float(singer.total_points or 0),
+        songs_sung=songs_sung,
+        trend="stable",
+    )
 
+
+# ---------------------------------------------------------------------------
+# Share
+# ---------------------------------------------------------------------------
 
 @router.post("/share", response_model=ShareResponse)
 async def share_achievement(
@@ -340,4 +176,4 @@ async def share_achievement(
     db.add(event)
     await db.commit()
 
-    return ShareResponse(url=share_url, expires_at=_now_plus(7))
+    return ShareResponse(url=share_url, expires_at=(datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ"))

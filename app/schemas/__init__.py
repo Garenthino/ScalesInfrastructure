@@ -74,6 +74,10 @@ from app.schemas.dto import (
     ConsentSettings,
     ShareRequest,
     ShareResponse,
+    # Points & Achievements
+    PointsLedgerOut,
+    AchievementOut,
+    LeaderboardPeriodQuery,
     # Singer Portal
     SingerHistoryItem,
     SingerHistoryOut,

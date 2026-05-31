@@ -198,6 +198,13 @@ async def join_queue(
         venue_id, "queue_updated", {"request_id": req_id, "action": "joined"}
     )
 
+    # Award request points
+    from app.core.points_service import add_points
+    await add_points(
+        db, venue_id, current.id, 5,
+        "Song requested", "request", req_id,
+    )
+
     return QueueJoinResponse(
         request_id=req_id,
         estimated_position=est_pos or tail + 1,

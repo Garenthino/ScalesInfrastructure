@@ -11,7 +11,9 @@ from sqlalchemy import select, func, cast, DateTime
 from app.core.auth import get_current_user, SingerUser
 from app.core.permissions import Role, has_role
 from app.core.db import get_db
-from app.models import Singer, QueueRequest, Song, CheckInSession
+from app.models import Singer, QueueRequest, Song, CheckInSession, PointsLedger
+from pydantic import BaseModel, Field
+from app.core.points_service import add_points, get_points_leaderboard, get_achievements_for_singer
 from app.schemas import (
     SingerCreate,
     SingerUpdate,
@@ -29,7 +31,13 @@ from app.schemas import (
     SingerQueueHistoryItem,
     SingerQueueHistoryOut,
     SingerQueueStatus,
+    AchievementOut,
+    PointsLedgerOut,
 )
+
+class TipRequest(BaseModel):
+    amount_cents: int = Field(..., gt=0)
+    message: str | None = Field(None, max_length=200)
 
 from app.core.queue_service import QueueService, ACTIVE_STATUSES
 
@@ -155,6 +163,13 @@ async def check_in(
     singer.updated_at = now
     await db.commit()
     await db.refresh(singer)
+
+    # Award check-in points
+    from app.core.points_service import add_points
+    await add_points(
+        db, venue_id, current.id, 10,
+        "Checked in", "checkin", new_session.id,
+    )
 
     # Hydrate is_checked_in / checked_in_at on the response
     out = _singer_out(singer)
@@ -1041,4 +1056,118 @@ async def delete_singer(
 
     singer.deleted_at = _now_iso()
     await db.commit()
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Achievements
+# ---------------------------------------------------------------------------
+
+@router.get("/me/achievements", response_model=list[AchievementOut])
+async def list_achievements(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the current singer's achievements with progress and unlock state."""
+    _require_venue(venue_id, current)
+    raw = await get_achievements_for_singer(db, venue_id, current.id)
+    return [
+        AchievementOut(
+            achievement_key=r["achievement_key"],
+            name=r["name"],
+            description=r["description"],
+            icon=r.get("icon"),
+            progress=r["progress"],
+            target=r["target"],
+            unlocked_at=r["unlocked_at"],
+            unlocked=r["unlocked"],
+        )
+        for r in raw
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Points history
+# ---------------------------------------------------------------------------
+
+@router.get("/me/points", response_model=PaginatedResponse[PointsLedgerOut])
+async def get_my_points(
+    venue_id: str,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Paginated points ledger for the current singer."""
+    _require_venue(venue_id, current)
+
+    from sqlalchemy import func
+    total_result = await db.execute(
+        select(func.count())
+        .select_from(PointsLedger)
+        .where(
+            PointsLedger.venue_id == venue_id,
+            PointsLedger.singer_id == current.id,
+        )
+    )
+    total = total_result.scalar_one()
+
+    offset = (page - 1) * per_page
+    result = await db.execute(
+        select(PointsLedger)
+        .where(
+            PointsLedger.venue_id == venue_id,
+            PointsLedger.singer_id == current.id,
+        )
+        .order_by(PointsLedger.created_at.desc())
+        .offset(offset)
+        .limit(per_page)
+    )
+    items = result.scalars().all()
+    out = [
+        PointsLedgerOut(
+            id=str(row.id),
+            amount=int(row.amount) if row.amount is not None else 0,
+            reason=str(row.reason) if row.reason is not None else None,
+            reference_type=str(row.reference_type) if row.reference_type is not None else None,
+            reference_id=str(row.reference_id) if row.reference_id is not None else None,
+            created_at=str(row.created_at) if row.created_at is not None else "",
+        )
+        for row in items
+    ]
+    return PaginatedResponse(items=out, total=total, page=page, per_page=per_page)
+
+
+# ---------------------------------------------------------------------------
+# Tip (points purchase)
+# ---------------------------------------------------------------------------
+
+@router.post("/{singer_id}/tip", status_code=status.HTTP_204_NO_CONTENT)
+async def tip_singer(
+    venue_id: str,
+    singer_id: str,
+    body: TipRequest,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Tip another singer — awards points equal to tip amount in cents."""
+    _require_venue(venue_id, current)
+
+    target = (
+        await db.execute(
+            select(Singer).where(
+                Singer.id == singer_id,
+                Singer.venue_id == venue_id,
+                Singer.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
+
+    await add_points(
+        db, venue_id, singer_id, body.amount_cents,
+        body.message or "Tip received", "tip", str(current.id),
+    )
     return None

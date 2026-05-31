@@ -219,13 +219,18 @@ class QueueService:
         item.updated_at = _NOW()
         await self.db.commit()
         await self.db.refresh(item)
+        # Award performance points
+        from app.core.points_service import add_points
+        await add_points(
+            self.db, venue_id, str(item.singer_id), 25,
+            "Performance completed", "perform", request_id,
+        )
         await QueueEventPublisher.publish(
             venue_id, "singer_completed", {"request_id": request_id, "status": "completed"}
         )
         # Auto-advance: start next approved item in rotation order
         await self._auto_advance(venue_id)
         return item
-
     async def start(self, venue_id: str, request_id: str) -> QueueRequest:
         """Mark request as now_playing; enforce only 1 now_playing per venue."""
         existing = await self._get_now_playing(venue_id)

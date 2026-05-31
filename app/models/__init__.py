@@ -497,6 +497,43 @@ class Export(Base):
     deleted_at = Column(Text)
 
 
+class PointsLedger(Base):
+    __tablename__ = "points_ledger"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
+    singer_id = Column(String(36), ForeignKey("singers.id"), nullable=False)
+    amount = Column(Integer, nullable=False)
+    reason = Column(Text)
+    reference_type = Column(Text)  # checkin | request | perform | tip
+    reference_id = Column(Text)
+    created_at = Column(Text, default=_now_iso)
+
+    __table_args__ = (
+        Index("ix_points_venue_singer", "venue_id", "singer_id"),
+        Index("ix_points_venue_created", "venue_id", "created_at"),
+        Index("ix_points_singer_type", "singer_id", "reference_type"),
+    )
+
+
+class SingerAchievement(Base):
+    __tablename__ = "singer_achievements"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
+    singer_id = Column(String(36), ForeignKey("singers.id"), nullable=False)
+    achievement_key = Column(Text, nullable=False)  # first_song | iron_lungs | regular | big_spender
+    unlocked_at = Column(Text)
+    progress = Column(Integer, default=0)
+    created_at = Column(Text, default=_now_iso)
+    updated_at = Column(Text, default=_now_iso, onupdate=_now_iso)
+
+    __table_args__ = (
+        UniqueConstraint("venue_id", "singer_id", "achievement_key", name="uq_singer_achievement"),
+        Index("ix_singer_achievements_singer", "singer_id"),
+    )
+
+
 class KJSession(Base):
     __tablename__ = "kj_sessions"
 

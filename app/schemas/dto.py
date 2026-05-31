@@ -547,6 +547,36 @@ class LeaderboardEntryOut(ScalesModel):
     trend: Literal["up", "down", "stable"] = "stable"
 
 
+# ---------------------------------------------------------------------------
+# Points & Achievements
+# ---------------------------------------------------------------------------
+
+class PointsLedgerOut(ScalesModel):
+    id: str
+    amount: int
+    reason: str | None = None
+    reference_type: str | None = None
+    reference_id: str | None = None
+    created_at: str
+
+
+class AchievementOut(ScalesModel):
+    achievement_key: str
+    name: str
+    description: str
+    icon: str | None = None
+    progress: int
+    target: int
+    unlocked_at: str | None = None
+    unlocked: bool
+
+
+class LeaderboardPeriodQuery(ScalesModel):
+    period: Literal["week", "month", "alltime"] = "alltime"
+    page: int = Field(1, ge=1)
+    per_page: int = Field(20, ge=1, le=100)
+
+
 class ConsentSettings(ScalesModel):
     allow_leaderboard: bool = True
     allow_sharing: bool = True
