@@ -95,3 +95,5 @@ from app.schemas.dto import (
     SyncConflictDetail,
     SyncConflictResponse,
 )
+
+from app.schemas.favorites import FavoriteBase, FavoriteCreate, FavoriteOut
