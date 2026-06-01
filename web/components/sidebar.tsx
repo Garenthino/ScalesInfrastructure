@@ -14,9 +14,12 @@ import {
   Users,
   Monitor,
   Building2,
+  LayoutDashboard,
+  SlidersHorizontal,
 } from "lucide-react";
 
 const navItems = [
+  { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Queue", href: "/queue", icon: ListMusic },
   { label: "Singers", href: "/singers", icon: Users },
   { label: "Songs", href: "/songs", icon: Music },
@@ -24,6 +27,7 @@ const navItems = [
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
   { label: "Commerce", href: "/commerce", icon: ShoppingCart },
   { label: "Venue", href: "/venue", icon: Building2 },
+  { label: "Settings", href: "/settings", icon: SlidersHorizontal },
 ];
 
 const adminItems = [

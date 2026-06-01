@@ -28,6 +28,7 @@ export type QueueStatus = "pending" | "playing" | "completed" | "rejected";
 
 export interface QueueRequest {
   request_id: string;
+  singer_id?: string;
   position: number;
   singer_name: string;
   song_title: string;
@@ -60,6 +61,44 @@ export interface QueueMessage {
 
 export interface ReorderPayload {
   ordered_request_ids: string[];
+}
+
+export type RotationMode = "fifo" | "round_robin" | "balanced" | "vip_priority";
+
+export interface RotationModePayload {
+  mode: RotationMode;
+}
+
+export interface RotationModeOut {
+  venue_id: string;
+  mode: RotationMode;
+}
+
+export interface QueueAnalytics {
+  total_requests_today: number;
+  completed_today: number;
+  avg_wait_seconds: number | null;
+  top_songs: Array<{
+    song_id: string;
+    title: string;
+    artist: string;
+    play_count: number;
+  }>;
+  throughput_per_hour: Array<{
+    hour: number;
+    count: number;
+  }>;
+}
+
+export interface BanPayload {
+  reason?: string;
+}
+
+export interface BanResponse {
+  status: "banned";
+  singer_id: string;
+  banned_at: string;
+  reason: string | null;
 }
 
 // -- Commerce --

@@ -305,6 +305,58 @@ export async function reorderQueue(payload: ReorderPayload, token?: string): Pro
   return res.json();
 }
 
+export async function skipToEnd(venueId: string, requestId: string, token?: string): Promise<QueueRequest> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue/admin/skip-to-end`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ request_id: requestId }),
+  });
+  if (!res.ok) throw new Error("Skip to end failed");
+  return res.json();
+}
+
+export async function reorderQueueBySinger(venueId: string, singerIds: string[], token?: string): Promise<{ items: QueueRequest[]; total: number; active_mode: string }> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue/admin/reorder`, {
+    method: "PUT",
+    headers: authHeaders(token),
+    body: JSON.stringify({ singer_ids: singerIds }),
+  });
+  if (!res.ok) throw new Error("Reorder failed");
+  return res.json();
+}
+
+export async function fetchQueueAnalytics(venueId: string, token?: string): Promise<import("@/lib/types").QueueAnalytics> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue/admin/analytics`, { headers: authHeaders(token) });
+  if (!res.ok) throw new Error("Failed to fetch queue analytics");
+  return res.json();
+}
+
+export async function fetchRotationMode(venueId: string, token?: string): Promise<import("@/lib/types").RotationModeOut> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue/admin/mode`, { headers: authHeaders(token) });
+  if (!res.ok) throw new Error("Failed to fetch rotation mode");
+  return res.json();
+}
+
+export async function setRotationMode(venueId: string, mode: import("@/lib/types").RotationMode, token?: string): Promise<import("@/lib/types").RotationModeOut> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue/admin/mode`, {
+    method: "PUT",
+    headers: authHeaders(token),
+    body: JSON.stringify({ mode }),
+  });
+  if (!res.ok) throw new Error("Failed to set rotation mode");
+  return res.json();
+}
+
+export async function banSinger(venueId: string, singerId: string, reason?: string, token?: string): Promise<import("@/lib/types").BanResponse> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/singers/${encodeURIComponent(singerId)}/ban`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) throw new Error("Ban failed");
+  return res.json();
+}
+
 export async function addToQueue(
   payload: { song_id: string; singer_id?: string },
   token?: string
