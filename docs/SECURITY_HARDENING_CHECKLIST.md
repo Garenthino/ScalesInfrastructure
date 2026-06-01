@@ -1,7 +1,7 @@
 # MS-10B Security Hardening Checklist
 **Project:** ScalesInfrastructure
 **Date:** 2026-06-01
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 
 ---
 
@@ -79,10 +79,10 @@
 - [ ] Automated canary deploy: send 10% traffic to new build before full rollout
 
 ## 8. Monitoring & Alerting
-- [ ] Sentry DSN added to backend (`sentry-sdk[fastapi]` integration)
+- [x] Sentry DSN added to backend (`sentry-sdk[fastapi]` integration)
 - [ ] Sentry release tracking linked to GitHub commits
 - [ ] Uptime check via UptimeRobot / Pingdom / Statuspage
-- [ ] Prometheus metrics already exposed (`/metrics`)
+- [x] Prometheus metrics already exposed (`/metrics`)
 - [ ] Grafana dashboard for API latency, error rate, DB pool usage
 - [ ] PagerDuty / Opsgenie alert on health-check failure
 - [ ] Log aggregation (Loki / CloudWatch / Datadog)
@@ -91,6 +91,7 @@
 - [x] `docs/SECURITY.md` — threat model, data classification, incident response
 - [x] `docs/DEPLOYMENT.md` — step-by-step deploy + rollback instructions
 - [x] `docs/MONITORING.md` — metric definitions, alert thresholds, escalation
+- [x] `docs/SECURITY_HARDENING_CHECKLIST.md` — this checklist
 - [ ] `docs/SECRETS.md` — vault architecture, key rotation procedure
 - [ ] Annual security review scheduled
 

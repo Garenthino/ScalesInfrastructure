@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     STRIPE_TEST_SECRET_KEY: str | None = None
     STRIPE_WEBHOOK_SECRET: str | None = None
 
+    # Error tracking (optional — set SENTRY_DSN env var to enable)
+    SENTRY_DSN: str | None = None
+
     @model_validator(mode="after")
     def _reject_default_jwt_secret(self):
         if self.ENVIRONMENT != "development" and (

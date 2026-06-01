@@ -21,6 +21,17 @@ from app.websockets.queue_ws import router as ws_router
 
 from fastapi.staticfiles import StaticFiles
 
+# Initialize Sentry if configured (before app creation to capture startup errors)
+if settings.SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        release=settings.APP_VERSION,
+        environment=settings.ENVIRONMENT,
+        integrations=[FastApiIntegration()],
+    )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
