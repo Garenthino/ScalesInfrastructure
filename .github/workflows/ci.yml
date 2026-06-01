@@ -80,7 +80,7 @@ jobs:
           ssh-keyscan -H "$VPS_IP" >> ~/.ssh/known_hosts
           ssh -i ~/.ssh/id_rsa "${VPS_USER}@${VPS_IP}" '
             set -euo pipefail
-            cd /home/scales/ScalesInfrastructure
+            cd /home/garenthino/ScalesInfrastructure
             git pull origin main
             chmod +x scripts/backup_db.sh scripts/rollback.sh
             docker compose up -d --build
