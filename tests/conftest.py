@@ -24,6 +24,7 @@ _sec_mod._buckets.clear()
 
 # Prevent rate limiting from interfering with rapid test sequences
 settings.RATE_LIMIT_REQUESTS = 10_000
+settings.RATE_LIMIT_UNAUTHED_REQUESTS = 10_000
 settings.RATE_LIMIT_WINDOW = 60
 
 from app.main import app

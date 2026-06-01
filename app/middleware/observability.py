@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import urllib.parse
 from typing import Awaitable, Callable
@@ -10,6 +11,8 @@ import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+
+from app.core.audit_service import log_audit
 
 
 logger = structlog.get_logger()
@@ -82,4 +85,26 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
             path=path,
             query=str(request.query_params),
         )
+
+        # Audit log for authenticated requests (protected endpoints)
+        if user_id:
+            try:
+                client_ip = request.headers.get("x-forwarded-for", "")
+                client_ip = client_ip.split(",")[0].strip() if client_ip else (request.client.host if request.client else "")
+                asyncio.create_task(
+                    log_audit(
+                        action=f"{request.method} {request.url.path}",
+                        user_id=user_id,
+                        venue_id=venue_id,
+                        result="success" if response.status_code < 400 else "failure",
+                        status_code=response.status_code,
+                        ip_address=client_ip,
+                        user_agent=request.headers.get("user-agent"),
+                        request_id=request_id,
+                        resource_type=route.name if route else "unknown",
+                    )
+                )
+            except Exception:
+                logger.debug("audit_log_dispatch_failed", exc_info=True)
+
         return response

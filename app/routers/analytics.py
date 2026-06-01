@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, cast, DateTime
 
 from app.core.auth import get_current_user, SingerUser
 from app.core.permissions import Role, has_role
@@ -72,7 +72,6 @@ async def _require_singer_access(
         detail="Singer access denied",
     )
 
-
 # ---------------------------------------------------------------------------
 # Venue overview
 # ---------------------------------------------------------------------------
@@ -120,6 +119,7 @@ async def get_venue_overview(
     ).scalar_one()
 
     # avg_queue_wait_seconds: average time between requested_at and played_at
+    # NOTE: client-side computation for SQLite compat; PostgreSQL could use EXTRACT(epoch)
     wait_rows = (
         await db.execute(
             select(
@@ -147,34 +147,40 @@ async def get_venue_overview(
     if waits:
         avg_wait = round(sum(waits) / len(waits), 2)
 
-    # busiest_day and busiest_hour
-    # We count queue requests by hour and by day using requested_at
-    all_rows = (
+    # busiest_day and busiest_hour via SQL aggregation (cross-DB string slicing on ISO 8601)
+    day_rows = (
         await db.execute(
-            select(QueueRequest.requested_at)
+            select(
+                func.substr(QueueRequest.requested_at, 1, 10).label("day"),
+                func.count().label("cnt"),
+            )
             .where(
                 QueueRequest.venue_id == venue_id,
                 QueueRequest.deleted_at.is_(None),
             )
+            .group_by(func.substr(QueueRequest.requested_at, 1, 10))
+            .order_by(func.count().desc())
+            .limit(1)
         )
-    ).all()
+    ).first()
+    busiest_day = day_rows.day if day_rows else None
 
-    day_counts: dict[str, int] = {}
-    hour_counts: dict[int, int] = {}
-    for (ts,) in all_rows:
-        if not ts:
-            continue
-        try:
-            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            day = dt.strftime("%Y-%m-%d")
-            day_counts[day] = day_counts.get(day, 0) + 1
-            hour = dt.hour
-            hour_counts[hour] = hour_counts.get(hour, 0) + 1
-        except Exception:
-            pass
-
-    busiest_day = max(day_counts, key=day_counts.get) if day_counts else None
-    busiest_hour = max(hour_counts, key=hour_counts.get) if hour_counts else None
+    hour_rows = (
+        await db.execute(
+            select(
+                func.substr(QueueRequest.requested_at, 12, 2).label("hour"),
+                func.count().label("cnt"),
+            )
+            .where(
+                QueueRequest.venue_id == venue_id,
+                QueueRequest.deleted_at.is_(None),
+            )
+            .group_by(func.substr(QueueRequest.requested_at, 12, 2))
+            .order_by(func.count().desc())
+            .limit(1)
+        )
+    ).first()
+    busiest_hour = int(hour_rows.hour) if hour_rows else None
 
     return VenueOverviewOut(
         venue_id=venue_id,

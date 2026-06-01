@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 
 from app.core.auth import get_current_user, SingerUser
 from app.core.db import get_db
-from app.models import DeviceToken, Notification, Singer
+from app.models import DeviceToken, Notification, Singer, NotificationSetting
 from app.schemas import (
     DeviceTokenCreate,
     DeviceTokenOut,
@@ -17,6 +17,8 @@ from app.schemas import (
     NotificationMarkReadRequest,
     NotificationMarkReadResponse,
     PaginatedResponse,
+    NotificationSettingsOut,
+    NotificationSettingsUpdate,
 )
 
 router = APIRouter()
@@ -320,3 +322,129 @@ async def mark_read(
 
     await db.commit()
     return NotificationMarkReadResponse(marked_count=result.rowcount or 0)
+
+
+# ---------------------------------------------------------------------------
+# Unread Count
+# ---------------------------------------------------------------------------
+
+@router.get("/me/notifications/unread-count")
+async def unread_count(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return unread notification count for the current singer."""
+    _require_venue(venue_id, current)
+
+    count = (
+        await db.execute(
+            select(func.count())
+            .select_from(Notification)
+            .where(
+                Notification.singer_id == current.id,
+                Notification.venue_id == venue_id,
+                Notification.is_read == 0,
+            )
+        )
+    ).scalar_one()
+
+    return {"unread_count": count}
+
+
+# ---------------------------------------------------------------------------
+# Notification Settings
+# ---------------------------------------------------------------------------
+
+def _settings_out(s: NotificationSetting) -> NotificationSettingsOut:
+    return NotificationSettingsOut(
+        singer_id=str(s.singer_id),
+        venue_id=str(s.venue_id),
+        up_soon=bool(s.up_soon),
+        on_stage=bool(s.on_stage),
+        bumped=bool(s.bumped),
+        queue_update=bool(s.queue_update),
+        announcement=bool(s.announcement),
+        social=bool(s.social),
+        payment=bool(s.payment),
+        created_at=str(s.created_at),
+        updated_at=str(s.updated_at) if s.updated_at else None,
+    )
+
+
+async def _get_or_create_settings(
+    db: AsyncSession, singer_id: str, venue_id: str
+) -> NotificationSetting:
+    row = (
+        await db.execute(
+            select(NotificationSetting)
+            .where(
+                NotificationSetting.singer_id == singer_id,
+                NotificationSetting.venue_id == venue_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if row is None:
+        now = _now_iso()
+        row = NotificationSetting(
+            singer_id=singer_id,
+            venue_id=venue_id,
+            up_soon=1,
+            on_stage=1,
+            bumped=1,
+            queue_update=1,
+            announcement=1,
+            social=1,
+            payment=1,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+
+    return row
+
+
+@router.get("/me/notification-settings", response_model=NotificationSettingsOut)
+async def get_settings(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get current notification settings (auto-creates defaults if missing)."""
+    _require_venue(venue_id, current)
+    row = await _get_or_create_settings(db, current.id, venue_id)
+    return _settings_out(row)
+
+
+@router.put("/me/notification-settings", response_model=NotificationSettingsOut)
+async def update_settings(
+    venue_id: str,
+    body: NotificationSettingsUpdate,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update notification settings and return the updated record."""
+    _require_venue(venue_id, current)
+
+    row = await _get_or_create_settings(db, current.id, venue_id)
+
+    for field in (
+        "up_soon",
+        "on_stage",
+        "bumped",
+        "queue_update",
+        "announcement",
+        "social",
+        "payment",
+    ):
+        val = getattr(body, field, None)
+        if val is not None:
+            setattr(row, field, 1 if val else 0)
+
+    row.updated_at = _now_iso()
+    await db.commit()
+    await db.refresh(row)
+    return _settings_out(row)

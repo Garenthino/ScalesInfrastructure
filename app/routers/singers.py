@@ -280,25 +280,30 @@ async def list_checked_in_singers(
     result = await db.execute(stmt)
     items = [_singer_out(row) for row in result.scalars().all()]
 
-    # Hydrate checked-in state for each by looking up their CheckInSession
-    for item in items:
-        item.is_checked_in = True
-        # Fetch latest active session for this singer to get checked_in_at
+    # Batch-hydrate checked-in state: single query for all active sessions
+    singer_ids = [item.id for item in items]
+    if singer_ids:
         session_result = await db.execute(
             select(CheckInSession)
             .where(
-                CheckInSession.singer_id == item.id,
+                CheckInSession.singer_id.in_(singer_ids),
                 CheckInSession.venue_id == venue_id,
                 CheckInSession.expires_at > now,
             )
             .order_by(CheckInSession.checked_in_at.desc())
-            .limit(1)
         )
-        session_row = session_result.scalar_one_or_none()
-        if session_row:
-            item.checked_in_at = session_row.checked_in_at
-        else:
-            item.checked_in_at = None
+        sessions_by_singer: dict[str, CheckInSession] = {}
+        for sess in session_result.scalars().all():
+            sid = str(sess.singer_id)
+            if sid not in sessions_by_singer:
+                sessions_by_singer[sid] = sess
+    else:
+        sessions_by_singer = {}
+
+    for item in items:
+        item.is_checked_in = True
+        sess = sessions_by_singer.get(item.id)
+        item.checked_in_at = str(sess.checked_in_at) if sess and sess.checked_in_at else None
 
     return PaginatedResponse(
         items=items,

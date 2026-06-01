@@ -45,8 +45,8 @@ def _get_identity(request: Request) -> str:
     return f"ip:{_get_client_ip(request)}"
 
 
-async def _is_rate_limited(identity: str) -> tuple[bool, int]:
-    limit = settings.RATE_LIMIT_REQUESTS
+async def _is_rate_limited(identity: str, is_authenticated: bool) -> tuple[bool, int]:
+    limit = settings.RATE_LIMIT_REQUESTS if is_authenticated else settings.RATE_LIMIT_UNAUTHED_REQUESTS
     window = settings.RATE_LIMIT_WINDOW
     now = time.time()
 
@@ -132,7 +132,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         identity = _get_identity(request)
-        limited, retry_after = await _is_rate_limited(identity)
+        auth = request.headers.get("authorization", "")
+        is_authenticated = auth.lower().startswith("bearer ")
+        limited, retry_after = await _is_rate_limited(identity, is_authenticated)
         if limited:
             logger.warning(
                 "rate_limit_exceeded",

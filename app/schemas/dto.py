@@ -969,3 +969,27 @@ class NotificationMarkReadRequest(ScalesModel):
 
 class NotificationMarkReadResponse(ScalesModel):
     marked_count: int
+
+
+class NotificationSettingsOut(ScalesModel):
+    singer_id: str
+    venue_id: str
+    up_soon: bool = True
+    on_stage: bool = True
+    bumped: bool = True
+    queue_update: bool = True
+    announcement: bool = True
+    social: bool = True
+    payment: bool = True
+    created_at: str
+    updated_at: str | None = None
+
+
+class NotificationSettingsUpdate(ScalesModel):
+    up_soon: bool | None = None
+    on_stage: bool | None = None
+    bumped: bool | None = None
+    queue_update: bool | None = None
+    announcement: bool | None = None
+    social: bool | None = None
+    payment: bool | None = None

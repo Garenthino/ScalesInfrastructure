@@ -177,6 +177,7 @@ class Singer(Base):
 
     __table_args__ = (
         Index("ix_singers_venue_id", "venue_id"),
+        Index("singer_venue_idx", "venue_id", "deactivated_at"),
     )
 
     venue = relationship("Venue", back_populates="singers")
@@ -197,6 +198,7 @@ class CheckInSession(Base):
     __table_args__ = (
         Index("ix_checkin_venue_expires", "venue_id", "expires_at"),
         Index("ix_checkin_singer_expires", "singer_id", "expires_at"),
+        Index("checkin_session_singer_idx", "singer_id"),
     )
 
     singer = relationship("Singer", back_populates="check_in_sessions")
@@ -276,6 +278,8 @@ class QueueRequest(Base):
     __table_args__ = (
         CheckConstraint("status IN ('pending','approved','now_playing','completed','skipped','rejected')"),
         Index("ix_queue_venue_status", "venue_id", "status"),
+        Index("queue_position_idx", "venue_id", "rotation_position"),
+        Index("ix_queue_requests_singer_status", "singer_id", "status"),
     )
 
     venue = relationship("Venue", back_populates="queue_requests")
@@ -527,6 +531,30 @@ class Export(Base):
     deleted_at = Column(Text)
 
 
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    user_id = Column(String(36), ForeignKey("singers.id"), nullable=True)
+    venue_id = Column(String(36), ForeignKey("venues.id"), nullable=True)
+    action = Column(Text, nullable=False)
+    resource_type = Column(Text)
+    resource_id = Column(Text)
+    result = Column(Text, nullable=False)
+    status_code = Column(Integer)
+    ip_address = Column(Text)
+    user_agent = Column(Text)
+    request_id = Column(Text)
+    details_json = Column(Text)
+    created_at = Column(Text, default=_now_iso)
+
+    __table_args__ = (
+        Index("ix_audit_logs_user", "user_id", "created_at"),
+        Index("ix_audit_logs_venue", "venue_id", "created_at"),
+        Index("ix_audit_logs_action", "action", "created_at"),
+    )
+
+
 class PointsLedger(Base):
     __tablename__ = "points_ledger"
 
@@ -624,6 +652,29 @@ class DeviceToken(Base):
         UniqueConstraint("singer_id", "platform", "token", name="uq_device_token"),
         Index("ix_device_tokens_singer", "singer_id"),
         Index("ix_device_tokens_venue", "venue_id"),
+    )
+
+
+class NotificationSetting(Base):
+    __tablename__ = "notification_settings"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    singer_id = Column(String(36), ForeignKey("singers.id"), nullable=False)
+    venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
+    up_soon = Column(Integer, default=1)
+    on_stage = Column(Integer, default=1)
+    bumped = Column(Integer, default=1)
+    queue_update = Column(Integer, default=1)
+    announcement = Column(Integer, default=1)
+    social = Column(Integer, default=1)
+    payment = Column(Integer, default=1)
+    created_at = Column(Text, default=_now_iso)
+    updated_at = Column(Text, default=_now_iso, onupdate=_now_iso)
+
+    __table_args__ = (
+        UniqueConstraint("singer_id", "venue_id", name="uq_notification_setting"),
+        Index("ix_notification_settings_singer", "singer_id"),
+        Index("ix_notification_settings_venue", "venue_id"),
     )
 
 

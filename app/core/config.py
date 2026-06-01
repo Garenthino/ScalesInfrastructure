@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://scales:scales@localhost:5432/scales"
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 20
+    DATABASE_POOL_RECYCLE: int = 3600
 
     JWT_SECRET_KEY: str = "change-me"
     JWT_ALGORITHM: str = "HS256"
@@ -35,6 +36,7 @@ class Settings(BaseSettings):
 
     # Security hardening
     RATE_LIMIT_REQUESTS: int = 100
+    RATE_LIMIT_UNAUTHED_REQUESTS: int = 30
     RATE_LIMIT_WINDOW: int = 60
     SECURITY_HEADERS_ENABLED: bool = True
     CORS_ORIGINS_PROD: str | None = None

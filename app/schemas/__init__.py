@@ -128,6 +128,8 @@ from app.schemas.dto import (
     NotificationListOut,
     NotificationMarkReadRequest,
     NotificationMarkReadResponse,
+    NotificationSettingsOut,
+    NotificationSettingsUpdate,
 )
 
 

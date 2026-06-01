@@ -76,7 +76,7 @@ async def test_perf_rapid_queue_join(
     for tok in tokens:
         start = time.perf_counter()
         r = await client.post(
-            f"/v1/venues/{venue_id}/queue/join",
+            f"/v1/venues/{venue_id}/queue",
             headers=AUTHORIZATION(tok),
             json={"song_id": target_song.id},
         )
@@ -88,7 +88,7 @@ async def test_perf_rapid_queue_join(
     assert avg_ms < 500, f"Average join time {avg_ms:.1f}ms exceeded 500ms"
     assert max_ms < 2000, f"Max join time {max_ms:.1f}ms exceeded 2000ms"
 
-    pub = await client.get(f"/v1/venues/{venue_id}/queue/venue")
+    pub = await client.get(f"/v1/venues/{venue_id}/queue/list")
     assert len(pub.json()["items"]) == 50
 
 

@@ -157,13 +157,17 @@ async def notify_singer(
     body: str,
     data: dict | None = None,
 ) -> None:
-    """Persist an in-app notification and enqueue push to all active device tokens."""
-    from app.models import DeviceToken, Notification
+    """Persist an in-app notification and enqueue push to all active device tokens.
+
+    Push delivery is gated by per-type user preferences in NotificationSetting.
+    In-app notifications are always persisted regardless of settings.
+    """
+    from app.models import DeviceToken, Notification, NotificationSetting
     from datetime import datetime, timezone
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Persist in-app notification
+    # Persist in-app notification (always, regardless of push preference)
     notification = Notification(
         singer_id=singer_id,
         venue_id=venue_id,
@@ -177,24 +181,52 @@ async def notify_singer(
     )
     db.add(notification)
 
-    # Fetch active device tokens
-    rows = await db.execute(
-        select(DeviceToken)
-        .where(
-            DeviceToken.singer_id == singer_id,
-            DeviceToken.venue_id == venue_id,
-            DeviceToken.is_active == 1,
-        )
-    )
-    tokens = [str(r.token) for r in rows.scalars().all()]
+    # Check per-type preference before enqueuing push
+    _TYPE_TO_COLUMN = {
+        "up_soon": "up_soon",
+        "on_stage": "on_stage",
+        "bumped": "bumped",
+        "queue_update": "queue_update",
+        "announcement": "announcement",
+        "social": "social",
+        "payment": "payment",
+    }
 
-    if tokens:
-        enqueue_push_notification(
-            device_tokens=tokens,
-            title=title,
-            body=body,
-            data={"type": notification_type, **(data or {})},
+    column_name = _TYPE_TO_COLUMN.get(notification_type)
+    push_enabled = True
+    if column_name:
+        setting_row = (
+            await db.execute(
+                select(NotificationSetting)
+                .where(
+                    NotificationSetting.singer_id == singer_id,
+                    NotificationSetting.venue_id == venue_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if setting_row is not None:
+            push_enabled = bool(getattr(setting_row, column_name, 1))
+        # If no settings row exists, default is enabled (push_enabled stays True)
+
+    if push_enabled:
+        # Fetch active device tokens
+        rows = await db.execute(
+            select(DeviceToken)
+            .where(
+                DeviceToken.singer_id == singer_id,
+                DeviceToken.venue_id == venue_id,
+                DeviceToken.is_active == 1,
+            )
         )
+        tokens = [str(r.token) for r in rows.scalars().all()]
+
+        if tokens:
+            enqueue_push_notification(
+                device_tokens=tokens,
+                title=title,
+                body=body,
+                data={"type": notification_type, **(data or {})},
+            )
 
     # Best-effort: don't let notification failures break queue ops
     try:

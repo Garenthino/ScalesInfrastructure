@@ -45,6 +45,7 @@ def test_accepts_strong_jwt_secret_in_production(monkeypatch):
 async def limited_client(monkeypatch):
     """Client with tight rate limits for testing."""
     monkeypatch.setattr(settings, "RATE_LIMIT_REQUESTS", 2)
+    monkeypatch.setattr(settings, "RATE_LIMIT_UNAUTHED_REQUESTS", 2)
     monkeypatch.setattr(settings, "RATE_LIMIT_WINDOW", 60)
     monkeypatch.setattr(settings, "REDIS_URL", None)
 
@@ -63,13 +64,13 @@ async def limited_client(monkeypatch):
 @pytest.mark.asyncio
 async def test_rate_limit_returns_429(limited_client):
     # First two requests succeed
-    r1 = await limited_client.get("/v1/shows")
-    r2 = await limited_client.get("/v1/shows")
-    assert r1.status_code in (200, 401, 404)  # depends on route
-    assert r2.status_code in (200, 401, 404)
+    r1 = await limited_client.get("/health")
+    r2 = await limited_client.get("/health")
+    assert r1.status_code == 200
+    assert r2.status_code == 200
 
     # Third request from same IP should be rate limited
-    r3 = await limited_client.get("/v1/shows")
+    r3 = await limited_client.get("/health")
     assert r3.status_code == 429
     assert "Retry-After" in r3.headers
 
