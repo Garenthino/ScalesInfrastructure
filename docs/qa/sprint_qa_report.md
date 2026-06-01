@@ -1,135 +1,135 @@
-# MS-08C QA Report — Admin Portal Regression
+# MS-10C QA Report — End-to-End Production Regression & Security Test
 
-**Date:** 2026-05-31
-**Tester:** qa (automated)
-**Task:** t_4dda9d79
-**Parent:** t_26abaca9 (MS-08B frontend complete)
-**Commit tested:** 6ab9d2c
+**Date:** 2026-06-01
+**Task:** t_2d4fa040
+**Status:** FAIL — v1.0 GO/NO-GO = NO-GO (CRITICAL/HIGH issues found)
 
 ---
 
-## Summary
-
-**4/7 PASS, 3/7 FAIL**
+## Phase 1: Full E2E (register → check-in → request → tip → check-out)
 
 | # | Criterion | Status | Notes |
 |---|-----------|--------|-------|
-| 1 | Admin login + role-gated nav | PASS | Sidebar hides admin nav for non-admin; auth flow works |
-| 2 | Queue reorder/skip/ban via API | **FAIL** | All queue admin actions (approve, reject, complete, remove, fetch) call non-existent flat routes → 404 |
-| 3 | Rotation mode persistence + ordering | PASS | Settings page fetches/saves mode; backend persists RotationSession |
-| 4 | Analytics match manual count or API | PASS | Dashboard uses venue-scoped analytics; backend tests verify accuracy |
-| 5 | Responsive at 1024px and 1920px | PASS | Build OK; responsive grid classes present on all major pages |
-| 6 | Security: non-admin admin URL access | **FAIL** | `ProtectedRoute` only checks auth, not role. Any logged-in user can load `/admin` UI |
-| 7 | Build + tests | **FAIL** | Next.js build passes, but 1 backend test fails (`test_integration_scenarios` — test uses POST instead of PUT on `/reorder`) |
+| 1.1 | POST /auth/register | PASS | venue_id required; 201 |
+| 1.2 | POST /auth/login | PASS | 200, tokens returned |
+| 1.3 | GET /auth/me | PASS | Profile returned with venue_id |
+| 1.4 | POST /checkin | PASS | 200 with body (table_number) |
+| 1.5 | GET /songs list | **FAIL CRITICAL** | 500 Internal Server Error |
+| 1.6 | GET /songs/search | **FAIL CRITICAL** | 500 Internal Server Error |
+| 1.7 | POST /queue request | **FAIL** | No songs available (blocked by 500) |
+| 1.8 | POST /tips | **FAIL** | 404 — endpoint not at /tips but /payments/tip |
+| 1.9 | GET /singers/me/queue | **FAIL** | 404 — endpoint not found |
+| 1.10 | POST /checkout | PASS | 200, check-in session ended |
+| 1.11 | GET /checked-in (singer→403) | PASS | Correctly 403 for singer role |
 
----
-
-## Detailed Findings
-
-### 1. Admin Login + Role-Gated Navigation — PASS
-
-- `useAuth` correctly stores `access_token` + `refresh_token` with distinct localStorage keys (`scales_access_token`, `scales_refresh_token`)
-- Auto-refresh has `isRefreshing` guard + expired-token logout (no 429 loop)
-- Login page auto-redirects authenticated users to `/queue`
-- Sidebar conditionally renders "Administration" section only when `user?.role === "admin"`
-- **Minor:** `User.role` type in `web/lib/types.ts` is `"owner" | "admin" | "operator" | "kj"` but backend returns `"admin" | "owner" | "kj" | "singer"`. `"operator"` is not a valid backend role; `"singer"` is missing from the frontend type.
-
-### 2. Queue Reorder / Skip / Ban — **FAIL**
-
-| Action | Frontend API function | Route called | Backend route | Result |
-|--------|----------------------|--------------|---------------|--------|
-| Fetch queue | `fetchQueueAdmin(token)` | `GET /queue/admin` | `GET /venues/{vid}/queue/admin` | **404** |
-| Approve | `approveRequest(id, token)` | `POST /queue/admin/{id}/approve` | `POST /venues/{vid}/queue/admin/{id}/approve` | **404** |
-| Reject | `rejectRequest(id, token)` | `POST /queue/admin/{id}/reject` | `POST /venues/{vid}/queue/admin/{id}/reject` | **404** |
-| Complete | `completeRequest(id, token)` | `POST /queue/admin/{id}/complete` | `POST /venues/{vid}/queue/admin/{id}/complete` | **404** |
-| Remove | `removeRequest(id, token)` | `DELETE /queue/admin/{id}` | `DELETE /venues/{vid}/queue/admin/{id}` | **404** |
-| Skip to end | `skipToEnd(vid, id, token)` | `POST /venues/{vid}/queue/admin/skip-to-end` | Same | OK |
-| Ban singer | `banSinger(vid, sid, reason, token)` | `POST /venues/{vid}/singers/{sid}/ban` | Same | OK |
-| Reorder by singer | `reorderQueueBySinger(vid, ids, token)` | `PUT /venues/{vid}/queue/admin/reorder` | Same | OK |
-
-**Root cause:** `web/lib/api.ts` still contains legacy flat routes (`/queue/admin/...`) that the backend removed when it migrated to venue-scoped paths. The new admin dashboard `queue-table.tsx` imports from `lib/api.ts` and will hit 404 on every approve/reject/complete/remove action.
-
-**Backend verification:** `test_queue_admin.py` 25/25 passed — all venue-scoped admin endpoints work correctly.
-
-**Fix required:** Update all legacy flat-route functions in `web/lib/api.ts` to accept `venueId` and call `/venues/{venueId}/queue/admin/...`.
-
-### 3. Rotation Mode Persistence — PASS
-
-- `QueuePage` fetches mode via `GET /venues/{vid}/queue/admin/mode` and displays live selector
-- `SettingsPage` fetches same endpoint and has Save/Reset UX
-- `setRotationMode` calls `PUT /venues/{vid}/queue/admin/mode`
-- Backend creates a new `RotationSession` row, deactivates old one — changes are persisted to DB
-- Tooltip explanations render for all 4 modes (FIFO, Round-Robin, Balanced, VIP Priority)
-
-### 4. Analytics Accuracy — PASS
-
-- `DashboardPage` uses `fetchQueueAnalytics(vid, token)` → `GET /venues/{vid}/queue/admin/analytics`
-- Backend `QueueAnalyticsOut` schema fields (`total_requests_today`, `completed_today`, `avg_wait_seconds`, `top_songs`, `throughput_per_hour`) map correctly to frontend `QueueAnalytics` type
-- Backend `test_analytics.py` verifies:
-  - Overview counts match DB state
-  - Cross-venue access denied (403)
-  - Admin can read any venue
-  - Leaderboard ordering + limit bounds
-  - Song popularity request counts
-  - Hourly breakdown returns 24 hours
-  - Malformed timestamps are handled gracefully
-
-### 5. Responsive Layout — PASS
-
-- Next.js build succeeds; 13 pages statically generated
-- Dashboard: `grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6`
-- Queue page: `grid grid-cols-1 gap-4 lg:grid-cols-3`
-- Sidebar: `hidden md:flex` (collapses below `md` breakpoint)
-- Settings select: `w-full sm:w-64`
-- Queue table: `overflow-x-auto` wrapper for horizontal scroll on narrow viewports
-
-### 6. Security: Non-Admin Admin URL Access — **FAIL**
-
-- `components/protected-route.tsx` only checks `isAuthenticated`. It does **not** inspect `user.role`.
-- Any authenticated singer can type `/admin` in the URL and the page will render.
-- `admin/page.tsx` has no role guard — it shows the admin UI to anyone.
-- Backend API endpoints will return 403 for non-admin API calls, but the frontend UI is still visible.
-- **Required fix:** Add `AdminRoute` wrapper (or extend `ProtectedRoute` with `requiredRole`) that redirects non-admin users to `/queue` or `/`.
-
-### 7. Build + Tests — **FAIL**
-
-- Next.js: `npm run build` → compiled successfully, 13 static pages
-- Backend: `pytest tests/test_queue_admin.py` → 25/25 pass
-- Backend: `pytest tests/test_auth.py tests/test_queue_core.py tests/test_analytics.py tests/test_integration_security.py tests/test_integration_show_flow.py tests/test_integration_scenarios.py` → **112 passed, 1 failed**
-  - Failure: `test_integration_scenarios.py::test_scenario_c_multi_singer_rotation_and_reorder` — test uses `POST` on `/reorder` but endpoint is `PUT`. This is a **test bug**, not a production code bug.
-
----
-
-## Issues Summary
-
-| Severity | Issue | File(s) | Fix |
-|----------|-------|---------|-----|
-| **CRITICAL** | Queue admin actions (approve, reject, complete, remove, fetch) call non-existent flat routes | `web/lib/api.ts` lines 250–305 | Update all functions to accept `venueId` and call `/venues/{venueId}/queue/admin/...` |
-| **HIGH** | No frontend role guard on `/admin` | `components/protected-route.tsx`, `app/(app)/admin/page.tsx` | Add `requiredRole` prop to `ProtectedRoute` or create `AdminRoute` wrapper |
-| LOW | `User.role` type mismatch (`operator` vs `singer`) | `web/lib/types.ts` line 4 | Sync with backend `MeResponse.role` enum |
-| LOW | Settings page duplicates API helpers instead of importing | `web/app/(app)/settings/page.tsx` | Import `fetchRotationMode` / `setRotationMode` from `@/lib/api` |
-| LOW | Test bug: `test_integration_scenarios.py` uses POST on `/reorder` (should be PUT) | `tests/test_integration_scenarios.py` line 345 | Change `client.post` to `client.put` |
-
----
-
-## Backport Status
+### Root Cause — Songs 500
+The `app/routers/songs.py` `list_songs()` queries `Song.category` and `Song.year` filters. The `app/models/__init__.py` `Song` model **declares** these columns (`category = Column(Text)`, `year = Column(Integer)`), but the **production DB** `songs` table lacks them:
 
 ```
-ScalesInfrastructure: main @ 6ab9d2c
-  - 1 commit ahead of origin/main
-  - Working tree clean
-  - Changed files: 11 web files (see git diff HEAD~1 --name-only)
+db=# \d songs
+Columns: id, venue_id, catalog_id, title, artist, album, genre, language, duration_ms,
+         lyrics_url, cover_art_url, is_available, is_active, meta_json,
+         created_at, updated_at, deleted_at
 ```
 
-**Action required:** Push commit `6ab9d2c` to `origin/main` after the issues above are fixed.
+**Missing columns:** `category`, `year`
+
+SQLAlchemy generates `WHERE songs.category = $1` → PostgreSQL: `column songs.category does not exist` → 500.
+
+Additionally, zero songs exist in `songs` table for the test venue, so queue requests would fail downstream even if the 500 were fixed.
+
+### Root Cause — Tips 404
+The correct endpoint is `POST /venues/{venue_id}/payments/tip`, not `/venues/{venue_id}/tips`. The task spec expected `/tips`.
+
+### Root Cause — /singers/me/queue 404
+The `singers.py` router is mounted at `/venues/{venue_id}/singers`. The endpoints `/me/queue`, `/me/queue/history`, `/me/stats`, `/me/achievements` DO exist in the source code (`app/routers/singers.py` lines 489, 533, 740, 1121), but in production they return 404. This suggests either:
+(a) The deployed image does not contain the latest code with these endpoints, or
+(b) The router was not included in `api_router` at build time.
 
 ---
 
-## Recommendations
+## Phase 2: Rate Limit
 
-1. **Fix `web/lib/api.ts`** — update `fetchQueueAdmin`, `approveRequest`, `rejectRequest`, `completeRequest`, `removeRequest`, and `reorderQueue` to accept `venueId` and call the venue-scoped backend routes.
-2. **Fix `components/protected-route.tsx`** — add an optional `requiredRole` prop so admin pages can reject non-admin users client-side.
-3. **Fix `test_integration_scenarios.py`** — change `client.post` to `client.put` on the reorder endpoint.
-4. **Fix `User.role` type** — align with backend enum.
-5. **Re-run `npm run build`** after fixes to confirm no type errors.
-6. **Run `pytest tests/test_queue_admin.py`** after backend changes (currently 25/25 pass).
+| # | Criterion | Status | Notes |
+|---|-----------|--------|-------|
+| 2.1 | Exceed threshold → 429 | **FAIL HIGH** | 15 rapid /auth/me requests all returned 200; no rate limiting observed from client vantage. Backend may have rate limits only on specific endpoints (register/login) but not on authenticated reads. |
+
+---
+
+## Phase 3: SQL Injection
+
+| # | Criterion | Status | Notes |
+|---|-----------|--------|-------|
+| 3.1 | /auth/login email | PASS | 422 validation error, no data leak |
+| 3.2 | /auth/register stage_name | PASS | No injection, 422 on some payloads |
+| 3.3 | /songs/search q | **FAIL HIGH** | 500 when SQLi payload sent. The 500 is actually from the missing `category` column bug, not from injection. But the 500 status (rather than safe rejection) marks it as a server error — the endpoint crashes on ANY query with the `q` parameter because it hits the `category`/`year` query path. |
+| 3.4 | /singers/checkin table_number | PASS | Payload accepted but no injection effect (200) |
+| 3.5 | Overall | **PARTIAL** | 3/4 probes safe; 1 probe returns 500 (not a SQLi vuln per se but a crash) |
+
+---
+
+## Phase 4: XSS
+
+| # | Criterion | Status | Notes |
+|---|-----------|--------|-------|
+| 4.1 | Script tag in register stage_name | PASS | Response does not reflect raw script tag in /auth/me |
+
+---
+
+## Phase 5: Load Test (20 concurrent logins)
+
+| # | Criterion | Status | Notes |
+|---|-----------|--------|-------|
+| 5.1 | 20 concurrent logins | PASS | 20/20 success in 8.0s, no 429 or 503 |
+
+---
+
+## Phase 6: Backup Recovery
+
+| # | Criterion | Status | Notes |
+|---|-----------|--------|-------|
+| 6.1 | Backup scripts exist | **FAIL MEDIUM** | `/home/scales/ScalesInfrastructure/scripts/backup_db.sh` and `rollback.sh` not found on production VPS. These were added to the repo in commit `f590257` but may not have been deployed to the server. |
+
+---
+
+## Phase 7: SSL/TLS
+
+| # | Criterion | Status | Notes |
+|---|-----------|--------|-------|
+| 7.1 | HSTS header | PASS | `strict-transport-security: max-age=63072000; includeSubDomains` present on API responses |
+| 7.2 | X-Frame-Options | PASS | `DENY` present |
+| 7.3 | SSL cert valid | PASS | Cert expires Aug 25 2026 GMT; chain valid |
+| 7.4 | PFS (cipher check) | PASS | Modern TLS (verified via openssl s_client) |
+
+---
+
+## Phase 8: Monitoring
+
+| # | Criterion | Status | Notes |
+|---|-----------|--------|-------|
+| 8.1 | Sentry SDK import | PASS | `app/main.py` contains `sentry-sdk[fastapi]` integration |
+| 8.2 | Sentry event reception | **NOT TESTED** | Cannot trigger production error safely. SDK is wired but reception not verified. |
+
+---
+
+## GO/NO-GO Verdict: NO-GO
+
+**Blocking issues (CRITICAL/HIGH):**
+1. **Songs endpoint 500** — `category` and `year` columns declared in model but missing in production DB. This crashes every song list/search request.
+2. **Rate limit not enforced on authenticated reads** — 15 rapid requests all 200. At minimum, `/auth/me` should be rate-limited to prevent enumeration.
+3. **Backup scripts not deployed** — Repo has them, but they are absent from `/home/scales/ScalesInfrastructure/scripts/` on the production VPS.
+
+**Non-blocking failures:**
+- Tips endpoint path mismatch (moved to `/payments/tip`; docs should reflect this)
+- `/singers/me/*` endpoints 404 in production (deployed code mismatch)
+
+---
+
+## Fix Tasks Created
+
+| Fix Task | Component | Root Cause |
+|----------|-----------|------------|
+| t_FX_SONGS_DB | Database | Add missing `category` and `year` columns to `songs` table or remove from model query |
+| t_FX_RATE_LIMIT | Backend | Rate limit not active on authenticated read endpoints |
+| t_FX_DEPLOY_SCRIPTS | DevOps | Backup/rollback scripts not deployed to VPS |
+
