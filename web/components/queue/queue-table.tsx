@@ -325,7 +325,7 @@ export function QueueTable({ queue, venueId, onUpdate }: QueueTableProps) {
   );
 
   const approveMutation = useMutation({
-    mutationFn: (id: string) => approveRequest(id, token),
+    mutationFn: (id: string) => approveRequest(venueId, id, token),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["queue-admin"] });
       onUpdate?.();
@@ -333,7 +333,7 @@ export function QueueTable({ queue, venueId, onUpdate }: QueueTableProps) {
   });
 
   const rejectMutation = useMutation({
-    mutationFn: (id: string) => rejectRequest(id, token),
+    mutationFn: (id: string) => rejectRequest(venueId, id, token),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["queue-admin"] });
       onUpdate?.();
@@ -341,7 +341,7 @@ export function QueueTable({ queue, venueId, onUpdate }: QueueTableProps) {
   });
 
   const completeMutation = useMutation({
-    mutationFn: (id: string) => completeRequest(id, token),
+    mutationFn: (id: string) => completeRequest(venueId, id, token),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["queue-admin"] });
       onUpdate?.();
@@ -357,7 +357,7 @@ export function QueueTable({ queue, venueId, onUpdate }: QueueTableProps) {
   });
 
   const removeMutation = useMutation({
-    mutationFn: (id: string) => removeRequest(id, token),
+    mutationFn: (id: string) => removeRequest(venueId, id, token),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["queue-admin"] });
       onUpdate?.();

@@ -21,6 +21,8 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Info, Save, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
+import { fetchRotationMode, setRotationMode } from "@/lib/api";
+import type { RotationMode } from "@/lib/types";
 
 const rotationModes = [
   {
@@ -45,30 +47,6 @@ const rotationModes = [
   },
 ] as const;
 
-type RotationMode = (typeof rotationModes)[number]["value"];
-
-async function fetchRotationMode(venueId: string, token?: string): Promise<{ mode: string }> {
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://dancingdragonservices.com/api/v1";
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue/admin/mode`, { headers });
-  if (!res.ok) throw new Error("Failed to fetch rotation mode");
-  return res.json();
-}
-
-async function setRotationMode(venueId: string, mode: string, token?: string): Promise<{ mode: string }> {
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://dancingdragonservices.com/api/v1";
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue/admin/mode`, {
-    method: "PUT",
-    headers,
-    body: JSON.stringify({ mode }),
-  });
-  if (!res.ok) throw new Error("Failed to set rotation mode");
-  return res.json();
-}
-
 export default function SettingsPage() {
   const { user, getAccessToken } = useAuth();
   const venueId = user?.venue_id || "";
@@ -84,7 +62,7 @@ export default function SettingsPage() {
   const [selectedMode, setSelectedMode] = useState<RotationMode>("fifo");
 
   const mutation = useMutation({
-    mutationFn: (mode: string) => setRotationMode(venueId, mode, token || undefined),
+    mutationFn: (mode: RotationMode) => setRotationMode(venueId, mode, token || undefined),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rotation-mode", venueId] });
       toast.success("Rotation mode updated");
@@ -94,7 +72,7 @@ export default function SettingsPage() {
     },
   });
 
-  const currentMode = modeData?.mode || "fifo";
+  const currentMode = (modeData?.mode as RotationMode) || "fifo";
   const modeInfo = rotationModes.find((m) => m.value === currentMode);
 
   return (
@@ -176,7 +154,7 @@ export default function SettingsPage() {
             {selectedMode !== currentMode && (
               <Button
                 variant="ghost"
-                onClick={() => setSelectedMode(currentMode as RotationMode)}
+                onClick={() => setSelectedMode(currentMode)}
               >
                 Reset
               </Button>

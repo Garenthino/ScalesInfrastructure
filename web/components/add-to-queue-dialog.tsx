@@ -36,7 +36,7 @@ export function AddToQueueDialog({ song, venueId = "", open, onClose, onSuccess 
     setLoading(true);
     setError("");
     try {
-      await addToQueue({ song_id: song.song_id, singer_id: selected });
+      await addToQueue(venueId, { song_id: song.song_id, singer_id: selected });
       onClose();
       onSuccess?.();
     } catch (e: any) {

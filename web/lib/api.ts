@@ -247,8 +247,8 @@ export async function fetchSingerHistory(venueId="", id: string, token?: string)
 
 /* ── Queue ──────────────────────────────────────────────── */
 
-export async function fetchQueueAdmin(token?: string): Promise<QueueRequest[]> {
-  const res = await fetch(`${API_BASE}/queue/admin`, { headers: authHeaders(token) });
+export async function fetchQueueAdmin(venueId: string, token?: string): Promise<QueueRequest[]> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue/admin`, { headers: authHeaders(token) });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Failed to fetch queue" }));
     throw new Error(err.detail || "Failed to fetch queue");
@@ -256,8 +256,8 @@ export async function fetchQueueAdmin(token?: string): Promise<QueueRequest[]> {
   return res.json();
 }
 
-export async function approveRequest(id: string, token?: string): Promise<QueueRequest> {
-  const res = await fetch(`${API_BASE}/queue/admin/${id}/approve`, {
+export async function approveRequest(venueId: string, id: string, token?: string): Promise<QueueRequest> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue/admin/${encodeURIComponent(id)}/approve`, {
     method: "POST",
     headers: authHeaders(token),
   });
@@ -265,8 +265,8 @@ export async function approveRequest(id: string, token?: string): Promise<QueueR
   return res.json();
 }
 
-export async function rejectRequest(id: string, token?: string): Promise<QueueRequest> {
-  const res = await fetch(`${API_BASE}/queue/admin/${id}/reject`, {
+export async function rejectRequest(venueId: string, id: string, token?: string): Promise<QueueRequest> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue/admin/${encodeURIComponent(id)}/reject`, {
     method: "POST",
     headers: authHeaders(token),
   });
@@ -274,8 +274,8 @@ export async function rejectRequest(id: string, token?: string): Promise<QueueRe
   return res.json();
 }
 
-export async function completeRequest(id: string, token?: string): Promise<QueueRequest> {
-  const res = await fetch(`${API_BASE}/queue/admin/${id}/complete`, {
+export async function completeRequest(venueId: string, id: string, token?: string): Promise<QueueRequest> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue/admin/${encodeURIComponent(id)}/complete`, {
     method: "POST",
     headers: authHeaders(token),
   });
@@ -283,21 +283,21 @@ export async function completeRequest(id: string, token?: string): Promise<Queue
   return res.json();
 }
 
-export async function skipRequest(id: string, token?: string): Promise<QueueRequest> {
-  return completeRequest(id, token);
+export async function skipRequest(venueId: string, id: string, token?: string): Promise<QueueRequest> {
+  return completeRequest(venueId, id, token);
 }
 
-export async function removeRequest(id: string, token?: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/queue/admin/${id}`, {
+export async function removeRequest(venueId: string, id: string, token?: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue/admin/${encodeURIComponent(id)}`, {
     method: "DELETE",
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error("Remove failed");
 }
 
-export async function reorderQueue(payload: ReorderPayload, token?: string): Promise<QueueRequest[]> {
-  const res = await fetch(`${API_BASE}/queue/admin/reorder`, {
-    method: "POST",
+export async function reorderQueue(venueId: string, payload: ReorderPayload, token?: string): Promise<QueueRequest[]> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue/admin/reorder`, {
+    method: "PUT",
     headers: authHeaders(token),
     body: JSON.stringify(payload),
   });
@@ -358,10 +358,11 @@ export async function banSinger(venueId: string, singerId: string, reason?: stri
 }
 
 export async function addToQueue(
+  venueId: string,
   payload: { song_id: string; singer_id?: string },
   token?: string
 ): Promise<unknown> {
-  const res = await fetch(`${API_BASE}/queue`, {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue`, {
     method: "POST",
     headers: authHeaders(token),
     body: JSON.stringify(payload),
@@ -370,8 +371,8 @@ export async function addToQueue(
   return res.json();
 }
 
-export async function removeSingerFromQueue(id: string, token?: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/queue/admin/${id}`, {
+export async function removeSingerFromQueue(venueId: string, id: string, token?: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue/admin/${encodeURIComponent(id)}`, {
     method: "DELETE",
     headers: authHeaders(token),
   });
