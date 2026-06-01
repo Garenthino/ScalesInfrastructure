@@ -1,0 +1,76 @@
+name: Scales CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install pip-audit
+      - run: pip-audit -r requirements.txt
+
+  test:
+    runs-on: ubuntu-latest
+    needs: [security]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: scales_test
+          POSTGRES_PASSWORD: scales_test
+          POSTGRES_DB: scales_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -r requirements.txt
+      - run: pytest --tb=short -q
+        env:
+          DATABASE_URL: postgresql+asyncpg://scales_test:scales_test@localhost:5432/scales_test
+          REDIS_URL: redis://localhost:***
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build image (no push)
+        run: docker build -t scales-api:latest .
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy via SSH placeholder
+        run: |
+          echo "Deploy: copy docker-compose.yml, build, restart"
+          echo "Configure secrets: VPS_IP, SSH_KEY, VPS_USER"
+          # mkdir -p ~/.ssh && echo "$SSH_KEY" > ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
+          # ssh -i ~/.ssh/id_rsa "$VPS_USER@$VPS_IP" 'cd /opt/scales && git pull && docker compose up -d --build'

@@ -1,5 +1,8 @@
 # Scales FastAPI Backend
-fastapi==0.115.8
+# NOTE: Versions pinned after MS-10B security audit (2026-06-01)
+#       Run `pip-audit -r requirements.txt` after any changes.
+fastapi==0.133.1
+starlette==1.0.1
 uvicorn[standard]==0.34.0
 sqlalchemy[asyncio]==2.0.38
 asyncpg==0.30.0
@@ -8,9 +11,10 @@ alembic==1.14.1
 pydantic>=2.11.0
 pydantic-settings>=2.9.0
 email-validator>=2.2
-python-jose[cryptography]==3.4.0
+python-jose[cryptography]==3.5.0
+pyasn1==0.6.3
 bcrypt>=5.0
-python-multipart==0.0.20
+python-multipart==0.0.27
 httpx==0.28.1
 structlog==25.1.0
 prometheus-client==0.21.1
@@ -22,6 +26,6 @@ firebase-admin>=6.6.0
 
 # Payments
 stripe>=8.0
-pytest==8.3.4
-pytest-asyncio==0.25.3
+pytest==9.0.3
+pytest-asyncio>=0.26.0
 httpx==0.28.1
