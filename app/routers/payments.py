@@ -14,9 +14,12 @@ Webhook:
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Header
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -479,6 +482,21 @@ async def _handle_priority_bump_success(db: AsyncSession, payment: Payment) -> N
         queue_req.rotation_position = new_pos
         queue_req.updated_at = _NOW()
         await db.commit()
+
+        # Notify singer that their priority was bumped
+        try:
+            from app.core.notification_service import notify_singer
+            await notify_singer(
+                db,
+                str(payment.singer_id),
+                str(payment.venue_id),
+                notification_type="bumped",
+                title="Priority Bump Applied",
+                body=f"You've moved up in the queue! Your new position is {new_pos}.",
+                data={"request_id": str(queue_req.id), "new_position": new_pos},
+            )
+        except Exception:
+            logger.debug("bumped notification failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------

@@ -25,6 +25,8 @@ from fastapi.staticfiles import StaticFiles
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
+    from app.core.notification_service import register_tasks
+    register_tasks()
     yield
     await engine.dispose()
 

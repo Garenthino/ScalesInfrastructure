@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.routers import venues, songs, singers, singer_favorites, singer_follows, queue_singer, queue, queue_admin, loyalty, commerce, social, analytics, auth, kj_auth, kj_sync, payments
+from app.routers import venues, songs, singers, singer_favorites, singer_follows, queue_singer, queue, queue_admin, loyalty, commerce, social, analytics, auth, kj_auth, kj_sync, payments, notifications
 
 api_router = APIRouter()
 
@@ -22,3 +22,4 @@ api_router.include_router(commerce.router, prefix="/venues/{venue_id}/merch", ta
 api_router.include_router(social.router, prefix="/venues/{venue_id}/leaderboard", tags=["Social"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 api_router.include_router(payments.router, prefix="/venues/{venue_id}/payments", tags=["Payments"])
+api_router.include_router(notifications.router, prefix="/venues/{venue_id}/singers", tags=["Notifications"])

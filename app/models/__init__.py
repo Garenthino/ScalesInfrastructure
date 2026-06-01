@@ -605,3 +605,44 @@ class KJDevice(Base):
     created_at = Column(Text, default=_now_iso)
     last_seen = Column(Text)
     revoked_at = Column(Text)
+
+
+class DeviceToken(Base):
+    __tablename__ = "device_tokens"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    singer_id = Column(String(36), ForeignKey("singers.id"), nullable=False)
+    venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
+    platform = Column(Text, nullable=False)  # fcm | apns
+    token = Column(Text, nullable=False)
+    device_name = Column(Text)
+    is_active = Column(Integer, default=1)
+    created_at = Column(Text, default=_now_iso)
+    updated_at = Column(Text, default=_now_iso, onupdate=_now_iso)
+
+    __table_args__ = (
+        UniqueConstraint("singer_id", "platform", "token", name="uq_device_token"),
+        Index("ix_device_tokens_singer", "singer_id"),
+        Index("ix_device_tokens_venue", "venue_id"),
+    )
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    singer_id = Column(String(36), ForeignKey("singers.id"), nullable=False)
+    venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
+    notification_type = Column(Text, nullable=False)  # up_soon | on_stage | bumped | general
+    title = Column(Text, nullable=False)
+    body = Column(Text, nullable=False)
+    data_json = Column(Text)  # extra payload
+    is_read = Column(Integer, default=0)
+    sent_at = Column(Text, default=_now_iso)
+    read_at = Column(Text)
+    created_at = Column(Text, default=_now_iso)
+
+    __table_args__ = (
+        Index("ix_notifications_singer", "singer_id", "created_at"),
+        Index("ix_notifications_unread", "singer_id", "is_read"),
+    )

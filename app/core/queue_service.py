@@ -206,7 +206,29 @@ class QueueService:
         await QueueEventPublisher.publish(
             venue_id, "request_approved", {"request_id": request_id, "status": "approved"}
         )
+        # Notification trigger: position may have changed
+        await self._maybe_notify_position_change(venue_id)
         return item
+
+    async def _maybe_notify_position_change(self, venue_id: str) -> None:
+        """Check active queue and notify singers whose position hit 2."""
+        try:
+            items = await self.get_active_queue(venue_id, mode="round_robin", include_details=False)
+            from app.core.notification_service import notify_singer
+            for idx, item in enumerate(items, start=1):
+                if idx == 2:
+                    singer_id = str(item.singer_id)
+                    request_id = str(item.id)
+                    await notify_singer(
+                        self.db, singer_id, venue_id,
+                        notification_type="up_soon",
+                        title="You're up soon!",
+                        body="You are 2nd in the queue. Get ready to sing!",
+                        data={"request_id": request_id, "position": 2},
+                    )
+        except Exception:
+            # Best-effort: don't let notification failures break queue ops
+            logger.debug("position notification failed", exc_info=True)
 
     async def reject(self, venue_id: str, request_id: str, reason: str | None = None) -> QueueRequest:
         item = await self._get_item(venue_id, request_id)
@@ -258,6 +280,18 @@ class QueueService:
         await QueueEventPublisher.publish(
             venue_id, "request_started", {"request_id": request_id, "status": "now_playing"}
         )
+        # Notification: singer is now on stage
+        try:
+            from app.core.notification_service import notify_singer
+            await notify_singer(
+                self.db, str(item.singer_id), venue_id,
+                notification_type="on_stage",
+                title="You're on stage!",
+                body="Your song is now playing. Break a leg!",
+                data={"request_id": str(item.id)},
+            )
+        except Exception:
+            logger.debug("on_stage notification failed", exc_info=True)
         return item
 
     async def skip(self, venue_id: str, request_id: str) -> QueueRequest:

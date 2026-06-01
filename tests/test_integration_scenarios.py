@@ -343,7 +343,7 @@ async def test_scenario_c_multi_singer_rotation_and_reorder(
     # Reorder: reverse the order
     reverse_order = list(reversed(request_ids))
     reorder = await client.post(
-        f"/v1/venues/{venue_id}/queue/admin/reorder",
+        f"/v1/venues/{venue_id}/queue/admin/reorder-by-request",
         headers=AUTHORIZATION(kj_token),
         json={"order": reverse_order},
     )
@@ -374,7 +374,7 @@ async def test_scenario_c_multi_singer_rotation_and_reorder(
     # Verify singer cannot reorder (403)
     s_token = jwt_encode(venue_id, role="singer", user_id=singers[0].id)
     singer_reorder = await client.post(
-        f"/v1/venues/{venue_id}/queue/admin/reorder",
+        f"/v1/venues/{venue_id}/queue/admin/reorder-by-request",
         headers=AUTHORIZATION(s_token),
         json={"order": request_ids},
     )

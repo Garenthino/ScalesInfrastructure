@@ -916,3 +916,56 @@ class SyncConflictResponse(ScalesModel):
     status: int = 409
     detail: str | None = None
     conflicts: list[SyncConflictDetail] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
+
+class DeviceTokenBase(ScalesModel):
+    platform: Literal["fcm", "apns"] = Field(...)
+    token: str = Field(..., min_length=10, max_length=500)
+    device_name: str | None = Field(None, max_length=100)
+
+
+class DeviceTokenCreate(DeviceTokenBase):
+    pass
+
+
+class DeviceTokenOut(DeviceTokenBase):
+    id: str
+    singer_id: str
+    venue_id: str
+    is_active: bool
+    created_at: str
+    updated_at: str | None = None
+
+
+class NotificationOut(ScalesModel):
+    id: str
+    singer_id: str
+    venue_id: str
+    notification_type: str
+    title: str
+    body: str
+    data_json: str | None = None
+    is_read: bool
+    sent_at: str
+    read_at: str | None = None
+    created_at: str
+
+
+class NotificationListOut(ScalesModel):
+    items: list[NotificationOut]
+    total: int
+    unread_count: int
+    page: int
+    per_page: int
+
+
+class NotificationMarkReadRequest(ScalesModel):
+    notification_ids: list[str] | None = None  # None = mark all as read
+
+
+class NotificationMarkReadResponse(ScalesModel):
+    marked_count: int

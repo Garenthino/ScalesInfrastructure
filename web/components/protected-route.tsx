@@ -4,15 +4,38 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 
-export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
+const ROLE_RANK: Record<string, number> = {
+  owner: 4,
+  admin: 3,
+  operator: 2,
+  kj: 1,
+};
+
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+  requiredRole?: string;
+}
+
+export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
+  const { user, isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
+    if (isLoading) return;
+
+    if (!isAuthenticated) {
       router.replace("/auth/login");
+      return;
     }
-  }, [isLoading, isAuthenticated, router]);
+
+    if (requiredRole && user) {
+      const userRank = ROLE_RANK[user.role] ?? 0;
+      const requiredRank = ROLE_RANK[requiredRole] ?? 0;
+      if (userRank < requiredRank) {
+        router.replace("/queue");
+      }
+    }
+  }, [isLoading, isAuthenticated, user, requiredRole, router]);
 
   if (isLoading) {
     return (
@@ -23,6 +46,12 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAuthenticated) return null;
+
+  if (requiredRole && user) {
+    const userRank = ROLE_RANK[user.role] ?? 0;
+    const requiredRank = ROLE_RANK[requiredRole] ?? 0;
+    if (userRank < requiredRank) return null;
+  }
 
   return <>{children}</>;
 }
