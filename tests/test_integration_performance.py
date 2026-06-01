@@ -88,8 +88,12 @@ async def test_perf_rapid_queue_join(
     assert avg_ms < 500, f"Average join time {avg_ms:.1f}ms exceeded 500ms"
     assert max_ms < 2000, f"Max join time {max_ms:.1f}ms exceeded 2000ms"
 
-    pub = await client.get(f"/v1/venues/{venue_id}/queue/list")
-    assert len(pub.json()["items"]) == 50
+    pub = await client.get(
+        f"/v1/venues/{venue_id}/queue/list?per_page=100",
+        headers=AUTHORIZATION(tokens[0]),
+    )
+    assert pub.status_code == 200
+    assert pub.json()["total"] == 50
 
 
 # =====================================================================

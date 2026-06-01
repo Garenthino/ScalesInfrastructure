@@ -163,7 +163,11 @@ async def get_venue_overview(
             .limit(1)
         )
     ).first()
-    busiest_day = day_rows.day if day_rows else None
+    busiest_day = None
+    if day_rows and day_rows.day and day_rows.day.count("-") == 2:
+        busiest_day = day_rows.day
+    if busiest_day and not all(c.isdigit() or c == "-" for c in busiest_day):
+        busiest_day = None
 
     hour_rows = (
         await db.execute(
@@ -180,7 +184,7 @@ async def get_venue_overview(
             .limit(1)
         )
     ).first()
-    busiest_hour = int(hour_rows.hour) if hour_rows else None
+    busiest_hour = int(hour_rows.hour) if hour_rows and hour_rows.hour not in (None, '') else None
 
     return VenueOverviewOut(
         venue_id=venue_id,
