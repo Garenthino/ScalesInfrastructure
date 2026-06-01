@@ -68,9 +68,20 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
-      - name: Deploy via SSH placeholder
+      - name: Deploy to VPS
+        env:
+          VPS_IP: ${{ secrets.VPS_IP }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
-          echo "Deploy: copy docker-compose.yml, build, restart"
-          echo "Configure secrets: VPS_IP, SSH_KEY, VPS_USER"
-          # mkdir -p ~/.ssh && echo "$SSH_KEY" > ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
-          # ssh -i ~/.ssh/id_rsa "$VPS_USER@$VPS_IP" 'cd /opt/scales && git pull && docker compose up -d --build'
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$VPS_IP" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/id_rsa "${VPS_USER}@${VPS_IP}" '
+            set -euo pipefail
+            cd /home/scales/ScalesInfrastructure
+            git pull origin main
+            chmod +x scripts/backup_db.sh scripts/rollback.sh
+            docker compose up -d --build
+          '

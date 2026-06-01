@@ -9,8 +9,9 @@ if [[ "${1:-}" == "--hard" ]]; then
   HARD="true"
 fi
 
-echo "[+] Stopping running containers..."
-cd /home/scales/ScalesInfrastructure || exit 1
+SCALES_ROOT="${SCALES_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+echo "[+] Working from ${SCALES_ROOT}"
+cd "${SCALES_ROOT}" || exit 1
 
 # Find and kill old next-server (web) if running
 pgrep -a -f "npm start" 2>/dev/null | while read pid cmd; do
@@ -46,13 +47,13 @@ sleep 4
 
 echo "[+] Health checks..."
 for _ in {1..6}; do
-  if curl -sf http://localhost:8000/health >&amp;/dev/null; then
+  if curl -sf http://localhost:8000/health > /dev/null; then
     echo "    API OK"
     break
   fi
   sleep 2
 done
 
-curl -sf http://localhost:4000 >&amp;/dev/null && echo "    Web OK" || echo "    Web check failed (might need login page check)"
+curl -sf http://localhost:4000 > /dev/null && echo "    Web OK" || echo "    Web check failed (might need login page check)"
 
 echo "[+] Rollback complete."
