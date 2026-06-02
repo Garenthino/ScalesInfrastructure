@@ -1,14 +1,35 @@
-FROM node:22-alpine
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
 # Install dependencies
 COPY package*.json ./
-RUN npm install
+RUN npm ci --only=production=false
 
 # Copy source
 COPY . .
 
-EXPOSE 3000
+# Build
+ARG NEXT_PUBLIC_API_URL=https://dancingdragonservices.com/api/v1
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+RUN npm run build
 
-CMD ["npm", "run", "dev"]
+# Production image
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ARG NEXT_PUBLIC_API_URL=https://dancingdragonservices.com/api/v1
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
+# Copy only what's needed
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/next.config.* ./
+
+EXPOSE 4000
+
+CMD ["npx", "next", "start", "-p", "4000"]

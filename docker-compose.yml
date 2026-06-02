@@ -1,7 +1,3 @@
-# Scales Production Deployment Stack
-# Usage: docker compose up -d --build
-# Override env via .env or inline: JWT_SECRET_KEY=$(openssl rand -hex 32) docker compose up -d --build
-
 services:
   postgres:
     image: postgres@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
@@ -12,32 +8,37 @@ services:
       POSTGRES_PASSWORD: scales
       POSTGRES_DB: scales
     volumes:
-      - scales_pgdata:/var/lib/postgresql/data
+    - scales_pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+    - 5432:5432
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U scales -d scales"]
+      test:
+      - CMD-SHELL
+      - pg_isready -U scales -d scales
       interval: 5s
       timeout: 5s
       retries: 5
     networks:
-      - scales
+    - scales
 
   redis:
     image: redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     container_name: scales-redis
     restart: unless-stopped
     volumes:
-      - scales_redisdata:/data
+    - scales_redisdata:/data
     ports:
-      - "6379:6379"
+    - 6379:6379
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+      - CMD
+      - redis-cli
+      - ping
       interval: 5s
       timeout: 3s
       retries: 5
     networks:
-      - scales
+    - scales
 
   api:
     build:
@@ -49,37 +50,100 @@ services:
       APP_NAME: ScalesAPI
       APP_VERSION: 0.1.0
       ENVIRONMENT: production
+      HOST: 0.0.0.0
+      PORT: '8000'
       DATABASE_URL: postgresql+asyncpg://scales:scales@postgres:5432/scales
       REDIS_URL: redis://redis:6379/0
-      DATABASE_POOL_SIZE: "10"
-      DATABASE_MAX_OVERFLOW: "20"
+      DATABASE_POOL_SIZE: '10'
+      DATABASE_MAX_OVERFLOW: '20'
       LOG_LEVEL: INFO
       LOG_FORMAT: json
-      # CRITICAL: set this in production via .env or secrets manager
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required in production}
+      GATEWAY_URL: http://gateway:3001
+      GATEWAY_INTERNAL_SECRET: ${GATEWAY_INTERNAL_SECRET:?GATEWAY_INTERNAL_SECRET is required}
+      RATE_LIMIT_REQUESTS: '100'
+      RATE_LIMIT_WINDOW: '60'
+      SECURITY_HEADERS_ENABLED: 'true'
+      REQUEST_MAX_BODY_SIZE_MB: '1.0'
     ports:
-      - "8000:8000"
+    - 8000:8000
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
-      - ./scripts/entrypoint.sh:/app/entrypoint.sh:ro
-    entrypoint: ["sh", "/app/entrypoint.sh"]
+    - ./scripts/entrypoint.sh:/app/entrypoint.sh:ro
+    entrypoint:
+    - sh
+    - /app/entrypoint.sh
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
+      test:
+      - CMD
+      - wget
+      - -qO-
+      - http://localhost:8000/health
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
     networks:
-      - scales
+    - scales
+
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: scales-gateway
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      GATEWAY_PORT: '3001'
+      REDIS_HOST: redis
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: info
+      METRICS_ENABLED: 'true'
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required in production}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+      GATEWAY_INTERNAL_SECRET: ${GATEWAY_INTERNAL_SECRET:?GATEWAY_INTERNAL_SECRET is required}
+    ports:
+    - 3001:3001
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - wget
+      - -qO-
+      - http://localhost:3001/health
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+    - scales
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: scales-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: https://dancingdragonservices.com/api/v1
+    ports:
+    - 4000:4000
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+    - scales
 
 networks:
   scales:
     driver: bridge
-
 volumes:
   scales_pgdata:
     driver: local
