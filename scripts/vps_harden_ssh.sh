@@ -58,9 +58,9 @@ sudo tee /etc/ssh/sshd_config.d/scales-hardening.conf > /dev/null <<'EOF'
 PermitRootLogin no
 PasswordAuthentication no
 PubkeyAuthentication yes
-MaxAuthTries 3
-MaxSessions 2
-LoginGraceTime 30
+MaxAuthTries 6
+MaxSessions 5
+LoginGraceTime 120
 ClientAliveInterval 300
 ClientAliveCountMax 2
 AllowUsers scales

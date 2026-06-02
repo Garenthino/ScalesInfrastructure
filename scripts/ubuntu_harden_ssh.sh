@@ -25,7 +25,7 @@ sudo tee /etc/fail2ban/jail.local > /dev/null <<EOF
 [DEFAULT]
 bantime = 3600
 findtime = 600
-maxretry = 3
+maxretry = 6
 backend = systemd
 
 [ssh]
@@ -33,7 +33,7 @@ enabled = true
 port = ssh
 filter = sshd
 logpath = /var/log/auth.log
-maxretry = 3
+maxretry = 6
 bantime = 7200
 EOF
 
@@ -45,12 +45,13 @@ log "Hardening sshd_config..."
 sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.$(date +%Y%m%d_%H%M%S)
 
 sudo tee /etc/ssh/sshd_config.d/scales-hardening.conf > /dev/null <<'EOF'
+#--- Scales SSH Hardening ---
 PermitRootLogin no
 PasswordAuthentication no
 PubkeyAuthentication yes
-MaxAuthTries 3
-MaxSessions 2
-LoginGraceTime 30
+MaxAuthTries 6
+MaxSessions 5
+LoginGraceTime 120
 ClientAliveInterval 300
 ClientAliveCountMax 2
 AllowUsers scales
