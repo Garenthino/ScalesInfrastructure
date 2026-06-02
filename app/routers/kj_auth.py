@@ -20,6 +20,7 @@ from app.core.auth import get_current_user, SingerUser, kj_auth, KJDeviceUser
 from app.core.permissions import Role, has_role
 from app.core.db import async_session_factory, get_db
 from app.core.security import hash_password, verify_password, create_access_token
+from app.core.rls import set_session_venue_id
 from app.models import KJDevice, Venue
 
 router = APIRouter()
@@ -68,7 +69,7 @@ class KJDeviceOut(_Base):
 
 
 class KJDeviceListResponse(_Base):
-    devices: list[KJDeviceOut]
+    items: list[KJDeviceOut]
 
 
 class KJDeviceRotateResponse(_Base):
@@ -103,9 +104,11 @@ async def _get_device_by_id(session: AsyncSession, device_id: str, venue_id: str
     device = result.scalar_one_or_none()
     if not device:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="KJ device not found",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API key",
         )
+
+    await set_session_venue_id(session, str(device.venue_id))
     return device
 
 
@@ -126,6 +129,7 @@ async def kj_register(
     await _require_admin(current)
 
     async with async_session_factory() as session:
+        await set_session_venue_id(session, body.venue_id)
         # Verify venue exists
         venue_result = await session.execute(
             select(Venue).where(Venue.id == body.venue_id, Venue.deleted_at.is_(None))
@@ -211,6 +215,7 @@ async def kj_list_devices(
     await _require_admin(current)
 
     async with async_session_factory() as session:
+        await set_session_venue_id(session, current.venue_id)
         result = await session.execute(
             select(KJDevice).where(
                 KJDevice.venue_id == current.venue_id,
@@ -219,7 +224,7 @@ async def kj_list_devices(
         devices = result.scalars().all()
 
         return KJDeviceListResponse(
-            devices=[
+            items=[
                 KJDeviceOut(
                     id=d.id,
                     venue_id=d.venue_id,
@@ -242,6 +247,7 @@ async def kj_revoke_device(
     await _require_admin(current)
 
     async with async_session_factory() as session:
+        await set_session_venue_id(session, current.venue_id)
         device = await _get_device_by_id(session, device_id, current.venue_id)
         if device.revoked_at:
             return MessageResponse(message="Device already revoked")
@@ -261,6 +267,7 @@ async def kj_rotate_key(
     raw_key = str(uuid.uuid4()) + str(uuid.uuid4())
 
     async with async_session_factory() as session:
+        await set_session_venue_id(session, current.venue_id)
         device = await _get_device_by_id(session, device_id, current.venue_id)
         device.api_key_hash = hash_password(raw_key)
         device.revoked_at = None  # un-revoke if rotating
@@ -270,3 +277,88 @@ async def kj_rotate_key(
             id=device.id,
             api_key=raw_key,
         )
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Venue-scoped routes (used by web portal)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+venue_router = APIRouter(prefix="/venues/{venue_id}/kj-devices", tags=["KJ Devices"])
+
+@venue_router.get("", response_model=KJDeviceListResponse)
+async def list_kj_devices_for_venue(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all KJ devices for a venue (admin/owner only)."""
+    if current.role not in ("admin", "owner"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin or owner access required")
+    result = await db.execute(
+        select(KJDevice).where(KJDevice.venue_id == venue_id, KJDevice.revoked_at.is_(None))
+    )
+    devices = result.scalars().all()
+    return KJDeviceListResponse(
+        items=[KJDeviceOut(
+            id=str(d.id),
+            venue_id=str(d.venue_id),
+            name=str(d.name),
+            created_at=str(d.created_at) if d.created_at else "",
+            last_seen=str(d.last_seen) if d.last_seen else None,
+            revoked_at=str(d.revoked_at) if d.revoked_at else None,
+        ) for d in devices]
+    )
+
+@venue_router.post("", response_model=KJDeviceRegisterResponse, status_code=status.HTTP_201_CREATED)
+async def register_kj_device_for_venue(
+    venue_id: str,
+    body: KJDeviceRegisterRequest,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Register a new KJ device for a venue. Returns the API key once."""
+    if current.role not in ("admin", "owner"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin or owner access required")
+    if current.venue_id != venue_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot manage devices for another venue")
+    
+    venue_result = await db.execute(select(Venue).where(Venue.id == venue_id, Venue.deleted_at.is_(None)))
+    if not venue_result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Venue not found")
+    
+    raw_key = str(uuid.uuid4()) + str(uuid.uuid4())
+    device = KJDevice(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        name=body.name,
+        api_key_hash=hash_password(raw_key),
+        created_at=_now_iso(),
+    )
+    db.add(device)
+    await db.commit()
+    
+    return KJDeviceRegisterResponse(
+        id=device.id,
+        api_key=raw_key,
+    )
+
+@venue_router.post("/{device_id}/revoke", response_model=MessageResponse)
+async def revoke_kj_device_for_venue(
+    venue_id: str,
+    device_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Revoke a KJ device for a venue."""
+    if current.role not in ("admin", "owner"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin or owner access required")
+    result = await db.execute(
+        select(KJDevice).where(KJDevice.id == device_id, KJDevice.venue_id == venue_id)
+    )
+    device = result.scalar_one_or_none()
+    if not device:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+    if device.revoked_at:
+        return MessageResponse(message="Device already revoked")
+    device.revoked_at = _now_iso()
+    await db.commit()
+    return MessageResponse(message="Device revoked successfully")

@@ -6,14 +6,17 @@ from app.routers import venues, songs, singers, singer_favorites, singer_follows
 
 api_router = APIRouter()
 
+from app.routers.kj_auth import router as kj_auth_router, venue_router as kj_venue_router
+
 api_router.include_router(auth.router, prefix="/auth", tags=["Auth"])
-api_router.include_router(kj_auth.router, prefix="/kj", tags=["KJ Auth"])
+api_router.include_router(kj_auth_router, prefix="/kj", tags=["KJ Auth"])
+api_router.include_router(kj_venue_router)
 api_router.include_router(kj_sync.router, prefix="/sync", tags=["Sync"])
 api_router.include_router(venues.router, prefix="/venues", tags=["Venues"])
 api_router.include_router(songs.router, prefix="/venues/{venue_id}/songs", tags=["Songs"])
-api_router.include_router(singers.router, prefix="/venues/{venue_id}/singers", tags=["Singers"])
 api_router.include_router(singer_favorites.router, prefix="/venues/{venue_id}/singers", tags=["Singer Favorites"])
 api_router.include_router(singer_follows.router, prefix="/venues/{venue_id}/singers", tags=["Singer Follows"])
+api_router.include_router(singers.router, prefix="/venues/{venue_id}/singers", tags=["Singers"])
 api_router.include_router(queue_singer.router, prefix="/venues/{venue_id}/queue", tags=["Queue Singer"])
 api_router.include_router(queue.router, prefix="/venues/{venue_id}/queue", tags=["Queue"])
 api_router.include_router(queue_admin.router, prefix="/venues/{venue_id}/queue/admin", tags=["Queue Admin"])

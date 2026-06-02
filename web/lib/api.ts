@@ -540,3 +540,13 @@ export async function revokeKJDevice(venue_id: string, device_id: string, token?
   });
   if (!res.ok) throw new Error("Failed to revoke KJ device");
 }
+
+export async function registerKJDevice(venue_id: string, name: string, token?: string): Promise<{ id: string; api_key: string }> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venue_id)}/kj-devices`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error("Failed to register KJ device");
+  return res.json();
+}
