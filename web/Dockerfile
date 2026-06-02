@@ -27,8 +27,9 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
 COPY --from=builder /app/next.config.* ./
+# public/ is optional — create empty dir if project doesn't have one
+RUN mkdir -p public
 
 EXPOSE 4000
 
