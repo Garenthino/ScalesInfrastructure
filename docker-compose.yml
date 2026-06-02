@@ -133,6 +133,8 @@ services:
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_API_URL: https://dancingdragonservices.com/api/v1
+      NEXT_PUBLIC_SOCKET_URL: https://dancingdragonservices.com
+      NEXT_PUBLIC_DEFAULT_VENUE_ID: default
     ports:
     - 4000:4000
     depends_on:
