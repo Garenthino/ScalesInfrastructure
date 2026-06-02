@@ -5,6 +5,12 @@
 #===============================================================================
 set -euo pipefail
 
+# Auto-detect SSH service name (Ubuntu=ssh, RHEL/CentOS=sshd)
+SSH_SERVICE="sshd"
+if systemctl list-unit-files 2>/dev/null | grep -q "^ssh.service"; then
+    SSH_SERVICE="ssh"
+fi
+
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
 #===============================================================================
@@ -20,14 +26,14 @@ elif command -v yum &> /dev/null; then
     sudo yum install -y fail2ban
 fi
 
-sudo tee /etc/fail2ban/jail.local > /dev/null <<'EOF'
+sudo tee /etc/fail2ban/jail.local > /dev/null <<EOF
 [DEFAULT]
 bantime = 3600
 findtime = 600
 maxretry = 3
 backend = systemd
 
-[sshd]
+[${SSH_SERVICE}]
 enabled = true
 port = ssh
 filter = sshd
@@ -65,8 +71,8 @@ EOF
 
 sudo sshd -t || { log "SSHD config test FAILED! Reverting..."; sudo mv /etc/ssh/sshd_config.bak.* /etc/ssh/sshd_config; exit 1; }
 
-sudo systemctl restart sshd
-log "sshd restarted with hardening applied"
+sudo systemctl restart ${SSH_SERVICE}
+log "${SSH_SERVICE} restarted with hardening applied"
 
 #===============================================================================
 #  3. Rate limit SSH via UFW / iptables (connection throttling)
@@ -112,12 +118,12 @@ fi
 #===============================================================================
 log ""
 log "=== Currently banned IPs ==="
-sudo fail2ban-client status sshd 2>/dev/null || log "fail2ban status not available yet"
+sudo fail2ban-client status ${SSH_SERVICE} 2>/dev/null || log "fail2ban status not available yet"
 sudo iptables -L -n | grep -i ssh || true
 
 log ""
 log "=== SSH Status ==="
-sudo systemctl status sshd --no-pager | head -5
+sudo systemctl status ${SSH_SERVICE} --no-pager | head -5
 
 log ""
 log "HARDENING COMPLETE. Your SSH session is still active."
