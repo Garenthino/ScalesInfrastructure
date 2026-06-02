@@ -20,7 +20,7 @@ const DEFAULT_VENUE_ID = process.env.NEXT_PUBLIC_DEFAULT_VENUE_ID || "default";
 export default function KJDevicesPage() {
   const { getAccessToken, user } = useAuth();
   const queryClient = useQueryClient();
-  const venueId = DEFAULT_VENUE_ID;
+  const venueId = user?.venue_id || DEFAULT_VENUE_ID;
 
   const [revokeDevice, setRevokeDevice] = useState<KJDevice | null>(null);
   const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
@@ -125,7 +125,7 @@ export default function KJDevicesPage() {
       </div>
 
       {lastError && (
-        <p className="text-sm text-destructive">WebSocket error: {lastError}</p>
+        <p className="text-sm text-destructive">Socket error: {lastError}</p>
       )}
 
       {apiLoading && devices.length === 0 ? (

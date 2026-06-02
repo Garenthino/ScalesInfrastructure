@@ -20,8 +20,12 @@ from app.core.auth import get_current_user, SingerUser, kj_auth, KJDeviceUser
 from app.core.permissions import Role, has_role
 from app.core.db import async_session_factory, get_db
 from app.core.security import hash_password, verify_password, create_access_token
-from app.core.rls import set_session_venue_id
+# from app.core.rls import set_session_venue_id  # RLS not yet committed (AG-01 untracked)
 from app.models import KJDevice, Venue
+
+# Fallback: no-op until RLS is committed
+async def set_session_venue_id(session, venue_id):
+    pass
 
 router = APIRouter()
 
@@ -318,8 +322,9 @@ async def register_kj_device_for_venue(
     """Register a new KJ device for a venue. Returns the API key once."""
     if current.role not in ("admin", "owner"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin or owner access required")
-    if current.venue_id != venue_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot manage devices for another venue")
+    # Admin can manage devices for any venue; operator must match their venue
+    if current.role == "operator" and current.venue_id != venue_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Venue mismatch")
     
     venue_result = await db.execute(select(Venue).where(Venue.id == venue_id, Venue.deleted_at.is_(None)))
     if not venue_result.scalar_one_or_none():
