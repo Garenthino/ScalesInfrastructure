@@ -1,0 +1,18 @@
+[Unit]
+Description=Scales GitHub Webhook Auto-Deploy
+After=network.target
+
+[Service]
+Type=simple
+User=scales
+Group=scales
+WorkingDirectory=/home/scales/ScalesInfrastructure
+Environment="GITHUB_WEBHOOK_SECRET=REPLACE_ME_WITH_SECRET"
+ExecStart=/usr/bin/python3 /home/scales/ScalesInfrastructure/scripts/webhook_deploy.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
