@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchSingers, fetchSingerStats, fetchCheckedInSingers, updateSinger } from "@/lib/api";
+import { fetchSingers, fetchSingerStats, fetchCheckedInSingers, updateSinger, deleteSinger } from "@/lib/api";
 import { Singer, SingerLoyaltyTier } from "@/lib/types";
 import { useAuth } from "@/hooks/use-auth";
 import { SingerFilters } from "@/components/singer-filters";
@@ -17,7 +17,7 @@ import { UserCheck, UserPlus, Download } from "lucide-react";
 
 export default function SingersPage() {
   const queryClient = useQueryClient();
-  const { user } = useAuth();
+  const { user, getAccessToken } = useAuth();
   const venueId = user?.venue_id || "";
   const [page, setPage] = useState(0);
   const pageSize = 20;
@@ -122,6 +122,21 @@ export default function SingersPage() {
     }
   };
 
+  const handleDelete = async (singer: Singer) => {
+    const confirmed = window.confirm(`Delete singer "${singer.name}"? This only hides the record, you can restore it later.`);
+    if (!confirmed) return;
+    try {
+      await deleteSinger(venueId, singer.singer_id, getAccessToken() || undefined);
+      await refetch();
+      queryClient.invalidateQueries({ queryKey: ["singer-stats"] });
+      if (detailSinger?.singer_id === singer.singer_id) {
+        setDetailOpen(false);
+      }
+    } catch {
+      // silently handled
+    }
+  };
+
   const exportCSV = () => {
     const items = data?.items ?? [];
     if (!items.length) return;
@@ -199,6 +214,7 @@ export default function SingersPage() {
         onView={viewSinger}
         onToggleBan={handleToggleBan}
         onCheckin={handleCheckin}
+        onDelete={handleDelete}
       />
 
       {!isLoading && (

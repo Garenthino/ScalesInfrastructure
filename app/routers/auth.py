@@ -131,6 +131,8 @@ class MeResponse(_ScalesModel):
 @router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
 async def register(body: RegisterRequest):
     async with async_session_factory() as session:
+        from app.core.rls import set_session_venue_id
+        await set_session_venue_id(session, body.venue_id)
         existing = await _get_singer_by_email(session, body.email)
         if existing:
             raise HTTPException(
@@ -158,7 +160,10 @@ async def register(body: RegisterRequest):
 @router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest):
     async with async_session_factory() as session:
+        from app.core.rls import set_session_venue_id
         singer = await _get_singer_by_email(session, body.email)
+        if singer:
+            await set_session_venue_id(session, str(singer.venue_id))
         if not singer or not singer.password_hash:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -201,7 +206,10 @@ async def refresh(body: RefreshRequest):
         )
 
     async with async_session_factory() as session:
+        from app.core.rls import set_session_venue_id
         singer = await _get_singer_by_id(session, claims["sub"])
+        if singer:
+            await set_session_venue_id(session, str(singer.venue_id))
         if not singer or singer.deleted_at is not None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

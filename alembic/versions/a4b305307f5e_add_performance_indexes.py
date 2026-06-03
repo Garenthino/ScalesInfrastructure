@@ -19,6 +19,20 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Ensure deactivated_at exists (model added it but prior migration didn't)
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name='singers' AND column_name='deactivated_at'
+            ) THEN
+                ALTER TABLE singers ADD COLUMN deactivated_at TEXT;
+            END IF;
+        END $$;
+        """
+    )
     op.create_index('singer_venue_idx', 'singers', ['venue_id', 'deactivated_at'], unique=False)
     op.create_index('queue_position_idx', 'queue_requests', ['venue_id', 'rotation_position'], unique=False)
     op.create_index('checkin_session_singer_idx', 'check_in_sessions', ['singer_id'], unique=False)

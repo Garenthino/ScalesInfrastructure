@@ -39,6 +39,8 @@ async def log_audit(
     for attempt in range(2):
         try:
             async with async_session_factory() as session:
+                from app.core.rls import set_session_venue_id
+                await set_session_venue_id(session, venue_id)
                 entry = AuditLog(
                     action=action,
                     user_id=user_id,

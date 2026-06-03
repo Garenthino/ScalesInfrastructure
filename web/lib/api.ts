@@ -211,6 +211,18 @@ export async function updateSinger(
   return res.json();
 }
 
+export async function deleteSinger(
+  venueId: string,
+  id: string,
+  token?: string
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/singers/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error("Failed to delete singer");
+}
+
 export async function checkinSinger(
   venue_id: string,
   singerId: string,

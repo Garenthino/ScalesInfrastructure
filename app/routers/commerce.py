@@ -340,6 +340,7 @@ async def checkout(
                 id=str(uuid.uuid4()),
                 order_id=order_id,
                 product_id=d["product_id"],
+                venue_id=venue_id,
                 quantity=d["quantity"],
                 unit_price_cents=d["unit_price_cents"],
                 created_at=NOW(),

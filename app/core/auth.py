@@ -63,6 +63,8 @@ async def get_current_user(request: Request) -> SingerUser:
 
     # Load singer from DB for current role / venue_id (could be stale in token)
     async with async_session_factory() as session:
+        from app.core.rls import set_session_venue_id
+        await set_session_venue_id(session, claims.get("venue_id"))
         singer = await _load_singer(session, sub)
 
     if not singer or singer.deleted_at is not None or singer.deactivated_at is not None:
@@ -156,6 +158,9 @@ async def _kj_auth_by_api_key(api_key: str) -> KJDeviceUser:
                 detail="Invalid API key",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+
+        from app.core.rls import set_session_venue_id
+        await set_session_venue_id(session, str(device.venue_id))
 
         from app.models import _now_iso
         device.last_seen = _now_iso()

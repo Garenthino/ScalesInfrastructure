@@ -10,6 +10,11 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import declarative_base
 
 from app.core.config import settings
+from app.core.rls import (
+    get_current_request,
+    set_session_venue_id,
+    resolve_venue_id_from_token,
+)
 
 engine = create_async_engine(
     settings.DATABASE_URL,
@@ -31,6 +36,14 @@ Base = declarative_base()
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
-    """FastAPI dependency yielding an async DB session."""
+    """FastAPI dependency yielding an async DB session.
+
+    Automatically sets the PostgreSQL ``app.current_venue_id`` session
+    variable for RLS when a venue_id can be resolved from the request.
+    """
     async with async_session_factory() as session:
+        request = get_current_request()
+        if request is not None:
+            vid = resolve_venue_id_from_token(request)
+            await set_session_venue_id(session, vid)
         yield session

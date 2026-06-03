@@ -31,6 +31,10 @@ class Settings(BaseSettings):
 
     REDIS_URL: str | None = None
 
+    # Real-time gateway (Socket.IO) for multi-container broadcast
+    GATEWAY_URL: str | None = None
+    GATEWAY_INTERNAL_SECRET: str | None = None
+
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "json"
 

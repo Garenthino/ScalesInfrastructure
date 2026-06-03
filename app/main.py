@@ -17,7 +17,6 @@ from app.middleware import (
     RequestSizeMiddleware,
 )
 from app.middleware.observability import ObservabilityMiddleware
-from app.websockets.queue_ws import router as ws_router
 
 from fastapi.staticfiles import StaticFiles
 
@@ -80,5 +79,3 @@ app.include_router(api_router, prefix="/v1")
 # Serve static uploads (avatars etc.)
 _UPLOADS_ROOT = os.path.join(os.path.dirname(__file__), "..", "uploads")
 app.mount("/uploads", StaticFiles(directory=_UPLOADS_ROOT, check_dir=False), name="uploads")
-
-app.include_router(ws_router, tags=["WebSocket"])

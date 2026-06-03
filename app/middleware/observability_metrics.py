@@ -17,5 +17,5 @@ REQUEST_DURATION = Histogram(
 
 ACTIVE_CONNECTIONS = Gauge(
     "active_connections",
-    "Active WebSocket / HTTP connections",
+    "Active real-time connections (Socket.IO fallback)",
 )

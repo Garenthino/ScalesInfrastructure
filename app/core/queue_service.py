@@ -7,6 +7,8 @@ import json
 import logging
 from datetime import datetime, timezone
 
+import httpx
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -25,7 +27,7 @@ ACTIVE_STATUSES = {"pending", "approved", "now_playing"}
 
 
 # ---------------------------------------------------------------------------
-# In-memory event bus (fallback when Redis is absent)
+# In-memory event bus (fallback when Redis + Gateway are absent)
 # ---------------------------------------------------------------------------
 
 class InMemoryEventBus:
@@ -76,13 +78,28 @@ async def get_venue_bus(venue_id: str) -> InMemoryEventBus:
 # ---------------------------------------------------------------------------
 
 class QueueEventPublisher:
-    """Publishes queue events to Redis (if configured) or in-memory bus."""
+    """Publishes queue events to Redis, Gateway, or in-memory bus."""
 
     _redis = None
 
     @classmethod
     async def publish(cls, venue_id: str, event_type: str, data: dict) -> None:
         payload = json.dumps({"venue_id": venue_id, "event_type": event_type, "data": data})
+
+        # 1. Gateway broadcast (primary for multi-container)
+        if settings.GATEWAY_URL and settings.GATEWAY_INTERNAL_SECRET:
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    await client.post(
+                        f"{settings.GATEWAY_URL.rstrip('/')}/broadcast",
+                        json={"venue_id": venue_id, "event_type": event_type, "payload": data},
+                        headers={"Authorization": f"Bearer {settings.GATEWAY_INTERNAL_SECRET}"},
+                    )
+            except Exception:
+                # Best-effort: gateway failure must not break queue ops
+                logger.debug("gateway_publish_failed", exc_info=True)
+
+        # 2. Redis pub/sub (legacy bridge + gateway fallback)
         if settings.REDIS_URL:
             try:
                 import redis.asyncio as aioredis
@@ -93,7 +110,7 @@ class QueueEventPublisher:
                 # Best-effort: don't let Redis failures break queue ops
                 logger.debug("redis_publish_failed", exc_info=True)
 
-        # Always broadcast via in-memory bus so WS clients get events regardless of Redis
+        # 3. In-memory bus fallback (single-process dev/test)
         bus = await get_venue_bus(venue_id)
         await bus.publish(payload)
 

@@ -47,6 +47,8 @@ services:
       ENVIRONMENT: test
       DATABASE_URL: postgresql+asyncpg://scales_test:scales_test@test-postgres:5432/scales_test
       REDIS_URL: redis://test-redis:6379/0
+      GATEWAY_URL: http://test-gateway:3001
+      GATEWAY_INTERNAL_SECRET: test-gateway-secret
       JWT_SECRET_KEY: test-jwt-secret-do-not-use-in-production
       JWT_ALGORITHM: HS256
       DEBUG: "true"
@@ -74,6 +76,35 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    networks:
+      - scales_test
+
+  test-gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    container_name: scales-test-gateway
+    environment:
+      NODE_ENV: test
+      GATEWAY_PORT: '3001'
+      REDIS_HOST: test-redis
+      REDIS_URL: redis://test-redis:6379/0
+      LOG_LEVEL: debug
+      METRICS_ENABLED: 'true'
+      JWT_SECRET_KEY: test-jwt-secret-do-not-use-in-production
+      ALLOWED_ORIGINS: '*'
+      GATEWAY_INTERNAL_SECRET: test-gateway-secret
+    depends_on:
+      test-redis:
+        condition: service_healthy
+    ports:
+      - "23001:3001"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - scales_test
 

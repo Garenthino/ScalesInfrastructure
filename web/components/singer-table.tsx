@@ -11,13 +11,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Singer } from "@/lib/types";
 import { SingerTierBadge } from "@/components/singer-tier-badge";
-import { Eye, Ban, UserCheck } from "lucide-react";
+import { Eye, Ban, UserCheck, Trash2 } from "lucide-react";
 
 interface SingerTableProps {
   singers: Singer[];
   onView: (singer: Singer) => void;
   onToggleBan: (singer: Singer) => void;
   onCheckin: (singer: Singer) => void;
+  onDelete?: (singer: Singer) => void;
   loading?: boolean;
 }
 
@@ -27,7 +28,7 @@ function formatDate(iso?: string | null) {
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-export function SingerTable({ singers, onView, onToggleBan, onCheckin, loading }: SingerTableProps) {
+export function SingerTable({ singers, onView, onToggleBan, onCheckin, onDelete, loading }: SingerTableProps) {
   if (loading) {
     return (
       <div className="rounded-md border">
@@ -139,6 +140,17 @@ export function SingerTable({ singers, onView, onToggleBan, onCheckin, loading }
                     <Ban className="h-4 w-4" />
                     <span className="sr-only">Toggle ban</span>
                   </Button>
+                  {onDelete && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive hover:text-destructive"
+                      onClick={(e) => { e.stopPropagation; onDelete(singer); }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      <span className="sr-only">Delete</span>
+                    </Button>
+                  )}
                 </div>
               </TableCell>
             </TableRow>

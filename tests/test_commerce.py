@@ -363,6 +363,7 @@ async def test_list_orders_and_order_detail(client: AsyncClient, _commerce_venue
                 id=str(uuid.uuid4()),
                 order_id=order_id,
                 product_id=products[0].id,
+                venue_id=venue_id,
                 quantity=1,
                 unit_price_cents=2500,
             )
