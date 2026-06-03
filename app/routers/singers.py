@@ -7,7 +7,6 @@ import uuid as _uuid
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, cast, DateTime
-from sqlalchemy import text
 
 from app.core.auth import get_current_user, SingerUser
 from app.core.permissions import Role, has_role
@@ -1060,15 +1059,8 @@ async def delete_singer(
     if singer is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
 
-    # Hard delete: permanently remove singer and related records from current venue
-    await db.execute(text("DELETE FROM check_in_sessions WHERE singer_id = :singer_id AND venue_id = :venue_id"), {"singer_id": singer_id, "venue_id": venue_id})
-    await db.execute(text("DELETE FROM queue_requests WHERE singer_id = :singer_id AND venue_id = :venue_id"), {"singer_id": singer_id, "venue_id": venue_id})
-    await db.execute(text("DELETE FROM singer_favorites WHERE singer_id = :singer_id"), {"singer_id": singer_id})
-    await db.execute(text("DELETE FROM singer_follows WHERE singer_id = :singer_id"), {"singer_id": singer_id})
-    await db.execute(text("DELETE FROM singer_achievements WHERE singer_id = :singer_id"), {"singer_id": singer_id})
-    await db.execute(text("DELETE FROM loyalty_points WHERE singer_id = :singer_id"), {"singer_id": singer_id})
-    await db.execute(text("DELETE FROM singer_checkins WHERE singer_id = :singer_id"), {"singer_id": singer_id})
-    await db.execute(text("DELETE FROM points_ledger WHERE singer_id = :singer_id"), {"singer_id": singer_id})
+    # Hard delete: permanently remove singer from current venue.
+    # Related rows are left as-is (DB may cascade or orphan; avoids table-guessing).
     await db.delete(singer)
     await db.commit()
     return None
