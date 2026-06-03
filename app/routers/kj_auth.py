@@ -43,7 +43,7 @@ class _Base(BaseModel):
 
 
 class KJDeviceRegisterRequest(_Base):
-    venue_id: str = Field(..., min_length=1)
+    venue_id: str | None = None  # Optional: old standalone route uses this; new venue-scoped route ignores it
     name: str = Field(..., min_length=1, max_length=100)
 
 
