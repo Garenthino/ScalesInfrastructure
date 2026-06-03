@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { QueueRequest, NowPlaying, QueueStats, QueueMessage } from "@/lib/types";
+import { io, Socket } from "socket.io-client";
+import { QueueRequest, NowPlaying, QueueStats } from "@/lib/types";
 
-const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
+const SOCKET_BASE = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
 const DEFAULT_VENUE_ID = process.env.NEXT_PUBLIC_DEFAULT_VENUE_ID || "default";
 
-function getWsToken(): string | null {
+function getSocketToken(): string | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = localStorage.getItem("scales_access_token");
@@ -26,102 +27,81 @@ export function useQueueWS(venueId: string = DEFAULT_VENUE_ID) {
   const [lastError, setLastError] = useState<string | null>(null);
   const [hasReceivedData, setHasReceivedData] = useState(false);
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reconnectAttempts = useRef(0);
+  const socketRef = useRef<Socket | null>(null);
   const mountedRef = useRef(true);
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
-    if (typeof window === "undefined") return;
+    const token = getSocketToken();
+    const base = SOCKET_BASE.replace(/\/$/, "");
+    const socket = io(base, {
+      transports: ["websocket"],
+      query: token ? { token } : undefined,
+      reconnection: false,
+      timeout: 5000,
+    });
+    socketRef.current = socket;
 
-    const token = getWsToken();
-    const base = `${WS_BASE}/venues/${venueId}/queue`;
-    const url = token ? `${base}?token=${encodeURIComponent(token)}` : base;
-    try {
-      const ws = new WebSocket(url);
-      wsRef.current = ws;
-
-      setConnectionState("connecting");
+    socket.on("connect", () => {
+      if (!mountedRef.current) return;
+      setConnectionState("open");
       setLastError(null);
+      socket.emit("get_queue_snapshot");
+    });
 
-      ws.onopen = () => {
-        if (!mountedRef.current) return;
-        setConnectionState("open");
-        reconnectAttempts.current = 0;
-      };
+    socket.on("queue_updated", (msg: any) => {
+      if (!mountedRef.current) return;
+      setHasReceivedData(true);
+      setQueue(msg.data?.queue ?? msg.data ?? []);
+    });
 
-      ws.onmessage = (event) => {
-        if (!mountedRef.current) return;
-        try {
-          const msg: QueueMessage = JSON.parse(event.data);
-          setHasReceivedData(true);
-          switch (msg.type) {
-            case "queue_update":
-              setQueue(msg.payload as QueueRequest[]);
-              break;
-            case "now_playing":
-              setNowPlaying(msg.payload as NowPlaying);
-              break;
-            case "stats":
-              setStats(msg.payload as QueueStats);
-              break;
-            default:
-              break;
-          }
-        } catch {
-          // ignore malformed messages
-        }
-      };
+    socket.on("now_playing", (msg: any) => {
+      if (!mountedRef.current) return;
+      setHasReceivedData(true);
+      setNowPlaying(msg.data ?? msg);
+    });
 
-      ws.onerror = () => {
-        if (!mountedRef.current) return;
-        setConnectionState("error");
-        setLastError("WebSocket error");
-      };
+    socket.on("stats", (msg: any) => {
+      if (!mountedRef.current) return;
+      setHasReceivedData(true);
+      setStats(msg.data ?? msg);
+    });
 
-      ws.onclose = () => {
-        if (!mountedRef.current) return;
-        setConnectionState("closed");
-        wsRef.current = null;
-        const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 30000);
-        reconnectAttempts.current += 1;
-        reconnectTimerRef.current = setTimeout(connect, delay);
-      };
-    } catch {
+    socket.on("connected", (_msg: any) => {
+      if (!mountedRef.current) return;
+      setHasReceivedData(true);
+    });
+
+    socket.on("connect_error", (err: Error) => {
+      if (!mountedRef.current) return;
       setConnectionState("error");
-      const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 30000);
-      reconnectAttempts.current += 1;
-      reconnectTimerRef.current = setTimeout(connect, delay);
-    }
+      setLastError(err.message);
+    });
+
+    socket.on("disconnect", (reason: string) => {
+      if (!mountedRef.current) return;
+      setConnectionState("closed");
+      if (reason === "io server disconnect" || reason === "io client disconnect") {
+        // intentional, no need to show error
+        return;
+      }
+    });
   }, [venueId]);
 
   useEffect(() => {
     mountedRef.current = true;
     connect();
-
-    const pingInterval = setInterval(() => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: "ping" }));
-      }
-    }, 30000);
-
     return () => {
       mountedRef.current = false;
-      clearInterval(pingInterval);
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-      }
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
+      if (socketRef.current) {
+        socketRef.current.disconnect();
       }
     };
   }, [connect]);
 
   const sendMessage = useCallback((data: unknown) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(data));
+    if (socketRef.current?.connected) {
+      socketRef.current.emit("client_message", data);
     }
   }, []);
 

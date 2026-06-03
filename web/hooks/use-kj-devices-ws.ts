@@ -1,10 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { KJDevice, KJDeviceMessage, KJDeviceQueueItem, KJDeviceNowPlaying } from "@/lib/types";
+import { io, Socket } from "socket.io-client";
+import { KJDevice, KJDeviceQueueItem, KJDeviceNowPlaying } from "@/lib/types";
 
-const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
+const SOCKET_BASE = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
 const DEFAULT_VENUE_ID = process.env.NEXT_PUBLIC_DEFAULT_VENUE_ID || "default";
+
+function getSocketToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem("scales_access_token");
+    if (!raw) return null;
+    if (raw.startsWith('"')) return JSON.parse(raw);
+    return raw;
+  } catch { return null; }
+}
 
 export type ConnectionState = "connecting" | "open" | "closed" | "error";
 
@@ -14,123 +25,119 @@ export function useKJDevicesWS(venueId: string = DEFAULT_VENUE_ID) {
   const [lastError, setLastError] = useState<string | null>(null);
   const [hasReceivedData, setHasReceivedData] = useState(false);
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reconnectAttempts = useRef(0);
+  const socketRef = useRef<Socket | null>(null);
   const mountedRef = useRef(true);
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
-    if (typeof window === "undefined") return;
+    const token = getSocketToken();
+    // Socket.IO client automatically appends /socket.io to the base URL
+    const socket = io(SOCKET_BASE.replace(/\/$/, ""), {
+      transports: ["websocket"],
+      query: token ? { venue_id: venueId, token } : { venue_id: venueId },
+      reconnection: false, // Disable auto-reconnect — prevents infinite loop
+      timeout: 5000,
+    });
+    socketRef.current = socket;
 
-    const url = `${WS_BASE}/kj-devices/${encodeURIComponent(venueId)}`;
-    try {
-      const ws = new WebSocket(url);
-      wsRef.current = ws;
-
-      setConnectionState("connecting");
+    socket.on("connect", () => {
+      if (!mountedRef.current) return;
+      setConnectionState("open");
       setLastError(null);
+    });
 
-      ws.onopen = () => {
-        if (!mountedRef.current) return;
-        setConnectionState("open");
-        reconnectAttempts.current = 0;
-      };
-
-      ws.onmessage = (event) => {
-        if (!mountedRef.current) return;
-        try {
-          const msg: KJDeviceMessage = JSON.parse(event.data);
-          setHasReceivedData(true);
-
-          setDevices((prev) => {
-            const idx = prev.findIndex((d) => d.device_id === msg.device_id);
-
-            switch (msg.type) {
-              case "device_connected":
-              case "device_update": {
-                const device = msg.payload as KJDevice;
-                if (idx >= 0) {
-                  const next = [...prev];
-                  next[idx] = device;
-                  return next;
-                }
-                return [...prev, device];
-              }
-              case "device_disconnected": {
-                if (idx >= 0) {
-                  const next = [...prev];
-                  next[idx] = { ...next[idx], status: "offline", last_seen_at: new Date().toISOString() };
-                  return next;
-                }
-                return prev;
-              }
-              case "now_playing": {
-                if (idx >= 0) {
-                  const next = [...prev];
-                  next[idx] = { ...next[idx], now_playing: msg.payload as KJDeviceNowPlaying };
-                  return next;
-                }
-                return prev;
-              }
-              case "queue_update": {
-                if (idx >= 0) {
-                  const next = [...prev];
-                  next[idx] = { ...next[idx], queue: msg.payload as KJDeviceQueueItem[] };
-                  return next;
-                }
-                return prev;
-              }
-              default:
-                return prev;
-            }
-          });
-        } catch {
-          // ignore malformed messages
+    socket.on("device_connected", (msg: any) => {
+      if (!mountedRef.current) return;
+      setHasReceivedData(true);
+      const device = msg.payload as KJDevice;
+      setDevices((prev) => {
+        const idx = prev.findIndex((d) => d.device_id === device.device_id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = device;
+          return next;
         }
-      };
+        return [...prev, device];
+      });
+    });
 
-      ws.onerror = () => {
-        if (!mountedRef.current) return;
-        setConnectionState("error");
-        setLastError("WebSocket error");
-      };
+    socket.on("device_update", (msg: any) => {
+      if (!mountedRef.current) return;
+      setHasReceivedData(true);
+      const device = msg.payload as KJDevice;
+      setDevices((prev) => {
+        const idx = prev.findIndex((d) => d.device_id === device.device_id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = device;
+          return next;
+        }
+        return [...prev, device];
+      });
+    });
 
-      ws.onclose = () => {
-        if (!mountedRef.current) return;
-        setConnectionState("closed");
-        wsRef.current = null;
-        const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 30000);
-        reconnectAttempts.current += 1;
-        reconnectTimerRef.current = setTimeout(connect, delay);
-      };
-    } catch {
+    socket.on("device_disconnected", (msg: any) => {
+      if (!mountedRef.current) return;
+      setHasReceivedData(true);
+      setDevices((prev) => {
+        const idx = prev.findIndex((d) => d.device_id === msg.device_id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = { ...next[idx], status: "offline" as const, last_seen_at: new Date().toISOString() };
+          return next;
+        }
+        return prev;
+      });
+    });
+
+    socket.on("now_playing", (msg: any) => {
+      if (!mountedRef.current) return;
+      setHasReceivedData(true);
+      setDevices((prev) => {
+        const idx = prev.findIndex((d) => d.device_id === msg.device_id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = { ...next[idx], now_playing: msg.payload as KJDeviceNowPlaying };
+          return next;
+        }
+        return prev;
+      });
+    });
+
+    socket.on("queue_update", (msg: any) => {
+      if (!mountedRef.current) return;
+      setHasReceivedData(true);
+      setDevices((prev) => {
+        const idx = prev.findIndex((d) => d.device_id === msg.device_id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = { ...next[idx], queue: msg.payload as KJDeviceQueueItem[] };
+          return next;
+        }
+        return prev;
+      });
+    });
+
+    socket.on("connect_error", (err: Error) => {
+      if (!mountedRef.current) return;
       setConnectionState("error");
-      const delay = Math.min(1000 * 2 ** reconnectAttempts.current, 30000);
-      reconnectAttempts.current += 1;
-      reconnectTimerRef.current = setTimeout(connect, delay);
-    }
+      setLastError(err.message);
+    });
+
+    socket.on("disconnect", (reason: string) => {
+      if (!mountedRef.current) return;
+      setConnectionState("closed");
+      // Do not attempt reconnection
+    });
   }, [venueId]);
 
   useEffect(() => {
     mountedRef.current = true;
     connect();
-
-    const pingInterval = setInterval(() => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: "ping" }));
-      }
-    }, 30000);
-
     return () => {
       mountedRef.current = false;
-      clearInterval(pingInterval);
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-      }
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
+      if (socketRef.current) {
+        socketRef.current.disconnect();
       }
     };
   }, [connect]);
