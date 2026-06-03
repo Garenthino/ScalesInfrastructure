@@ -64,12 +64,14 @@ class KJTokenResponse(_Base):
 
 
 class KJDeviceOut(_Base):
-    id: str
-    venue_id: str
+    device_id: str
     name: str
-    created_at: str
-    last_seen: str | None
-    revoked_at: str | None
+    venue_id: str
+    status: str = "offline"
+    last_seen_at: str | None
+    connected_at: str
+    now_playing: dict | None = None
+    queue: list = []
 
 
 class KJDeviceListResponse(_Base):
@@ -230,12 +232,14 @@ async def kj_list_devices(
         return KJDeviceListResponse(
             items=[
                 KJDeviceOut(
-                    id=d.id,
-                    venue_id=d.venue_id,
-                    name=d.name,
-                    created_at=d.created_at,
-                    last_seen=d.last_seen,
-                    revoked_at=d.revoked_at,
+                    device_id=str(d.id),
+                    venue_id=str(d.venue_id),
+                    name=str(d.name),
+                    status="offline",
+                    last_seen_at=str(d.last_seen) if d.last_seen else None,
+                    connected_at=str(d.created_at),
+                    now_playing=None,
+                    queue=[],
                 )
                 for d in devices
             ],
@@ -303,12 +307,14 @@ async def list_kj_devices_for_venue(
     devices = result.scalars().all()
     return KJDeviceListResponse(
         items=[KJDeviceOut(
-            id=str(d.id),
+            device_id=str(d.id),
             venue_id=str(d.venue_id),
             name=str(d.name),
-            created_at=str(d.created_at) if d.created_at else "",
-            last_seen=str(d.last_seen) if d.last_seen else None,
-            revoked_at=str(d.revoked_at) if d.revoked_at else None,
+            status="offline",
+            last_seen_at=str(d.last_seen) if d.last_seen else None,
+            connected_at=str(d.created_at) if d.created_at else "",
+            now_playing=None,
+            queue=[],
         ) for d in devices]
     )
 
