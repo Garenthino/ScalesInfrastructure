@@ -1,15 +1,16 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
+const nextConfig = {
   output: 'standalone',
-  reactStrictMode: true,
+  distDir: '.next',
   images: { unoptimized: true },
+  // Disable aggressive caching and static optimization for active development
   experimental: {
+    // Next.js 15+
     staleTimes: {
       dynamic: 0,
       static: 0,
     },
   },
+  // Force all pages to be dynamically rendered (no static caching)
   async headers() {
     return [
       {
@@ -24,4 +25,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+module.exports = nextConfig;
