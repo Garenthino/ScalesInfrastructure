@@ -123,7 +123,7 @@ export default function SingersPage() {
   };
 
   const handleDelete = async (singer: Singer) => {
-    const confirmed = window.confirm(`Delete singer "${singer.name}"? This only hides the record, you can restore it later.`);
+    const confirmed = window.confirm(`Delete singer "${singer.name}"? This is permanent and cannot be undone.`);
     if (!confirmed) return;
     try {
       await deleteSinger(venueId, singer.singer_id, getAccessToken() || undefined);
