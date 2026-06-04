@@ -993,3 +993,36 @@ class NotificationSettingsUpdate(ScalesModel):
     announcement: bool | None = None
     social: bool | None = None
     payment: bool | None = None
+
+
+# ---------------------------------------------------------------------------
+# GDPR / Data Privacy
+# ---------------------------------------------------------------------------
+
+class DataExportOut(ScalesModel):
+    """Machine-readable personal data export for GDPR Article 20 data portability."""
+
+    singer_id: str
+    venue_id: str
+    exported_at: str
+    profile: dict[str, Any]
+    queue_history: list[dict[str, Any]]
+    favorites: list[dict[str, Any]]
+    follows: list[dict[str, Any]]
+    payments: list[dict[str, Any]]
+    points_ledger: list[dict[str, Any]]
+    leaderboard_entries: list[dict[str, Any]]
+    achievements: list[dict[str, Any]]
+    check_in_sessions: list[dict[str, Any]]
+    consents: list[dict[str, Any]]
+    share_events: list[dict[str, Any]]
+
+
+class GDPRDeleteResponse(ScalesModel):
+    """Right to erasure (GDPR Article 17): confirmation response."""
+
+    singer_id: str
+    status: str
+    erased_at: str
+    retention_days: int
+    message: str

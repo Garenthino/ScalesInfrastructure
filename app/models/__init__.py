@@ -171,6 +171,7 @@ class Singer(Base):
     total_points = Column(Integer, default=0)
     last_seen = Column(Text)
     deactivated_at = Column(Text)
+    gdpr_erased_at = Column(Text)
     created_at = Column(Text, default=_now_iso)
     updated_at = Column(Text, default=_now_iso, onupdate=_now_iso)
     deleted_at = Column(Text)
@@ -178,6 +179,7 @@ class Singer(Base):
     __table_args__ = (
         Index("ix_singers_venue_id", "venue_id"),
         Index("singer_venue_idx", "venue_id", "deactivated_at"),
+        Index("ix_singers_gdpr_erased", "venue_id", "gdpr_erased_at"),
     )
 
     venue = relationship("Venue", back_populates="singers")

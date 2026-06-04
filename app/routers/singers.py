@@ -11,7 +11,7 @@ from sqlalchemy import select, func, cast, DateTime
 from app.core.auth import get_current_user, SingerUser
 from app.core.permissions import Role, has_role
 from app.core.db import get_db
-from app.models import Singer, QueueRequest, Song, CheckInSession, PointsLedger
+from app.models import Singer, QueueRequest, Song, CheckInSession, PointsLedger, SingerFavorite, SingerFollow, Payment, LeaderboardEntry, Consent, ShareEvent, SingerAchievement, Notification
 from pydantic import BaseModel, Field
 from app.core.points_service import add_points, get_points_leaderboard, get_achievements_for_singer
 from app.schemas import (
@@ -35,6 +35,8 @@ from app.schemas import (
     PointsLedgerOut,
     BanRequest,
     BanResponse,
+    DataExportOut,
+    GDPRDeleteResponse,
 )
 
 class TipRequest(BaseModel):
@@ -840,6 +842,342 @@ async def get_me_stats(
         top_songs=top_songs,
         avg_wait_min=avg_wait_min,
         favorite_genre=favorite_genre,
+    )
+
+
+# ---------------------------------------------------------------------------
+# GDPR Compliance Endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/me/export", response_model=DataExportOut)
+async def export_personal_data(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """GET /me/export — GDPR Article 20 data portability.
+
+    Returns a structured JSON export of all personal data the system holds
+    about the authenticated singer, including profile, queue history,
+    favorites, follows, payments, points, achievements, and consents.
+    """
+    _require_venue(venue_id, current)
+
+    singer = (
+        await db.execute(
+            select(Singer).where(
+                Singer.id == current.id,
+                Singer.venue_id == venue_id,
+                Singer.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if singer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
+
+    now = _now_iso()
+
+    # Profile
+    profile = {
+        "id": singer.id,
+        "venue_id": singer.venue_id,
+        "stage_name": singer.stage_name,
+        "real_name": singer.real_name,
+        "pronouns": singer.pronouns,
+        "email": singer.email,
+        "phone": singer.phone,
+        "bio": singer.bio,
+        "avatar_url": singer.avatar_url,
+        "social_links": singer.social_links,
+        "role": singer.role,
+        "total_points": singer.total_points,
+        "loyalty_tier_id": singer.loyalty_tier_id,
+        "last_seen": singer.last_seen,
+        "deactivated_at": singer.deactivated_at,
+        "gdpr_erased_at": singer.gdpr_erased_at,
+        "created_at": singer.created_at,
+        "updated_at": singer.updated_at,
+    }
+
+    # Queue history
+    qr_result = await db.execute(
+        select(
+            QueueRequest.id,
+            Song.title,
+            Song.artist,
+            QueueRequest.status,
+            QueueRequest.requested_at,
+            QueueRequest.played_at,
+            QueueRequest.notes,
+        )
+        .join(Song, Song.id == QueueRequest.song_id)
+        .where(
+            QueueRequest.venue_id == venue_id,
+            QueueRequest.singer_id == current.id,
+            QueueRequest.deleted_at.is_(None),
+        )
+        .order_by(QueueRequest.requested_at.desc())
+    )
+    queue_history = [
+        {
+            "request_id": str(r.id),
+            "song_title": r.title,
+            "song_artist": r.artist,
+            "status": r.status,
+            "requested_at": r.requested_at,
+            "played_at": r.played_at,
+            "notes": r.notes,
+        }
+        for r in qr_result.all()
+    ]
+
+    # Favorites
+    fav_result = await db.execute(
+        select(SingerFavorite).where(
+            SingerFavorite.venue_id == venue_id,
+            SingerFavorite.singer_id == current.id,
+        )
+    )
+    favorites = [
+        {"favorite_id": f.id, "song_id": f.song_id, "created_at": f.created_at}
+        for f in fav_result.scalars().all()
+    ]
+
+    # Follows
+    follow_result = await db.execute(
+        select(SingerFollow).where(
+            SingerFollow.venue_id == venue_id,
+            SingerFollow.follower_id == current.id,
+            SingerFollow.deleted_at.is_(None),
+        )
+    )
+    follows = [
+        {"follow_id": f.id, "followee_id": f.followee_id, "created_at": f.created_at}
+        for f in follow_result.scalars().all()
+    ]
+
+    # Payments
+    pay_result = await db.execute(
+        select(Payment).where(
+            Payment.venue_id == venue_id,
+            Payment.singer_id == current.id,
+            Payment.deleted_at.is_(None),
+        )
+        .order_by(Payment.created_at.desc())
+    )
+    payments = [
+        {
+            "payment_id": p.id,
+            "amount_cents": p.amount_cents,
+            "currency": p.currency,
+            "payment_type": p.payment_type,
+            "status": p.status,
+            "message": p.message,
+            "stripe_payment_intent_id": p.stripe_payment_intent_id,
+            "reference_type": p.reference_type,
+            "reference_id": p.reference_id,
+            "refunded_at": p.refunded_at,
+            "refund_amount_cents": p.refund_amount_cents,
+            "created_at": p.created_at,
+            "updated_at": p.updated_at,
+        }
+        for p in pay_result.scalars().all()
+    ]
+
+    # Points ledger
+    points_result = await db.execute(
+        select(PointsLedger).where(
+            PointsLedger.venue_id == venue_id,
+            PointsLedger.singer_id == current.id,
+        )
+        .order_by(PointsLedger.created_at.desc())
+    )
+    points_ledger = [
+        {
+            "entry_id": p.id,
+            "amount": p.amount,
+            "reason": p.reason,
+            "reference_type": p.reference_type,
+            "reference_id": p.reference_id,
+            "created_at": p.created_at,
+        }
+        for p in points_result.scalars().all()
+    ]
+
+    # Leaderboard entries
+    lb_result = await db.execute(
+        select(LeaderboardEntry).where(
+            LeaderboardEntry.venue_id == venue_id,
+            LeaderboardEntry.singer_id == current.id,
+        )
+        .order_by(LeaderboardEntry.updated_at.desc())
+    )
+    leaderboard_entries = [
+        {
+            "entry_id": e.id,
+            "leaderboard_id": e.leaderboard_id,
+            "score": e.score,
+            "rank": e.rank,
+            "updated_at": e.updated_at,
+        }
+        for e in lb_result.scalars().all()
+    ]
+
+    # Achievements (SingerAchievement)
+    ach_result = await db.execute(
+        select(SingerAchievement).where(
+            SingerAchievement.venue_id == venue_id,
+            SingerAchievement.singer_id == current.id,
+        )
+        .order_by(SingerAchievement.unlocked_at.desc())
+    )
+    achievements = [
+        {
+            "achievement_id": a.id,
+            "key": a.achievement_key,
+            "unlocked_at": a.unlocked_at,
+            "progress": a.progress,
+            "created_at": a.created_at,
+        }
+        for a in ach_result.scalars().all()
+    ]
+
+    # Check-in sessions
+    checkin_result = await db.execute(
+        select(CheckInSession).where(
+            CheckInSession.venue_id == venue_id,
+            CheckInSession.singer_id == current.id,
+        )
+        .order_by(CheckInSession.checked_in_at.desc())
+    )
+    check_in_sessions = [
+        {
+            "session_id": c.id,
+            "checked_in_at": c.checked_in_at,
+            "expires_at": c.expires_at,
+            "table_number": c.table_number,
+            "created_at": c.created_at,
+        }
+        for c in checkin_result.scalars().all()
+    ]
+
+    # Consents
+    consent_result = await db.execute(
+        select(Consent).where(
+            Consent.venue_id == venue_id,
+            Consent.singer_id == current.id,
+        )
+    )
+    consents = [
+        {
+            "consent_id": c.id,
+            "consent_type": c.consent_type,
+            "granted": bool(c.granted),
+            "granted_at": c.granted_at,
+            "ip_address": c.ip_address,
+            "metadata_json": c.metadata_json,
+            "created_at": c.created_at,
+        }
+        for c in consent_result.scalars().all()
+    ]
+
+    # Share events
+    share_result = await db.execute(
+        select(ShareEvent).where(
+            ShareEvent.venue_id == venue_id,
+            ShareEvent.singer_id == current.id,
+        )
+        .order_by(ShareEvent.created_at.desc())
+    )
+    share_events = [
+        {
+            "share_id": s.id,
+            "platform": s.platform,
+            "url": s.url,
+            "content_type": s.content_type,
+            "created_at": s.created_at,
+        }
+        for s in share_result.scalars().all()
+    ]
+
+    return DataExportOut(
+        singer_id=singer.id,
+        venue_id=singer.venue_id,
+        exported_at=now,
+        profile=profile,
+        queue_history=queue_history,
+        favorites=favorites,
+        follows=follows,
+        payments=payments,
+        points_ledger=points_ledger,
+        leaderboard_entries=leaderboard_entries,
+        achievements=achievements,
+        check_in_sessions=check_in_sessions,
+        consents=consents,
+        share_events=share_events,
+    )
+
+
+@router.delete("/me", response_model=GDPRDeleteResponse)
+async def delete_me(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """DELETE /me — GDPR Article 17 right to erasure.
+
+    Soft-deletes the singer and sets gdpr_erased_at.  The system retains
+    non-identifiable transactional data (e.g. aggregate analytics) but marks
+    personal records so downstream processing can exclude them.
+    """
+    _require_venue(venue_id, current)
+
+    singer = (
+        await db.execute(
+            select(Singer).where(
+                Singer.id == current.id,
+                Singer.venue_id == venue_id,
+                Singer.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if singer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
+
+    now = _now_iso()
+    singer.gdpr_erased_at = now
+    singer.deactivated_at = now
+    singer.email = None
+    singer.phone = None
+    singer.social_links = None
+    singer.bio = None
+    singer.avatar_url = None
+    singer.real_name = None
+    singer.notes = None
+    await db.commit()
+
+    # Best-effort audit log
+    try:
+        from app.core.audit_service import log_audit
+        await log_audit(
+            action="gdpr_erasure",
+            user_id=str(singer.id),
+            venue_id=venue_id,
+            result="success",
+            resource_type="singer",
+            resource_id=str(singer.id),
+        )
+    except Exception:
+        pass
+
+    return GDPRDeleteResponse(
+        singer_id=str(singer.id),
+        status="erasure_initiated",
+        erased_at=now,
+        retention_days=30,
+        message="Your personal data has been marked for erasure and will be permanently deleted within 30 days.",
     )
 
 

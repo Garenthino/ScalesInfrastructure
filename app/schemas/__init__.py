@@ -130,6 +130,9 @@ from app.schemas.dto import (
     NotificationMarkReadResponse,
     NotificationSettingsOut,
     NotificationSettingsUpdate,
+    # GDPR / Data Privacy
+    DataExportOut,
+    GDPRDeleteResponse,
 )
 
 
