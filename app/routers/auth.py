@@ -160,14 +160,9 @@ async def register(body: RegisterRequest):
 @router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest):
     async with async_session_factory() as session:
-        # If this pooled connection has a left-over aborted transaction,
-        # any query will raise "current transaction is aborted". Roll back
-        # to a clean state before we do anything else.
-        await session.rollback()
-
-        from app.core.rls import set_session_venue_id
         singer = await _get_singer_by_email(session, body.email)
         if singer:
+            from app.core.rls import set_session_venue_id
             await set_session_venue_id(session, str(singer.venue_id))
         if not singer or not singer.password_hash:
             raise HTTPException(

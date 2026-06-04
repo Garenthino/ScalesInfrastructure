@@ -65,8 +65,7 @@ async def set_session_venue_id(session: AsyncSession, venue_id: str | None) -> N
     # any new SQL will fail with "current transaction is aborted".  Roll back
     # to a clean state first.
     try:
-        if session.sync_session.in_transaction():
-            await session.rollback()
+        await session.rollback()
     except Exception:
         pass
 

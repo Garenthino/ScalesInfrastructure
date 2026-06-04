@@ -45,15 +45,6 @@ async def get_db() -> AsyncIterator[AsyncSession]:
         request = get_current_request()
         if request is not None:
             vid = resolve_venue_id_from_token(request)
-            try:
-                await set_session_venue_id(session, vid)
-            except Exception:
-                # If RLS setup fails (e.g. aborted transaction), roll back
-                # and try once more; if it still fails, continue without RLS.
-                await session.rollback()
-                try:
-                    await set_session_venue_id(session, vid)
-                except Exception:
-                    pass
+            await set_session_venue_id(session, vid)
         yield session
 
