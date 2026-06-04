@@ -30,13 +30,13 @@ RLS_TABLES = [
     "loyalty_points",
     "loyalty_quest_completions",
     "loyalty_quests",
-    "order_items",
-    "points_ledger",
+    # "order_items",  # may not exist yet
+    # "points_ledger",  # may not exist yet
     "products",
-    "queues",
-    "rotation_entries",
-    "rotation_sessions",
-    "settings",
+    # "queues",  # does NOT exist — skip
+    # "rotation_entries",  # may not exist yet
+    # "rotation_sessions",  # may not exist yet
+    # "settings",  # may not exist yet
     "shipments",
     "singer_achievements",
     "singer_checkins",
@@ -48,7 +48,7 @@ RLS_TABLES = [
     "song_categories",
     "song_category_mappings",
     "songs",
-    "sync_checkpoints",
+    # "sync_checkpoints",  # may not exist yet
     "venue_configs",
 ]
 
