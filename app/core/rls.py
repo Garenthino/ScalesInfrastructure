@@ -69,12 +69,23 @@ async def set_session_venue_id(session: AsyncSession, venue_id: str | None) -> N
     except Exception:
         pass
 
+    # The RLS policies created by the earlier migration rely on comparing
+    # current_setting('app.current_venue_id') to ''.  The first time a fresh
+    # pooled connection is used, that variable doesn't exist, so the function
+    # returns NULL and the policy blocks everything.  We prime the variable
+    # once per session (not LOCAL) so it always exists, then update it per
+    # transaction with LOCAL.
+    try:
+        await session.execute(text("SET app.current_venue_id = ''"))
+    except Exception:
+        pass
+
     if venue_id is None:
         # Unset — useful for superuser / admin operations that must see all rows
         await _execute_safe(session, "SET LOCAL app.current_venue_id = ''")
         return
-    # Quote safely by using a bind parameter.  The placeholder works for both
-    # PostgreSQL and SQLite because the parameter is resolved by SQLAlchemy.
+
+    # Set the actual venue for this transaction
     await _execute_safe(
         session, "SET LOCAL app.current_venue_id = :vid", {"vid": str(venue_id)}
     )

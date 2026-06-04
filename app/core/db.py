@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import declarative_base
 
+from sqlalchemy import text
+
 from app.core.config import settings
 from app.core.rls import (
     get_current_request,
@@ -40,11 +42,29 @@ async def get_db() -> AsyncIterator[AsyncSession]:
 
     Automatically sets the PostgreSQL ``app.current_venue_id`` session
     variable for RLS when a venue_id can be resolved from the request.
+    If no token is present we explicitly set it to '' so RLS policies that
+    use COALESCE with '' behave predictably.
     """
     async with async_session_factory() as session:
         request = get_current_request()
         if request is not None:
             vid = resolve_venue_id_from_token(request)
-            await set_session_venue_id(session, vid)
+            try:
+                await set_session_venue_id(session, vid)
+            except Exception:
+                # RLS setup may fail when the connection has a left-over aborted
+                # transaction from a prior request.  Roll back and try again.
+                await session.rollback()
+                try:
+                    await set_session_venue_id(session, vid)
+                except Exception:
+                    pass
+        else:
+            # No request context (e.g. startup scripts) — ensure variable is set
+            # so policies that check '' don't inadvertently block everything.
+            try:
+                await session.execute(text("SET LOCAL app.current_venue_id = ''"))
+            except Exception:
+                pass
         yield session
 
