@@ -160,8 +160,15 @@ async def register(body: RegisterRequest):
 @router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest):
     async with async_session_factory() as session:
-        # Prime the RLS session variable once per fresh connection so the
-        # earlier migration's policy does not block all rows on NULL.
+        # A pooled connection may carry a left-over aborted transaction from a
+        # previous request.  Roll back to a clean state before any query.
+        try:
+            await session.rollback()
+        except Exception:
+            pass
+
+        # Prime the RLS session variable so policies that check '' don't fail
+        # on NULL (variable not yet set on a fresh connection).
         from sqlalchemy import text
         try:
             await session.execute(text("SET app.current_venue_id = ''"))
