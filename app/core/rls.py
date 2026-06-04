@@ -61,6 +61,15 @@ async def set_session_venue_id(session: AsyncSession, venue_id: str | None) -> N
     ``SET LOCAL app.current_venue_id = ...`` so the value is transaction-scoped
     and automatically reverts on commit / rollback.
     """
+    # If a previous request aborted a transaction on this pooled connection,
+    # any new SQL will fail with "current transaction is aborted".  Roll back
+    # to a clean state first.
+    try:
+        if session.sync_session.in_transaction():
+            await session.rollback()
+    except Exception:
+        pass
+
     if venue_id is None:
         # Unset — useful for superuser / admin operations that must see all rows
         await _execute_safe(session, "SET LOCAL app.current_venue_id = ''")
