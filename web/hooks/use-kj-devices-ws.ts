@@ -49,7 +49,8 @@ export function useKJDevicesWS(venueId: string = DEFAULT_VENUE_ID) {
     socket.on("device_connected", (msg: any) => {
       if (!mountedRef.current) return;
       setHasReceivedData(true);
-      const device = msg.payload as KJDevice;
+      const data = msg.data ?? msg;
+      const device = data as KJDevice;
       setDevices((prev) => {
         const idx = prev.findIndex((d) => d.device_id === device.device_id);
         if (idx >= 0) {
@@ -64,7 +65,8 @@ export function useKJDevicesWS(venueId: string = DEFAULT_VENUE_ID) {
     socket.on("device_update", (msg: any) => {
       if (!mountedRef.current) return;
       setHasReceivedData(true);
-      const device = msg.payload as KJDevice;
+      const data = msg.data ?? msg;
+      const device = data as KJDevice;
       setDevices((prev) => {
         const idx = prev.findIndex((d) => d.device_id === device.device_id);
         if (idx >= 0) {
@@ -79,8 +81,9 @@ export function useKJDevicesWS(venueId: string = DEFAULT_VENUE_ID) {
     socket.on("device_disconnected", (msg: any) => {
       if (!mountedRef.current) return;
       setHasReceivedData(true);
+      const data = msg.data ?? msg;
       setDevices((prev) => {
-        const idx = prev.findIndex((d) => d.device_id === msg.device_id);
+        const idx = prev.findIndex((d) => d.device_id === data.device_id);
         if (idx >= 0) {
           const next = [...prev];
           next[idx] = { ...next[idx], status: "offline" as const, last_seen_at: new Date().toISOString() };
@@ -93,11 +96,12 @@ export function useKJDevicesWS(venueId: string = DEFAULT_VENUE_ID) {
     socket.on("now_playing", (msg: any) => {
       if (!mountedRef.current) return;
       setHasReceivedData(true);
+      const data = msg.data ?? msg;
       setDevices((prev) => {
-        const idx = prev.findIndex((d) => d.device_id === msg.device_id);
+        const idx = prev.findIndex((d) => d.device_id === data.device_id);
         if (idx >= 0) {
           const next = [...prev];
-          next[idx] = { ...next[idx], now_playing: msg.payload as KJDeviceNowPlaying };
+          next[idx] = { ...next[idx], now_playing: data.payload as KJDeviceNowPlaying };
           return next;
         }
         return prev;
@@ -107,11 +111,12 @@ export function useKJDevicesWS(venueId: string = DEFAULT_VENUE_ID) {
     socket.on("queue_update", (msg: any) => {
       if (!mountedRef.current) return;
       setHasReceivedData(true);
+      const data = msg.data ?? msg;
       setDevices((prev) => {
-        const idx = prev.findIndex((d) => d.device_id === msg.device_id);
+        const idx = prev.findIndex((d) => d.device_id === data.device_id);
         if (idx >= 0) {
           const next = [...prev];
-          next[idx] = { ...next[idx], queue: msg.payload as KJDeviceQueueItem[] };
+          next[idx] = { ...next[idx], queue: data.payload as KJDeviceQueueItem[] };
           return next;
         }
         return prev;
