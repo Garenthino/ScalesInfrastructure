@@ -160,6 +160,9 @@ async def register(body: RegisterRequest):
 @router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest):
     async with async_session_factory() as session:
+        # A pooled connection may have a left-over aborted transaction from a
+        # previous request.  Roll back to a clean state before querying.
+        await session.rollback()
         singer = await _get_singer_by_email(session, body.email)
         if singer:
             from app.core.rls import set_session_venue_id
