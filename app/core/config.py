@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     LOG_FORMAT: str = "json"
 
     # Security hardening
-    RATE_LIMIT_REQUESTS: int = 100
+    RATE_LIMIT_REQUESTS: int = 300
     RATE_LIMIT_UNAUTHED_REQUESTS: int = 30
     RATE_LIMIT_WINDOW: int = 60
     SECURITY_HEADERS_ENABLED: bool = True

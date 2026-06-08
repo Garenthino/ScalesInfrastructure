@@ -37,11 +37,17 @@ def _get_identity(request: Request) -> str:
     import hashlib
 
     auth = request.headers.get("authorization", "")
+    x_api_key = request.headers.get("x-api-key", "")
     if auth.lower().startswith("bearer "):
         token = auth[7:]
         # Use a stable hash of the full token so different tokens get different buckets
         token_hash = hashlib.sha256(token.encode()).hexdigest()[:16]
         return f"user:{token_hash}"
+    if x_api_key:
+        # Cloud sync clients use x-api-key — treat as authenticated with own bucket
+        key_hash = hashlib.sha256(x_api_key.encode()).hexdigest()[:16]
+        return f"apikey:{key_hash}"
+
     return f"ip:{_get_client_ip(request)}"
 
 
@@ -133,7 +139,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         identity = _get_identity(request)
         auth = request.headers.get("authorization", "")
-        is_authenticated = auth.lower().startswith("bearer ")
+        x_api_key = request.headers.get("x-api-key", "")
+        is_authenticated = auth.lower().startswith("bearer ") or bool(x_api_key)
+        # Skip rate limiting for KJ sync and health endpoints
+        path = request.url.path
+        if path.startswith("/kj/sync/") or path in ("/api/health", "/docs", "/openapi.json") or path.endswith("/health"):
+            return await call_next(request)
+
         limited, retry_after = await _is_rate_limited(identity, is_authenticated)
         if limited:
             logger.warning(
