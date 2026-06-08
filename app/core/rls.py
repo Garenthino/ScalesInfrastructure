@@ -95,5 +95,10 @@ async def _execute_safe(session: AsyncSession, stmt: str, params: dict | None = 
     try:
         await session.execute(text(stmt), params or {})
     except Exception:
-        # Swallow on SQLite (doesn't support custom session vars) and keep going
-        pass
+        # Swallow on SQLite (doesn't support custom session vars) and keep going.
+        # PostgreSQL aborts the transaction on error -- roll back so this
+        # pooled connection is not poisoned for the next request.
+        try:
+            await session.rollback()
+        except Exception:
+            pass

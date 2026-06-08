@@ -11,6 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import undefer
 
 from app.core.db import async_session_factory
 from app.core.security import hash_password, verify_password
@@ -33,7 +34,9 @@ async def _get_session() -> AsyncSession:
 
 async def _get_singer_by_email(session: AsyncSession, email: str) -> Singer | None:
     result = await session.execute(
-        select(Singer).where(
+        select(Singer)
+        .options(undefer(Singer.password_hash))
+        .where(
             Singer.email == email,
             Singer.deleted_at.is_(None),
         )
@@ -43,7 +46,9 @@ async def _get_singer_by_email(session: AsyncSession, email: str) -> Singer | No
 
 async def _get_singer_by_id(session: AsyncSession, singer_id: str) -> Singer | None:
     result = await session.execute(
-        select(Singer).where(
+        select(Singer)
+        .options(undefer(Singer.password_hash))
+        .where(
             Singer.id == singer_id,
             Singer.deleted_at.is_(None),
         )
@@ -176,9 +181,6 @@ async def login(body: LoginRequest):
             pass
 
         singer = await _get_singer_by_email(session, body.email)
-        if singer:
-            from app.core.rls import set_session_venue_id
-            await set_session_venue_id(session, str(singer.venue_id))
         if not singer or not singer.password_hash:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -194,7 +196,7 @@ async def login(body: LoginRequest):
             )
 
         tokens = issue_token_pair(singer)
-        return LoginResponse(
+        response = LoginResponse(
             access_token=tokens["access_token"],  # type: ignore[arg-type]
             token_type="bearer",
             expires_in=15 * 60,
@@ -203,6 +205,10 @@ async def login(body: LoginRequest):
             venue_id=singer.venue_id,
         )
 
+
+        from app.core.rls import set_session_venue_id
+        await set_session_venue_id(session, str(singer.venue_id))
+        return response
 
 @router.post("/refresh", response_model=RefreshResponse)
 async def refresh(body: RefreshRequest):
@@ -223,8 +229,6 @@ async def refresh(body: RefreshRequest):
     async with async_session_factory() as session:
         from app.core.rls import set_session_venue_id
         singer = await _get_singer_by_id(session, claims["sub"])
-        if singer:
-            await set_session_venue_id(session, str(singer.venue_id))
         if not singer or singer.deleted_at is not None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

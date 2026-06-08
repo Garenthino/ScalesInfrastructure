@@ -14,7 +14,7 @@ import string
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import Column, String, Integer, Text, ForeignKey, REAL, UniqueConstraint, CheckConstraint, Index
+from sqlalchemy import Column, String, Integer, BigInteger, Text, ForeignKey, REAL, UniqueConstraint, CheckConstraint, Index
 from sqlalchemy.orm import relationship
 
 from app.core.db import Base
@@ -136,6 +136,12 @@ class Song(Base):
     created_at = Column(Text, default=_now_iso)
     updated_at = Column(Text, default=_now_iso, onupdate=_now_iso)
     deleted_at = Column(Text)
+    file_path = Column(Text)
+    file_hash = Column(Text)
+    file_size = Column(BigInteger)
+    unavailable_reason = Column(Text)
+    last_scanned_at = Column(Text)
+    metadata_locked = Column(Integer, default=0)
 
     __table_args__ = (
         Index("ix_songs_venue_id", "venue_id"),
@@ -183,7 +189,7 @@ class Singer(Base):
     )
 
     venue = relationship("Venue", back_populates="singers")
-    check_in_sessions = relationship("CheckInSession", back_populates="singer", lazy="selectin")
+    check_in_sessions = relationship("CheckInSession", back_populates="singer", lazy="selectin", cascade="all, delete-orphan")
 
 
 class CheckInSession(Base):

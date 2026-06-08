@@ -13,6 +13,7 @@ from typing import Optional
 from fastapi import Request, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import undefer
 
 from app.core.db import async_session_factory
 from app.core.security import decode_token, verify_password, hash_password
@@ -64,6 +65,10 @@ async def get_current_user(request: Request) -> SingerUser:
     # Load singer from DB for current role / venue_id (could be stale in token)
     async with async_session_factory() as session:
         from app.core.rls import set_session_venue_id
+        try:
+            await session.rollback()
+        except Exception:
+            pass
         await set_session_venue_id(session, claims.get("venue_id"))
         singer = await _load_singer(session, sub)
 
@@ -96,7 +101,7 @@ async def get_current_user(request: Request) -> SingerUser:
 
 async def _load_singer(session: AsyncSession, singer_id: str) -> Singer | None:
     result = await session.execute(
-        select(Singer).where(Singer.id == singer_id)
+        select(Singer).options(undefer(Singer.password_hash)).where(Singer.id == singer_id)
     )
     return result.scalar_one_or_none()
 
@@ -160,6 +165,10 @@ async def _kj_auth_by_api_key(api_key: str) -> KJDeviceUser:
             )
 
         from app.core.rls import set_session_venue_id
+        try:
+            await session.rollback()
+        except Exception:
+            pass
         await set_session_venue_id(session, str(device.venue_id))
 
         from app.models import _now_iso

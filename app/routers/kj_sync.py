@@ -457,308 +457,176 @@ async def pull_singers(
 # Songs
 # ---------------------------------------------------------------------------
 
-@router.post("/songs/push")
-async def push_songs(
-    venue_id: str,
-    body: SyncSongsPushPayload,
+
+
+# ---------------------------------------------------------------------------
+# Songs (desktop-scan authoritative, cloud read-only except metadata_lock)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/songs", status_code=200)
+async def push_song_scan(
+    payload: SyncSongsScanPayload,
     current: KJDeviceUser = Depends(kj_auth),
     db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
-    """Push song plays/history and availability changes. Server wins on catalog fields."""
-    _require_venue_match(venue_id, current)
+):
+    """DragonHost2 pushes a full scan of its music library."""
+    _require_venue_match(payload.venue_id, current)
 
-    conflicts: list[SyncConflictDetail] = []
+    created = updated = marked_unavailable = 0
 
-    for item in body.items:
-        existing = (
-            await db.execute(
-                select(Song).where(
-                    Song.id == item.id,
-                    Song.venue_id == venue_id,
-                )
+    for item in payload.new_or_updated:
+        result = await db.execute(
+            select(Song).where(
+                and_(Song.venue_id == payload.venue_id, Song.file_path == item.file_path)
             )
-        ).scalar_one_or_none()
-
-        if existing:
-            if body.last_modified_at and existing.updated_at and str(existing.updated_at) > str(body.last_modified_at):
-                conflicts.append(
-                    SyncConflictDetail(
-                        entity_type="songs",
-                        entity_id=item.id,
-                        server_state=_song_item_to_dict(existing),
-                        client_state=item.model_dump(),
-                        resolution="server_wins",
-                    )
-                )
-                continue
-
-            # Client may only update availability; server wins on catalog fields
-            existing.is_available = 1 if item.is_available else 0
-            existing.updated_at = _now_iso()
-        else:
-            # New song from local catalog import
-            song = Song(
-                id=item.id,
-                venue_id=venue_id,
-                catalog_id=item.catalog_id,
-                title=item.title,
-                artist=item.artist,
-                album=item.album,
-                genre=item.genre,
-                category=item.category,
-                language=item.language,
-                duration_ms=item.duration_ms,
-                year=item.year,
-                is_available=1 if item.is_available else 0,
-                is_active=1,
-                created_at=item.created_at,
-                updated_at=_now_iso(),
-            )
-            db.add(song)
-
-    # Process plays (append-only, no conflicts)
-    for play in body.plays:
-        # plays are stored as analytics_events for now
-        from app.models import AnalyticsEvent
-        evt = AnalyticsEvent(
-            id=str(uuid.uuid4()),
-            venue_id=venue_id,
-            event_type="song_played",
-            singer_id=play.get("singer_id"),
-            song_id=play.get("song_id"),
-            session_id=play.get("session_id"),
-            payload_json=str(play),
-            created_at=play.get("played_at", _now_iso()),
         )
-        db.add(evt)
+        song = result.scalar_one_or_none()
+        if song:
+            song.file_hash = item.file_hash
+            song.file_size = item.file_size
+            song.file_path = item.file_path
+            song.is_available = 1
+            song.is_active = 1
+            song.unavailable_reason = None
+            song.last_scanned_at = payload.scan_timestamp
+            if not song.metadata_locked:
+                if item.title:  song.title = item.title
+                if item.artist: song.artist = item.artist
+                if item.genre:  song.genre = item.genre
+                if item.duration is not None: song.duration_ms = item.duration
+                if item.year is not None:     song.year = item.year
+                if item.category: song.category = item.category
+            updated += 1
+        else:
+            db.add(Song(
+                venue_id=payload.venue_id,
+                file_path=item.file_path,
+                file_hash=item.file_hash,
+                file_size=item.file_size,
+                title=item.title or "Unknown",
+                artist=item.artist or "Unknown",
+                genre=item.genre,
+                duration_ms=item.duration,
+                year=item.year,
+                category=item.category,
+                is_available=1,
+                is_active=1,
+                last_scanned_at=payload.scan_timestamp,
+                metadata_locked=0,
+            ))
+            created += 1
 
-    # Soft deletes
-    for del_id in body.deleted_ids:
-        row = (
-            await db.execute(
-                select(Song).where(
-                    Song.id == del_id,
-                    Song.venue_id == venue_id,
-                )
+    for path in payload.missing_from_disk:
+        result = await db.execute(
+            select(Song).where(
+                and_(Song.venue_id == payload.venue_id, Song.file_path == path)
             )
-        ).scalar_one_or_none()
-        if row:
-            if body.last_modified_at and row.updated_at and str(row.updated_at) > str(body.last_modified_at):
-                conflicts.append(
-                    SyncConflictDetail(
-                        entity_type="songs",
-                        entity_id=del_id,
-                        server_state=_song_item_to_dict(row),
-                        client_state={"deleted": True},
-                        resolution="server_wins",
-                    )
-                )
-                continue
-            row.is_active = 0
-            row.deleted_at = _now_iso()
-            row.updated_at = _now_iso()
+        )
+        song = result.scalar_one_or_none()
+        if song:
+            song.is_available = 0
+            song.is_active = 0
+            song.unavailable_reason = "removed_from_library"
+            song.deleted_at = _now_iso()
+            song.last_scanned_at = payload.scan_timestamp
+            marked_unavailable += 1
+
+    for item in payload.corrupted:
+        path = item.get("file_path")
+        reason = item.get("reason", "file_corrupted")
+        if not path: continue
+        result = await db.execute(
+            select(Song).where(
+                and_(Song.venue_id == payload.venue_id, Song.file_path == path)
+            )
+        )
+        song = result.scalar_one_or_none()
+        if song:
+            song.is_available = 0
+            song.unavailable_reason = reason
+            song.last_scanned_at = payload.scan_timestamp
+            marked_unavailable += 1
 
     await db.commit()
-
-    if conflicts:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=SyncConflictResponse(
-                detail=f"{len(conflicts)} song conflict(s) detected — server state preserved",
-                conflicts=conflicts,
-            ).model_dump(),
-        )
-
-    return {"synced": len(body.items), "plays_recorded": len(body.plays), "deleted": len(body.deleted_ids), "conflicts": 0}
-
-
-def _song_item_to_dict(song: Song) -> dict[str, Any]:
     return {
-        "id": str(song.id),
-        "catalog_id": str(song.catalog_id) if song.catalog_id is not None else None,
-        "title": str(song.title),
-        "artist": str(song.artist),
-        "album": str(song.album) if song.album is not None else None,
-        "genre": str(song.genre) if song.genre is not None else None,
-        "category": str(song.category) if song.category is not None else None,
-        "language": str(song.language) if song.language is not None else None,
-        "duration_ms": song.duration_ms,
-        "year": song.year,
-        "is_available": bool(song.is_available),
-        "is_active": bool(song.is_active),
-        "created_at": str(song.created_at),
-        "updated_at": str(song.updated_at) if song.updated_at is not None else None,
+        "venue_id": payload.venue_id,
+        "device_id": payload.device_id,
+        "scan_timestamp": payload.scan_timestamp,
+        "created": created,
+        "updated": updated,
+        "marked_unavailable": marked_unavailable,
     }
 
 
-def _song_item_to_sync(song: Song) -> SyncSongItem:
-    return SyncSongItem(
-        id=str(song.id),
-        catalog_id=str(song.catalog_id) if song.catalog_id is not None else None,
-        title=str(song.title),
-        artist=str(song.artist),
-        album=str(song.album) if song.album is not None else None,
-        genre=str(song.genre) if song.genre is not None else None,
-        category=str(song.category) if song.category is not None else None,
-        language=str(song.language) if song.language is not None else None,
-        duration_ms=song.duration_ms,
-        year=song.year,
-        is_available=bool(song.is_available),
-        is_active=bool(song.is_active),
-        created_at=str(song.created_at),
-        updated_at=str(song.updated_at) if song.updated_at is not None else None,
-    )
-
-
-@router.get("/songs/pull", response_model=SyncSongsPullOut)
-async def pull_songs(
-    venue_id: str,
-    since: str | None = None,
+@router.post("/songs/availability", status_code=200)
+async def push_song_availability(
+    payload: SyncSongsAvailabilityBatch,
     current: KJDeviceUser = Depends(kj_auth),
     db: AsyncSession = Depends(get_db),
-) -> SyncSongsPullOut:
-    """Fetch venue song catalog."""
-    _require_venue_match(venue_id, current)
-
-    filters = [
-        Song.venue_id == venue_id,
-        Song.deleted_at.is_(None),
-    ]
-    if since:
-        filters.append(or_(
-            Song.updated_at > since,
-            Song.updated_at.is_(None),
-        ))
-
-    result = await db.execute(
-        select(Song).where(and_(*filters)).order_by(Song.title)
-    )
-    items = [_song_item_to_sync(row) for row in result.scalars().all()]
-
-    deleted_ids: list[str] = []
-    if since:
-        del_result = await db.execute(
-            select(Song.id).where(
-                Song.venue_id == venue_id,
-                Song.deleted_at.isnot(None),
-                Song.updated_at > since,
-            )
-        )
-        deleted_ids = [str(r[0]) for r in del_result.all()]
-
-    return SyncSongsPullOut(
-        items=items,
-        deleted_ids=deleted_ids,
-        server_modified_at=_now_iso(),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Settings
-# ---------------------------------------------------------------------------
-
-@router.post("/settings/push")
-async def push_settings(
-    venue_id: str,
-    body: SyncSettingsPushPayload,
-    current: KJDeviceUser = Depends(kj_auth),
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
-    """Push KJ app settings to cloud. Last-write-wins (LWW) on updated_at."""
-    _require_venue_match(venue_id, current)
-
-    conflicts: list[SyncConflictDetail] = []
-    now = _now_iso()
-
-    # Get current server settings
-    server_settings = await _get_venue_config_dict(db, venue_id)
-
-    for item in body.items:
-        server_item = server_settings.get(item.key)
-
-        if server_item:
-            # LWW: compare updated_at timestamps
-            if item.updated_at and server_item.updated_at and str(server_item.updated_at) > str(item.updated_at):
-                conflicts.append(
-                    SyncConflictDetail(
-                        entity_type="settings",
-                        entity_id=item.key,
-                        server_state=server_item.model_dump(),
-                        client_state=item.model_dump(),
-                        resolution="server_wins",
-                    )
-                )
-                continue
-
-        # Upsert via VenueConfig
-        existing = (
-            await db.execute(
-                select(VenueConfig).where(
-                    VenueConfig.venue_id == venue_id,
-                    VenueConfig.config_key == item.key,
+):
+    """DragonHost2 pushes immediate availability changes."""
+    _require_venue_match(payload.venue_id, current)
+    changed = 0
+    for item in payload.updates:
+        song = None
+        if item.song_id:
+            result = await db.execute(
+                select(Song).where(
+                    and_(Song.id == item.song_id, Song.venue_id == payload.venue_id)
                 )
             )
-        ).scalar_one_or_none()
-
-        if existing:
-            existing.config_value = item.value
-            existing.updated_at = now
-        else:
-            cfg = VenueConfig(
-                id=str(uuid.uuid4()),
-                venue_id=venue_id,
-                config_key=item.key,
-                config_value=item.value,
-                updated_at=now,
+            song = result.scalar_one_or_none()
+        elif item.file_path:
+            result = await db.execute(
+                select(Song).where(
+                    and_(Song.venue_id == payload.venue_id, Song.file_path == item.file_path)
+                )
             )
-            db.add(cfg)
-
+            song = result.scalar_one_or_none()
+        if song:
+            song.is_available = 1 if item.available else 0
+            song.unavailable_reason = item.reason if not item.available else None
+            if not item.available:
+                song.last_scanned_at = _now_iso()
+            changed += 1
     await db.commit()
-
-    if conflicts:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=SyncConflictResponse(
-                detail=f"{len(conflicts)} setting conflict(s) detected — server wins on older timestamps",
-                conflicts=conflicts,
-            ).model_dump(),
-        )
-
-    return {"synced": len(body.items), "conflicts": 0}
+    return {"venue_id": payload.venue_id, "changed": changed}
 
 
-@router.get("/settings/pull", response_model=SyncSettingsPullOut)
-async def pull_settings(
+@router.get("/songs", response_model=SyncSongsPullOut)
+async def pull_song_metadata_corrections(
     venue_id: str,
     since: str | None = None,
     current: KJDeviceUser = Depends(kj_auth),
     db: AsyncSession = Depends(get_db),
-) -> SyncSettingsPullOut:
-    """Fetch venue defaults (venue_configs)."""
+):
+    """DragonHost2 pulls back admin metadata corrections."""
     _require_venue_match(venue_id, current)
-
-    filters = [
-        VenueConfig.venue_id == venue_id,
-    ]
+    query = select(Song).where(
+        and_(Song.venue_id == venue_id, Song.metadata_locked == 1)
+    )
     if since:
-        filters.append(or_(
-            VenueConfig.updated_at > since,
-            VenueConfig.updated_at.is_(None),
-        ))
-
-    result = await db.execute(
-        select(VenueConfig).where(and_(*filters))
-    )
+        query = query.where(Song.updated_at > since)
+    result = await db.execute(query)
+    songs = result.scalars().all()
     items = [
-        SyncSettingItem(
-            key=str(r.config_key),
-            value=str(r.config_value) if r.config_value is not None else None,
-            updated_at=str(r.updated_at) if r.updated_at is not None else _now_iso(),
+        SyncSongPullItem(
+            id=str(s.id),
+            title=s.title,
+            artist=s.artist,
+            genre=s.genre,
+            duration=s.duration_ms,
+            year=s.year,
+            category=s.category,
+            available=bool(s.is_available),
+            metadata_locked=bool(s.metadata_locked),
+            file_path=s.file_path,
+            file_hash=s.file_hash,
         )
-        for r in result.scalars().all()
+        for s in songs
     ]
+    return SyncSongsPullOut(sync_timestamp=_now_iso(), updated_songs=items)
 
-    return SyncSettingsPullOut(
-        items=items,
-        server_modified_at=_now_iso(),
-    )
+
+
