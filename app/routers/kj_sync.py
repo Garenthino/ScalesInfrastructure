@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_
 
 from app.core.auth import kj_auth, KJDeviceUser
+from app.core.queue_service import QueueService
 from app.core.db import get_db
 from app.models import QueueRequest, Singer, Song, VenueConfig
 from app.schemas import (
@@ -33,6 +34,9 @@ from app.schemas import (
     SyncSongsPushPayload,
     SyncSongsPullOut,
     SyncSongItem,
+    SyncSongPullItem,
+    SyncSongsScanPayload,
+    SyncSongsAvailabilityBatch,
     SyncSettingsPushPayload,
     SyncSettingsPullOut,
     SyncSettingItem,
@@ -83,8 +87,8 @@ async def _get_venue_config_dict(db: AsyncSession, venue_id: str) -> dict[str, S
 
 @router.post("/queue/push")
 async def push_queue(
-    venue_id: str,
     body: SyncQueuePushPayload,
+    venue_id: str | None = None,
     current: KJDeviceUser = Depends(kj_auth),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
@@ -94,9 +98,29 @@ async def push_queue(
     - Soft-deletes items in deleted_ids
     - Returns any conflicts where server state diverged from client expectation
     """
+    venue_id = venue_id or str(current.venue_id)
     _require_venue_match(venue_id, current)
 
     conflicts: list[SyncConflictDetail] = []
+
+    # Ensure all referenced singers exist (auto-create stubs if missing)
+    for item in body.items:
+        existing_singer = (
+            await db.execute(
+                select(Singer).where(
+                    Singer.id == item.singer_id,
+                    Singer.venue_id == venue_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not existing_singer:
+            db.add(Singer(
+                id=item.singer_id,
+                venue_id=venue_id,
+                stage_name=item.notes or "Unknown",
+                created_at=_now_iso(),
+                updated_at=_now_iso(),
+            ))
 
     # Process upserts
     for item in body.items:
@@ -191,7 +215,24 @@ async def push_queue(
             ).model_dump(),
         )
 
-    return {"synced": len(body.items), "deleted": len(body.deleted_ids), "conflicts": 0}
+    return_val = {"synced": len(body.items), "deleted": len(body.deleted_ids), "conflicts": 0}
+
+    # Broadcast queue update to portal via WebSocket gateway (best-effort)
+    try:
+        result = await db.execute(
+            select(QueueRequest).where(
+                QueueRequest.venue_id == venue_id,
+                QueueRequest.deleted_at.is_(None),
+            ).order_by(QueueRequest.rotation_position)
+        )
+        queue_rows = result.scalars().all()
+        await QueueService.publish(venue_id, "queue_updated", {
+            "queue": [_queue_item_to_dict(r) for r in queue_rows],
+        })
+    except Exception:
+        pass
+
+    return return_val
 
 
 def _queue_item_to_dict(item: QueueRequest) -> dict[str, Any]:
@@ -226,12 +267,13 @@ def _queue_item_to_sync(item: QueueRequest) -> SyncQueueItem:
 
 @router.get("/queue/pull", response_model=SyncQueuePullOut)
 async def pull_queue(
-    venue_id: str,
+    venue_id: str | None = None,
     since: str | None = None,
     current: KJDeviceUser = Depends(kj_auth),
     db: AsyncSession = Depends(get_db),
 ) -> SyncQueuePullOut:
     """Fetch current cloud queue state for venue. Optionally filter by since timestamp."""
+    venue_id = venue_id or str(current.venue_id)
     _require_venue_match(venue_id, current)
 
     filters = [
@@ -273,12 +315,13 @@ async def pull_queue(
 
 @router.post("/singers/push")
 async def push_singers(
-    venue_id: str,
     body: SyncSingersPushPayload,
+    venue_id: str | None = None,
     current: KJDeviceUser = Depends(kj_auth),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Push singer roster changes. Merge: client wins on editable fields, server wins on loyalty."""
+    venue_id = venue_id or str(current.venue_id)
     _require_venue_match(venue_id, current)
 
     conflicts: list[SyncConflictDetail] = []
@@ -371,7 +414,24 @@ async def push_singers(
             ).model_dump(),
         )
 
-    return {"synced": len(body.items), "deleted": len(body.deleted_ids), "conflicts": 0}
+    return_val = {"synced": len(body.items), "deleted": len(body.deleted_ids), "conflicts": 0}
+
+    # Broadcast queue update to portal via WebSocket gateway (best-effort)
+    try:
+        result = await db.execute(
+            select(QueueRequest).where(
+                QueueRequest.venue_id == venue_id,
+                QueueRequest.deleted_at.is_(None),
+            ).order_by(QueueRequest.rotation_position)
+        )
+        queue_rows = result.scalars().all()
+        await QueueService.publish(venue_id, "queue_updated", {
+            "queue": [_queue_item_to_dict(r) for r in queue_rows],
+        })
+    except Exception:
+        pass
+
+    return return_val
 
 
 def _singer_item_to_dict(singer: Singer) -> dict[str, Any]:
@@ -412,12 +472,13 @@ def _singer_item_to_sync(singer: Singer) -> SyncSingerItem:
 
 @router.get("/singers/pull", response_model=SyncSingersPullOut)
 async def pull_singers(
-    venue_id: str,
+    venue_id: str | None = None,
     since: str | None = None,
     current: KJDeviceUser = Depends(kj_auth),
     db: AsyncSession = Depends(get_db),
 ) -> SyncSingersPullOut:
     """Fetch singer list with loyalty data for venue."""
+    venue_id = venue_id or str(current.venue_id)
     _require_venue_match(venue_id, current)
 
     filters = [
@@ -602,6 +663,7 @@ async def pull_song_metadata_corrections(
     db: AsyncSession = Depends(get_db),
 ):
     """DragonHost2 pulls back admin metadata corrections."""
+    venue_id = venue_id or str(current.venue_id)
     _require_venue_match(venue_id, current)
     query = select(Song).where(
         and_(Song.venue_id == venue_id, Song.metadata_locked == 1)

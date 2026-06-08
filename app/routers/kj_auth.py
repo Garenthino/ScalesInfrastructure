@@ -213,6 +213,16 @@ async def kj_token(body: KJTokenRequest):
         )
 
 
+@router.get("/me")
+async def kj_me(current: KJDeviceUser = Depends(kj_auth)):
+    """Return authenticated KJ device identity (venue_id, device_id, name)."""
+    return {
+        "device_id": current.id,
+        "venue_id": current.venue_id,
+        "name": current.name,
+    }
+
+
 @router.get("/devices", response_model=KJDeviceListResponse)
 async def kj_list_devices(
     current: SingerUser = Depends(get_current_user),

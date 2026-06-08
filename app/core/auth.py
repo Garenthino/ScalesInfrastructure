@@ -13,12 +13,13 @@ from typing import Optional
 from fastapi import Request, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import update
 from sqlalchemy.orm import undefer
 
 from app.core.db import async_session_factory
 from app.core.security import decode_token, verify_password, hash_password
 from app.core.permissions import Role
-from app.models import Singer, KJDevice
+from app.models import Singer, KJDevice, _now_iso
 
 
 # ---------------------------------------------------------------------------
@@ -144,43 +145,65 @@ async def kj_auth(request: Request) -> KJDeviceUser:
 
 
 async def _kj_auth_by_api_key(api_key: str) -> KJDeviceUser:
-    """Lookup KJ device by API key. Verify hash, check not revoked, update last_seen."""
+    """Lookup KJ device by API key. Verify hash, check not revoked, update last_seen.
+
+    Bcrypt is CPU-intensive and can corrupt SQLAlchemy\'s asyncpg greenlet state.
+    We do the DB fetch (async), then close the session, verify bcrypt in a threadpool,
+    then open a fresh session for the update.
+    """
+    import asyncio
+
+    # Step 1: fetch candidate devices (async DB call)
     async with async_session_factory() as session:
         result = await session.execute(
             select(KJDevice).where(KJDevice.revoked_at.is_(None))
         )
         devices = result.scalars().all()
 
-        device: KJDevice | None = None
-        for d in devices:
-            if verify_password(api_key, d.api_key_hash):
-                device = d
-                break
+        # Collect (id, venue_id, name, api_key_hash) so we can close session before bcrypt
+        candidates = [
+            (d.id, d.venue_id, d.name, d.api_key_hash)
+            for d in devices
+        ]
 
-        if not device:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid API key",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+    # Step 2: verify bcrypt OUTSIDE any async session (threadpool)
+    device_id = venue_id = name = None
+    for cid, cvid, cname, chash in candidates:
+        # bcrypt releases the GIL; threadpool prevents greenlet corruption
+        is_match = await asyncio.to_thread(verify_password, api_key, chash)
+        if is_match:
+            device_id = cid
+            venue_id = cvid
+            name = cname
+            break
 
+    if not device_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Step 3: update last_seen in a fresh session
+    async with async_session_factory() as session:
         from app.core.rls import set_session_venue_id
         try:
-            await session.rollback()
+            await set_session_venue_id(session, str(venue_id))
         except Exception:
             pass
-        await set_session_venue_id(session, str(device.venue_id))
-
-        from app.models import _now_iso
-        device.last_seen = _now_iso()
+        await session.execute(
+            update(KJDevice)
+            .where(KJDevice.id == device_id)
+            .values(last_seen=_now_iso())
+        )
         await session.commit()
 
-        return KJDeviceUser(
-            id=device.id,
-            venue_id=device.venue_id,
-            name=device.name,
-            token_claims={},
-        )
+    return KJDeviceUser(
+        id=device_id,
+        venue_id=venue_id,
+        name=name,
+        token_claims={},
+    )
 
 
 def _kj_auth_by_token_claims(claims: dict) -> KJDeviceUser:

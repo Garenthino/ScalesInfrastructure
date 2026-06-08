@@ -336,7 +336,7 @@ class QueueItemOut(ScalesModel):
     singer: SingerOut | None = None
     notes: str | None = None
     reject_reason: str | None = None
-    requested_at: str
+    requested_at: str | None = None
     updated_at: str | None = None
     played_at: str | None = None
 
@@ -806,11 +806,11 @@ class SingerMeUpdate(ScalesModel):
 class SyncQueueItem(ScalesModel):
     request_id: str
     singer_id: str
-    song_id: str
+    song_id: str | None = None
     status: Literal["pending", "approved", "now_playing", "completed", "skipped", "rejected"]
     position: int | None = None
     notes: str | None = None
-    requested_at: str
+    requested_at: str | None = None
     updated_at: str | None = None
     played_at: str | None = None
     reject_reason: str | None = None
@@ -880,10 +880,39 @@ class SyncSongsPushPayload(ScalesModel):
     last_modified_at: str | None = None
 
 
+
+class SyncSongPullItem(ScalesModel):
+    id: str
+    title: str
+    artist: str
+    genre: str | None = None
+    duration: int | None = None
+    year: int | None = None
+    category: str | None = None
+    available: bool = True
+    metadata_locked: bool = False
+    file_path: str | None = None
+    file_hash: str | None = None
+
+
+class SyncSongsScanPayload(ScalesModel):
+    venue_id: str | None = None
+    device_id: str | None = None
+    scan_timestamp: str
+    new_or_updated: list[dict[str, Any]] = Field(default_factory=list)
+    missing_from_disk: list[str] = Field(default_factory=list)
+    corrupted: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class SyncSongsAvailabilityBatch(ScalesModel):
+    venue_id: str | None = None
+    device_id: str | None = None
+    updates: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class SyncSongsPullOut(ScalesModel):
-    items: list[SyncSongItem]
-    deleted_ids: list[str] = Field(default_factory=list)
-    server_modified_at: str
+    sync_timestamp: str
+    updated_songs: list[SyncSongPullItem] = Field(default_factory=list)
 
 
 class SyncSettingItem(ScalesModel):

@@ -67,11 +67,15 @@ async def _require_venue_owner_or_match(
 
 @router.get("", response_model=PaginatedResponse[SongOut])
 async def list_songs(
-    venue_id: str,
+    venue_id: str | None = None,
     params: SongListParams = Depends(),
     db: AsyncSession = Depends(get_db),
     token: dict | None = Depends(optional_token),
 ):
+    if not venue_id and token:
+        venue_id = token.get("venue_id")
+    if not venue_id:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="venue_id required")
     await _require_venue_owner_or_match(venue_id, token, db)
 
     # Base filters
