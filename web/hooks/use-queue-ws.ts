@@ -35,8 +35,9 @@ export function useQueueWS(venueId: string = DEFAULT_VENUE_ID) {
   useEffect(() => {
     if (!venueId || venueId === "default") return;
     const token = getSocketToken();
-    fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue/list`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    const url = API_BASE + "/venues/" + encodeURIComponent(venueId) + "/queue/list";
+    fetch(url, {
+      headers: token ? { Authorization: "Bearer " + token } : {},
     })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {

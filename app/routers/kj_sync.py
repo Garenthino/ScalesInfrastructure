@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_
 
 from app.core.auth import kj_auth, KJDeviceUser
-from app.core.queue_service import QueueService
 from app.core.db import get_db
 from app.models import QueueRequest, Singer, Song, VenueConfig
 from app.schemas import (
@@ -215,31 +214,20 @@ async def push_queue(
             ).model_dump(),
         )
 
-    return_val = {"synced": len(body.items), "deleted": len(body.deleted_ids), "conflicts": 0}
-
-    # Broadcast queue update to portal via WebSocket gateway (best-effort)
-    try:
-        result = await db.execute(
-            select(QueueRequest).where(
-                QueueRequest.venue_id == venue_id,
-                QueueRequest.deleted_at.is_(None),
-            ).order_by(QueueRequest.rotation_position)
-        )
-        queue_rows = result.scalars().all()
-        await QueueService.publish(venue_id, "queue_updated", {
-            "queue": [_queue_item_to_dict(r) for r in queue_rows],
-        })
-    except Exception:
-        pass
-
-    return return_val
+    return {"synced": len(body.items), "deleted": len(body.deleted_ids), "conflicts": 0}
 
 
 def _queue_item_to_dict(item: QueueRequest) -> dict[str, Any]:
+    singer = getattr(item, "singer", None)
+    song = getattr(item, "song", None)
+    singer_name = singer.stage_name if singer else (item.notes or "")
+    song_title = song.title if song else ""
     return {
         "request_id": str(item.id),
         "singer_id": str(item.singer_id),
         "song_id": str(item.song_id),
+        "singer_name": singer_name,
+        "song_title": song_title,
         "status": str(item.status),
         "position": item.rotation_position,
         "notes": str(item.notes) if item.notes is not None else None,
@@ -414,24 +402,7 @@ async def push_singers(
             ).model_dump(),
         )
 
-    return_val = {"synced": len(body.items), "deleted": len(body.deleted_ids), "conflicts": 0}
-
-    # Broadcast queue update to portal via WebSocket gateway (best-effort)
-    try:
-        result = await db.execute(
-            select(QueueRequest).where(
-                QueueRequest.venue_id == venue_id,
-                QueueRequest.deleted_at.is_(None),
-            ).order_by(QueueRequest.rotation_position)
-        )
-        queue_rows = result.scalars().all()
-        await QueueService.publish(venue_id, "queue_updated", {
-            "queue": [_queue_item_to_dict(r) for r in queue_rows],
-        })
-    except Exception:
-        pass
-
-    return return_val
+    return {"synced": len(body.items), "deleted": len(body.deleted_ids), "conflicts": 0}
 
 
 def _singer_item_to_dict(singer: Singer) -> dict[str, Any]:
