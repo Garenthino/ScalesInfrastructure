@@ -6,6 +6,7 @@ import { QueueRequest, NowPlaying, QueueStats } from "@/lib/types";
 
 const SOCKET_BASE = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
 const DEFAULT_VENUE_ID = process.env.NEXT_PUBLIC_DEFAULT_VENUE_ID || "default";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
 
 function getSocketToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -29,6 +30,23 @@ export function useQueueWS(venueId: string = DEFAULT_VENUE_ID) {
 
   const socketRef = useRef<Socket | null>(null);
   const mountedRef = useRef(true);
+
+  // REST fallback: fetch initial queue data on mount
+  useEffect(() => {
+    if (!venueId || venueId === "default") return;
+    const token = getSocketToken();
+    fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue/list`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data || !mountedRef.current) return;
+        const items = data.items || [];
+        setQueue(items);
+        setHasReceivedData(items.length > 0);
+      })
+      .catch(() => {});
+  }, [venueId]);
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
@@ -82,7 +100,6 @@ export function useQueueWS(venueId: string = DEFAULT_VENUE_ID) {
       if (!mountedRef.current) return;
       setConnectionState("closed");
       if (reason === "io server disconnect" || reason === "io client disconnect") {
-        // intentional, no need to show error
         return;
       }
     });
