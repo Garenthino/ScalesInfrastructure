@@ -539,38 +539,38 @@ async def push_song_scan(
     for item in payload.new_or_updated:
         result = await db.execute(
             select(Song).where(
-                and_(Song.venue_id == payload.venue_id, Song.file_path == item.file_path)
+                and_(Song.venue_id == payload.venue_id, Song.file_path == item.get("file_path"))
             )
         )
         song = result.scalar_one_or_none()
         if song:
-            song.file_hash = item.file_hash
-            song.file_size = item.file_size
-            song.file_path = item.file_path
+            song.file_hash = item.get("file_hash")
+            song.file_size = item.get("file_size")
+            song.file_path = item.get("file_path")
             song.is_available = 1
             song.is_active = 1
             song.unavailable_reason = None
             song.last_scanned_at = payload.scan_timestamp
             if not song.metadata_locked:
-                if item.title:  song.title = item.title
-                if item.artist: song.artist = item.artist
-                if item.genre:  song.genre = item.genre
-                if item.duration is not None: song.duration_ms = item.duration
-                if item.year is not None:     song.year = item.year
-                if item.category: song.category = item.category
+                if item.get("title"):  song.title = item.get("title")
+                if item.get("artist"): song.artist = item.get("artist")
+                if item.get("genre"):  song.genre = item.get("genre")
+                if item.get("duration") is not None: song.duration_ms = item.get("duration")
+                if item.get("year") is not None:     song.year = item.get("year")
+                if item.get("category"): song.category = item.get("category")
             updated += 1
         else:
             db.add(Song(
                 venue_id=payload.venue_id,
-                file_path=item.file_path,
-                file_hash=item.file_hash,
-                file_size=item.file_size,
-                title=item.title or "Unknown",
-                artist=item.artist or "Unknown",
-                genre=item.genre,
-                duration_ms=item.duration,
-                year=item.year,
-                category=item.category,
+                file_path=item.get("file_path"),
+                file_hash=item.get("file_hash"),
+                file_size=item.get("file_size"),
+                title=item.get("title") or "Unknown",
+                artist=item.get("artist") or "Unknown",
+                genre=item.get("genre"),
+                duration_ms=item.get("duration"),
+                year=item.get("year"),
+                category=item.get("category"),
                 is_available=1,
                 is_active=1,
                 last_scanned_at=payload.scan_timestamp,
@@ -638,10 +638,10 @@ async def push_song_availability(
                 )
             )
             song = result.scalar_one_or_none()
-        elif item.file_path:
+        elif item.get("file_path"):
             result = await db.execute(
                 select(Song).where(
-                    and_(Song.venue_id == payload.venue_id, Song.file_path == item.file_path)
+                    and_(Song.venue_id == payload.venue_id, Song.file_path == item.get("file_path"))
                 )
             )
             song = result.scalar_one_or_none()
