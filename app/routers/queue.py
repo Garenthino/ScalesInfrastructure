@@ -104,12 +104,17 @@ def _singer_out(singer) -> dict[str, Any] | None:
 def _queue_request_out(item: QueueRequest, position: int | None = None) -> dict[str, Any]:
     song = getattr(item, "song", None)
     singer = getattr(item, "singer", None)
+    song_data = _song_out(song) or {}
+    singer_data = _singer_out(singer) or {}
     return {
         "request_id": str(item.id),
+        "singer_id": str(item.singer_id),
         "position": position if position is not None else int(item.rotation_position) if item.rotation_position is not None else None,
         "status": str(item.status),
-        "song": _song_out(song),
-        "singer": _singer_out(singer),
+        "song": song_data,
+        "singer": singer_data,
+        "song_title": song_data.get("title") if song_data else "",
+        "singer_name": singer_data.get("stage_name") or singer_data.get("name") if singer_data else "",
         "submitted_at": str(item.requested_at),
         "estimated_start": None,
         "notes": str(item.notes) if item.notes is not None else None,
@@ -120,13 +125,18 @@ def _queue_request_out(item: QueueRequest, position: int | None = None) -> dict[
 def _queue_item_out(item: QueueRequest, position: int | None = None) -> dict[str, Any]:
     song = getattr(item, "song", None)
     singer = getattr(item, "singer", None)
+    song_data = _song_out(song) or {}
+    singer_data = _singer_out(singer) or {}
     return {
         "request_id": str(item.id),
+        "singer_id": str(item.singer_id),
         "venue_id": str(item.venue_id),
         "position": position if position is not None else int(item.rotation_position) if item.rotation_position is not None else None,
         "status": str(item.status),
-        "song": _song_out(song),
-        "singer": _singer_out(singer),
+        "song": song_data,
+        "singer": singer_data,
+        "song_title": song_data.get("title") if song_data else "",
+        "singer_name": singer_data.get("stage_name") or singer_data.get("name") if singer_data else "",
         "notes": str(item.notes) if item.notes is not None else None,
         "reject_reason": str(item.reject_reason) if item.reject_reason is not None else None,
         "requested_at": str(item.requested_at),
