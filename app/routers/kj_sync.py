@@ -229,7 +229,7 @@ def _queue_item_to_dict(item: QueueRequest) -> dict[str, Any]:
         "singer_name": singer_name,
         "song_title": song_title,
         "status": str(item.status),
-        "position": item.rotation_position,
+        "position": (item.rotation_position or 0) + 1,
         "notes": str(item.notes) if item.notes is not None else None,
         "requested_at": str(item.requested_at),
         "updated_at": str(item.updated_at) if item.updated_at is not None else None,
