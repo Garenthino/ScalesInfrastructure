@@ -161,7 +161,9 @@ async def get_queue_list(
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
     svc = QueueService(db)
-    items = await svc.get_active_queue(venue_id, mode="round_robin", include_details=True)
+    items = await svc.get_active_queue(venue_id, mode="fifo", include_details=True)
+    # Re-sort by rotation_position to match KJ desktop order
+    items.sort(key=lambda i: i.rotation_position or 0)
 
     total = len(items)
     start = (page - 1) * per_page

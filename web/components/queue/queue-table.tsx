@@ -160,6 +160,9 @@ function SortableQueueRow({
       <TableCell className="text-center font-mono text-sm">
         {item.position}
       </TableCell>
+      <TableCell className="text-center font-medium">
+        {idx === 0 ? "Now" : idx === 1 ? "Next" : ""}
+      </TableCell>
       <TableCell className="font-medium">{item.singer_name}</TableCell>
       <TableCell>{item.song_title}</TableCell>
       <TableCell>
@@ -409,6 +412,7 @@ export function QueueTable({ queue, venueId, onUpdate }: QueueTableProps) {
                   <TableRow className="hover:bg-transparent">
                     <TableHead className="w-12" />
                     <TableHead className="w-12 text-center">#</TableHead>
+                    <TableHead className="w-24 text-center">Up Next</TableHead>
                     <HeadCell sortKey="singer_name" current={sort} toggle={toggleSort}>
                       Singer
                     </HeadCell>
