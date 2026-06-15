@@ -163,15 +163,15 @@ async def get_queue_list(
     svc = QueueService(db)
     items = await svc.get_active_queue(venue_id, mode="fifo", include_details=True)
     # Re-sort by rotation_position to match KJ desktop order
-    # Show now_playing first, then by rotation_position
-    items.sort(key=lambda i: (0 if i.status == "now_playing" else 1, i.rotation_position or 0))
+    
+    items.sort(key=lambda i: i.rotation_position or 0)
 
     total = len(items)
     start = (page - 1) * per_page
     end = start + per_page
     paginated = items[start:end]
 
-    out = [_queue_request_out(item, position=idx + 1 + start) for idx, item in enumerate(paginated)]
+    out = [_queue_request_out(item) for item in paginated]
     return {"items": out, "total": total, "page": page, "per_page": per_page}
 
 
