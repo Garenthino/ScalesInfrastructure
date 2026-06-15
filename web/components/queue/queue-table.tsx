@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { QueueRequest, QueueStatus, ReorderPayload, Singer } from "@/lib/types";
+import { QueueRequest, QueueStatus, Singer } from "@/lib/types";
 import {
   Table,
   TableBody,
@@ -18,7 +18,6 @@ import {
   XCircle,
   SkipForward,
   Trash2,
-  ListMusic,
   AlertTriangle,
   Ban,
   ArrowDownToLine,
@@ -29,29 +28,9 @@ import {
   completeRequest,
   removeRequest,
   skipToEnd,
-  reorderQueueBySinger,
   banSinger,
 } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
-
-// DnD Kit imports
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 
 interface QueueTableProps {
   queue: QueueRequest[];
@@ -67,9 +46,11 @@ const statusConfig: Record<
   { label: string; className: string }
 > = {
   pending: { label: "Pending", className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300" },
-  now_playing: { label: "Now", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300" },
+  approved: { label: "Approved", className: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300" },
+  now_playing: { label: "Now Playing", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300" },
   playing: { label: "Playing", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300" },
   completed: { label: "Done", className: "bg-muted text-muted-foreground" },
+  skipped: { label: "Skipped", className: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300" },
   rejected: { label: "Rejected", className: "bg-destructive/10 text-destructive" },
 };
 
@@ -80,13 +61,15 @@ function formatWait(seconds?: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-/* ── Sortable Row ─────────────────────────────────────────── */
+/* ── Row ─────────────────────────────────────────── */
 
-function SortableQueueRow({
+function QueueRow({
   item,
   idx,
   rowDisabled,
   isUrgent,
+  isNextUp,
+  nextSong,
   venueId,
   onApprove,
   onReject,
@@ -99,6 +82,8 @@ function SortableQueueRow({
   idx: number;
   rowDisabled: boolean;
   isUrgent: boolean;
+  isNextUp: boolean;
+  nextSong: { title: string; artist: string } | null;
   venueId: string;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
@@ -107,22 +92,6 @@ function SortableQueueRow({
   onRemove: (id: string) => void;
   onBan: (singer: Singer) => void;
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: item.request_id, disabled: rowDisabled });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : undefined,
-    position: isDragging ? ("relative" as const) : undefined,
-  };
-
   const statusStyle = statusConfig[item.status];
   const singerObj: Singer | undefined = item.singer_id
     ? {
@@ -139,33 +108,36 @@ function SortableQueueRow({
 
   return (
     <TableRow
-      ref={setNodeRef}
-      style={style}
       className={cn(
         "transition-colors",
         isUrgent && "bg-orange-50 dark:bg-orange-900/10",
+        isNextUp && "bg-blue-50 dark:bg-blue-900/10",
         rowDisabled && "opacity-60",
-        isDragging && "bg-primary/5 shadow-md"
       )}
     >
-      <TableCell className="w-12 text-center">
-        <span
-          className="inline-flex cursor-grab items-center justify-center rounded p-1 text-muted-foreground hover:bg-muted active:cursor-grabbing"
-          {...attributes}
-          {...listeners}
-          title="Drag to reorder"
-        >
-          <ListMusic className="h-4 w-4" />
-        </span>
-      </TableCell>
       <TableCell className="text-center font-mono text-sm">
         {item.position}
       </TableCell>
-      <TableCell className="text-center font-medium">
-        {item.status === "now_playing" ? "Now" : item.position === 2 ? "Next" : ""}
+      <TableCell className="font-medium">
+        <div className="flex flex-col gap-0.5">
+          <span>{item.singer_name}</span>
+          {isNextUp && (
+            <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
+              Next Up
+            </span>
+          )}
+        </div>
       </TableCell>
-      <TableCell className="font-medium">{item.singer_name}</TableCell>
-      <TableCell>{item.song_title}</TableCell>
+      <TableCell>
+        <div className="flex flex-col gap-0.5">
+          <span>{item.song_title}</span>
+          {nextSong && (
+            <span className="text-xs text-muted-foreground">
+              Next: {nextSong.title} — {nextSong.artist}
+            </span>
+          )}
+        </div>
+      </TableCell>
       <TableCell>
         <span
           className={cn(
@@ -173,7 +145,7 @@ function SortableQueueRow({
             statusStyle.className
           )}
         >
-          {statusStyle.label}
+          {isNextUp && item.status === "approved" ? "Next Up" : statusStyle.label}
         </span>
       </TableCell>
       <TableCell className="font-mono text-sm">
@@ -206,7 +178,7 @@ function SortableQueueRow({
               </ActionButton>
             </>
           )}
-          {item.status === "playing" && (
+          {(item.status === "approved" || item.status === "now_playing" || item.status === "playing") && (
             <>
               <ActionButton
                 tooltip="Complete"
@@ -218,7 +190,7 @@ function SortableQueueRow({
               </ActionButton>
             </>
           )}
-          {(item.status === "pending" || item.status === "playing") && (
+          {(item.status === "pending" || item.status === "approved" || item.status === "now_playing" || item.status === "playing") && (
             <ActionButton
               tooltip="Skip to End"
               onClick={() => onSkipEnd(item.request_id)}
@@ -269,6 +241,43 @@ export function QueueTable({ queue, venueId, onUpdate }: QueueTableProps) {
     }));
   };
 
+  // Build a map of singer_id -> next queued song (first pending/approved after current position)
+  const nextSongMap = useMemo(() => {
+    const map: Record<string, { title: string; artist: string }> = {};
+    // Group by singer
+    const bySinger: Record<string, QueueRequest[]> = {};
+    for (const item of queue) {
+      if (!item.singer_id) continue;
+      bySinger[item.singer_id] = bySinger[item.singer_id] || [];
+      bySinger[item.singer_id].push(item);
+    }
+    // For each singer, find their next song (skip the first one, show the second)
+    for (const [singerId, items] of Object.entries(bySinger)) {
+      const sorted = [...items].sort((a, b) => a.position - b.position);
+      if (sorted.length > 1) {
+        const next = sorted[1];
+        // We need artist info; try to extract from song_title if it contains " — "
+        const parts = next.song_title.split(" — ");
+        if (parts.length >= 2) {
+          map[singerId] = { title: parts[0], artist: parts.slice(1).join(" — ") };
+        } else {
+          map[singerId] = { title: next.song_title, artist: "" };
+        }
+      }
+    }
+    return map;
+  }, [queue]);
+
+  // Determine which item is "Next Up" (first approved/pending item)
+  const nextUpRequestId = useMemo(() => {
+    for (const item of queue) {
+      if (item.status === "pending" || item.status === "approved") {
+        return item.request_id;
+      }
+    }
+    return null;
+  }, [queue]);
+
   const sortedQueue = useMemo(() => {
     const arr = [...queue];
     arr.sort((a, b) => {
@@ -294,39 +303,6 @@ export function QueueTable({ queue, venueId, onUpdate }: QueueTableProps) {
     });
     return arr;
   }, [queue, sort]);
-
-  const itemIds = useMemo(() => sortedQueue.map((q) => q.request_id), [sortedQueue]);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
-
-  const reorderMutation = useMutation({
-    mutationFn: (singerIds: string[]) => reorderQueueBySinger(venueId, singerIds, token),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["queue-admin"] });
-      onUpdate?.();
-    },
-  });
-
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-      const oldIndex = sortedQueue.findIndex((q) => q.request_id === active.id);
-      const newIndex = sortedQueue.findIndex((q) => q.request_id === over.id);
-      if (oldIndex === -1 || newIndex === -1) return;
-      const newOrder = arrayMove(sortedQueue, oldIndex, newIndex);
-      const singerIds = newOrder
-        .map((q) => q.singer_id)
-        .filter(Boolean) as string[];
-      reorderMutation.mutate(singerIds);
-    },
-    [sortedQueue, reorderMutation, venueId, token]
-  );
 
   const approveMutation = useMutation({
     mutationFn: (id: string) => approveRequest(venueId, id, token),
@@ -381,7 +357,6 @@ export function QueueTable({ queue, venueId, onUpdate }: QueueTableProps) {
   });
 
   const isPending = (id: string) =>
-    reorderMutation.isPending ||
     approveMutation.variables === id ||
     rejectMutation.variables === id ||
     completeMutation.variables === id ||
@@ -392,7 +367,7 @@ export function QueueTable({ queue, venueId, onUpdate }: QueueTableProps) {
   if (queue.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center rounded-lg border bg-muted/20 py-12">
-        <ListMusic className="mb-3 h-8 w-8 text-muted-foreground/50" />
+        <SkipForward className="mb-3 h-8 w-8 text-muted-foreground/50" />
         <p className="text-sm text-muted-foreground">Queue is empty</p>
       </div>
     );
@@ -402,61 +377,55 @@ export function QueueTable({ queue, venueId, onUpdate }: QueueTableProps) {
     <div className="space-y-4">
       <div className="rounded-lg border bg-card">
         <div className="overflow-x-auto">
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead className="w-12" />
-                    <TableHead className="w-12 text-center">#</TableHead>
-                    <TableHead className="w-24 text-center">Up Next</TableHead>
-                    <HeadCell sortKey="singer_name" current={sort} toggle={toggleSort}>
-                      Singer
-                    </HeadCell>
-                    <HeadCell sortKey="song_title" current={sort} toggle={toggleSort}>
-                      Song
-                    </HeadCell>
-                    <HeadCell sortKey="status" current={sort} toggle={toggleSort}>
-                      Status
-                    </HeadCell>
-                    <HeadCell sortKey="wait" current={sort} toggle={toggleSort}>
-                      Est. Wait
-                    </HeadCell>
-                    <TableHead className="w-auto">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sortedQueue.map((item, idx) => {
-                    const isUrgent =
-                      item.status === "pending" &&
-                      (item.estimated_wait_seconds || 0) > 600;
-                    const rowDisabled = isPending(item.request_id);
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="w-12 text-center">#</TableHead>
+                <HeadCell sortKey="singer_name" current={sort} toggle={toggleSort}>
+                  Singer
+                </HeadCell>
+                <HeadCell sortKey="song_title" current={sort} toggle={toggleSort}>
+                  Song
+                </HeadCell>
+                <HeadCell sortKey="status" current={sort} toggle={toggleSort}>
+                  Status
+                </HeadCell>
+                <HeadCell sortKey="wait" current={sort} toggle={toggleSort}>
+                  Est. Wait
+                </HeadCell>
+                <TableHead className="w-auto">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sortedQueue.map((item, idx) => {
+                const isUrgent =
+                  item.status === "pending" &&
+                  (item.estimated_wait_seconds || 0) > 600;
+                const rowDisabled = isPending(item.request_id);
+                const isNextUp = item.request_id === nextUpRequestId;
+                const nextSong = item.singer_id ? nextSongMap[item.singer_id] || null : null;
 
-                    return (
-                      <SortableQueueRow
-                        key={item.request_id}
-                        item={item}
-                        idx={idx}
-                        rowDisabled={rowDisabled}
-                        isUrgent={isUrgent}
-                        venueId={venueId}
-                        onApprove={(id) => approveMutation.mutate(id)}
-                        onReject={(id) => rejectMutation.mutate(id)}
-                        onComplete={(id) => completeMutation.mutate(id)}
-                        onSkipEnd={(id) => skipEndMutation.mutate(id)}
-                        onRemove={(id) => removeMutation.mutate(id)}
-                        onBan={(singer) => setBanDialog({ open: true, singer })}
-                      />
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </SortableContext>
-          </DndContext>
+                return (
+                  <QueueRow
+                    key={item.request_id}
+                    item={item}
+                    idx={idx}
+                    rowDisabled={rowDisabled}
+                    isUrgent={isUrgent}
+                    isNextUp={isNextUp}
+                    nextSong={nextSong}
+                    venueId={venueId}
+                    onApprove={(id) => approveMutation.mutate(id)}
+                    onReject={(id) => rejectMutation.mutate(id)}
+                    onComplete={(id) => completeMutation.mutate(id)}
+                    onSkipEnd={(id) => skipEndMutation.mutate(id)}
+                    onRemove={(id) => removeMutation.mutate(id)}
+                    onBan={(singer) => setBanDialog({ open: true, singer })}
+                  />
+                );
+              })}
+            </TableBody>
+          </Table>
         </div>
       </div>
 

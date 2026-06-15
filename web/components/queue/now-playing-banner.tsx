@@ -19,7 +19,7 @@ export function NowPlayingBanner({ nowPlaying }: NowPlayingBannerProps) {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
-    if (!nowPlaying) {
+    if (!nowPlaying || !nowPlaying.request_id) {
       setElapsed(0);
       return;
     }
@@ -30,7 +30,7 @@ export function NowPlayingBanner({ nowPlaying }: NowPlayingBannerProps) {
     return () => clearInterval(timer);
   }, [nowPlaying?.request_id, nowPlaying?.elapsed_seconds]);
 
-  if (!nowPlaying) {
+  if (!nowPlaying || !nowPlaying.request_id) {
     return (
       <div className="flex items-center gap-4 rounded-lg border bg-muted/40 px-6 py-5">
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">

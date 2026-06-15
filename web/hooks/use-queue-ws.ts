@@ -71,19 +71,44 @@ export function useQueueWS(venueId: string = DEFAULT_VENUE_ID) {
     socket.on("queue_updated", (msg: any) => {
       if (!mountedRef.current) return;
       setHasReceivedData(true);
-      setQueue(msg.data?.queue ?? msg.data ?? []);
+      // Handle both {data: {queue: [...]}} and {queue: [...]} shapes
+      const payload = msg.data ?? msg;
+      const queueData = payload.queue ?? payload;
+      const queueArray = Array.isArray(queueData) ? queueData : [];
+      setQueue(queueArray);
     });
 
     socket.on("now_playing", (msg: any) => {
       if (!mountedRef.current) return;
       setHasReceivedData(true);
-      setNowPlaying(msg.data ?? msg);
+      // Handle {data: {...}}, raw object, or null
+      const payload = msg?.data ?? msg;
+      if (payload && typeof payload === "object" && payload.request_id) {
+        setNowPlaying({
+          request_id: payload.request_id,
+          singer_name: payload.singer_name || payload.singer_nickname || "Unknown",
+          song_title: payload.song_title || "Unknown",
+          started_at: payload.started_at || new Date().toISOString(),
+          elapsed_seconds: payload.elapsed_seconds || 0,
+        });
+      } else {
+        setNowPlaying(null);
+      }
     });
 
     socket.on("stats", (msg: any) => {
       if (!mountedRef.current) return;
       setHasReceivedData(true);
-      setStats(msg.data ?? msg);
+      const payload = msg?.data ?? msg;
+      if (payload && typeof payload === "object") {
+        setStats({
+          total_pending: payload.total_pending ?? 0,
+          avg_wait_seconds: payload.avg_wait_seconds ?? 0,
+          songs_completed_tonight: payload.songs_completed_tonight ?? 0,
+          now_playing: payload.now_playing ?? null,
+          total_singers: payload.total_singers,
+        });
+      }
     });
 
     socket.on("connected", (_msg: any) => {

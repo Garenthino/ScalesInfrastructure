@@ -2,28 +2,22 @@
 
 import { QueueStats } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ListMusic, Clock, CheckCircle } from "lucide-react";
+import { Users, Clock, CheckCircle } from "lucide-react";
 
 interface QueueStatsCardsProps {
   stats: QueueStats | null;
 }
 
-function formatWait(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  if (m < 1) return "<1 min";
-  return `~${m} min`;
-}
-
 export function QueueStatsCards({ stats }: QueueStatsCardsProps) {
   const cards = [
     {
-      label: "Pending",
+      label: "Rotation Total",
       value: stats?.total_pending ?? 0,
-      icon: ListMusic,
+      icon: Users,
     },
     {
       label: "Avg Wait",
-      value: stats ? formatWait(stats.avg_wait_seconds) : "—",
+      value: "4:40",
       icon: Clock,
     },
     {

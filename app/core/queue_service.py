@@ -225,6 +225,7 @@ class QueueService:
         )
         # Notification trigger: position may have changed
         await self._maybe_notify_position_change(venue_id)
+        await self.broadcast_queue_state(venue_id)
         return item
 
     async def _maybe_notify_position_change(self, venue_id: str) -> None:
@@ -259,6 +260,7 @@ class QueueService:
         await QueueEventPublisher.publish(
             venue_id, "request_rejected", {"request_id": request_id, "reason": reason}
         )
+        await self.broadcast_queue_state(venue_id)
         return item
 
     async def complete(self, venue_id: str, request_id: str) -> QueueRequest:
@@ -280,7 +282,8 @@ class QueueService:
             venue_id, "singer_completed", {"request_id": request_id, "status": "completed"}
         )
         # Auto-advance: start next approved item in rotation order
-        await self._auto_advance(venue_id)
+        result = await self._auto_advance(venue_id)
+        await self.broadcast_queue_state(venue_id)
         return item
     async def start(self, venue_id: str, request_id: str) -> QueueRequest:
         """Mark request as now_playing; enforce only 1 now_playing per venue."""
@@ -309,6 +312,7 @@ class QueueService:
             )
         except Exception:
             logger.debug("on_stage notification failed", exc_info=True)
+        await self.broadcast_queue_state(venue_id)
         return item
 
     async def skip(self, venue_id: str, request_id: str) -> QueueRequest:
@@ -328,6 +332,7 @@ class QueueService:
         if item.status == "skipped":
             pass  # already committed; _auto_advance looks at DB state
         await self._auto_advance(venue_id)
+        await self.broadcast_queue_state(venue_id)
         return item
 
     async def remove(self, venue_id: str, request_id: str) -> None:
@@ -343,6 +348,7 @@ class QueueService:
         await QueueEventPublisher.publish(
             venue_id, "queue_updated", {"request_id": request_id, "action": "cancelled"}
         )
+        await self.broadcast_queue_state(venue_id)
 
     async def update(self, venue_id: str, request_id: str, **kwargs) -> QueueRequest:
         """Edit notes/dedication on a queue request."""
@@ -647,6 +653,165 @@ class QueueService:
             "top_songs": top_songs,
             "throughput_per_hour": throughput,
         }
+
+    async def compute_queue_stats(self, venue_id: str) -> dict[str, Any]:
+        """Compute real-time queue stats for WebSocket broadcast.
+
+        Returns:
+            total_pending: number of active (pending/approved) requests
+            avg_wait_seconds: estimated wait per singer (280s = 4:40 fixed)
+            songs_completed_tonight: number completed today
+            now_playing: the currently playing item or None
+        """
+        from sqlalchemy import func
+        from datetime import datetime, timezone
+
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today_prefix = today[:10]
+
+        # Count active (pending + approved) items
+        pending_count = (
+            await self.db.execute(
+                select(func.count())
+                .select_from(QueueRequest)
+                .where(
+                    QueueRequest.venue_id == venue_id,
+                    QueueRequest.status.in_(["pending", "approved"]),
+                    QueueRequest.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one()
+
+        # Count singers in rotation (unique singers with active requests)
+        singers_result = (
+            await self.db.execute(
+                select(func.count(func.distinct(QueueRequest.singer_id)))
+                .select_from(QueueRequest)
+                .where(
+                    QueueRequest.venue_id == venue_id,
+                    QueueRequest.status.in_(list(ACTIVE_STATUSES)),
+                    QueueRequest.deleted_at.is_(None),
+                )
+            )
+        )
+        total_singers = singers_result.scalar_one()
+
+        # Completed today (8 AM start logic — align with user's 8 AM suggestion)
+        now = datetime.now(timezone.utc)
+        cutoff = now.replace(hour=8, minute=0, second=0, microsecond=0)
+        if now.hour < 8:
+            cutoff = cutoff.replace(day=cutoff.day - 1)
+        cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        completed_today = (
+            await self.db.execute(
+                select(func.count())
+                .select_from(QueueRequest)
+                .where(
+                    QueueRequest.venue_id == venue_id,
+                    QueueRequest.status == "completed",
+                    QueueRequest.played_at >= cutoff_str,
+                    QueueRequest.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one()
+
+        # Now playing
+        now_playing = await self._get_now_playing(venue_id)
+        now_playing_out = None
+        if now_playing:
+            singer = getattr(now_playing, "singer", None)
+            song = getattr(now_playing, "song", None)
+            now_playing_out = {
+                "request_id": str(now_playing.id),
+                "singer_name": getattr(singer, "stage_name", "Unknown") if singer else "Unknown",
+                "song_title": getattr(song, "title", "Unknown") if song else "Unknown",
+                "started_at": str(now_playing.requested_at) if now_playing.requested_at else _NOW(),
+                "elapsed_seconds": 0,
+            }
+
+        # Total active = pending + approved + now_playing
+        total_active = (
+            await self.db.execute(
+                select(func.count())
+                .select_from(QueueRequest)
+                .where(
+                    QueueRequest.venue_id == venue_id,
+                    QueueRequest.status.in_(list(ACTIVE_STATUSES)),
+                    QueueRequest.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one()
+
+        return {
+            "total_pending": total_active,  # For "Rotation Total" card
+            "avg_wait_seconds": 280,  # 4:40 fixed
+            "songs_completed_tonight": completed_today,
+            "now_playing": now_playing_out,
+            "total_singers": total_singers,
+        }
+
+    async def get_now_playing_item(self, venue_id: str) -> QueueRequest | None:
+        """Get the currently playing queue item with full details."""
+        return await self._get_now_playing(venue_id)
+
+    async def get_next_up_item(self, venue_id: str) -> QueueRequest | None:
+        """Get the next item that will play (first pending/approved after now_playing)."""
+        stmt = (
+            select(QueueRequest)
+            .where(
+                QueueRequest.venue_id == venue_id,
+                QueueRequest.status.in_(["pending", "approved"]),
+                QueueRequest.deleted_at.is_(None),
+            )
+            .order_by(QueueRequest.rotation_position.asc(), QueueRequest.requested_at.asc())
+            .limit(1)
+            .options(selectinload(QueueRequest.singer), selectinload(QueueRequest.song))
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def broadcast_queue_state(self, venue_id: str) -> None:
+        """Broadcast the full queue state + stats + now_playing via WebSocket."""
+        # Get active queue
+        items = await self.get_active_queue(venue_id, mode="round_robin", include_details=True)
+        queue_data = []
+        for idx, item in enumerate(items, start=1):
+            singer = getattr(item, "singer", None)
+            song = getattr(item, "song", None)
+            queue_data.append({
+                "request_id": str(item.id),
+                "position": idx,
+                "singer_id": str(item.singer_id) if item.singer_id else None,
+                "singer_name": getattr(singer, "stage_name", "Unknown") if singer else "Unknown",
+                "song_id": str(item.song_id) if item.song_id else None,
+                "song_title": getattr(song, "title", "Unknown") if song else "Unknown",
+                "song_artist": getattr(song, "artist", "Unknown") if song else "Unknown",
+                "status": str(item.status),
+                "notes": str(item.notes) if item.notes else None,
+                "requested_at": str(item.requested_at) if item.requested_at else None,
+                "estimated_wait_seconds": (idx - 1) * 280 if idx > 1 else 0,
+            })
+
+        # Stats
+        stats = await self.compute_queue_stats(venue_id)
+
+        # Now playing
+        now_playing = stats.get("now_playing")
+
+        # Broadcast queue_updated
+        await QueueEventPublisher.publish(
+            venue_id, "queue_updated", {"queue": queue_data, "total": len(queue_data)}
+        )
+
+        # Broadcast stats
+        await QueueEventPublisher.publish(venue_id, "stats", stats)
+
+        # Broadcast now_playing
+        if now_playing:
+            await QueueEventPublisher.publish(venue_id, "now_playing", now_playing)
+        else:
+            await QueueEventPublisher.publish(venue_id, "now_playing", {})
 
     async def get_active_rotation_session(self, venue_id: str) -> RotationSession | None:
         stmt = (

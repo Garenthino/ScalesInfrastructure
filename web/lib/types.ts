@@ -24,7 +24,7 @@ export interface RefreshResponse {
   access_token: string;
 }
 
-export type QueueStatus = "pending" | "now_playing" | "playing" | "completed" | "rejected";
+export type QueueStatus = "pending" | "approved" | "now_playing" | "playing" | "completed" | "skipped" | "rejected";
 
 export interface QueueRequest {
   request_id: string;
@@ -32,6 +32,7 @@ export interface QueueRequest {
   position: number;
   singer_name: string;
   song_title: string;
+  song_artist?: string;
   status: QueueStatus;
   requested_at: string;
   wait_seconds?: number;
@@ -52,6 +53,7 @@ export interface QueueStats {
   avg_wait_seconds: number;
   songs_completed_tonight: number;
   now_playing: NowPlaying | null;
+  total_singers?: number;
 }
 
 export interface QueueMessage {
