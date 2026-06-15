@@ -18,7 +18,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, func, and_, or_, update
 
 from app.core.auth import kj_auth, KJDeviceUser
 from app.core.db import get_db
@@ -215,6 +215,68 @@ async def push_queue(
         )
 
     return {"synced": len(body.items), "deleted": len(body.deleted_ids), "conflicts": 0}
+
+
+# ---------------------------------------------------------------------------
+# NOW PLAYING
+# ---------------------------------------------------------------------------
+
+@router.post("/now_playing")
+async def push_now_playing(
+    body: dict[str, Any],
+    venue_id: str | None = None,
+    current: KJDeviceUser = Depends(kj_auth),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Push currently playing singer to cloud."""
+    venue_id = venue_id or str(current.venue_id)
+    _require_venue_match(venue_id, current)
+
+    singer_id = body.get("singer_id")
+    song_id = body.get("song_id")
+
+    # Clear previous now_playing
+    await db.execute(
+        update(QueueRequest)
+        .where(
+            QueueRequest.venue_id == venue_id,
+            QueueRequest.status == "now_playing",
+        )
+        .values(status="pending", updated_at=_now_iso())
+    )
+
+    if singer_id:
+        # Find existing queue item for this singer
+        existing = (
+            await db.execute(
+                select(QueueRequest).where(
+                    QueueRequest.singer_id == singer_id,
+                    QueueRequest.venue_id == venue_id,
+                    QueueRequest.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+
+        if existing:
+            existing.status = "now_playing"
+            existing.updated_at = _now_iso()
+            if song_id:
+                existing.song_id = song_id
+        else:
+            db.add(QueueRequest(
+                id=str(uuid.uuid4()),
+                venue_id=venue_id,
+                singer_id=singer_id,
+                song_id=song_id,
+                status="now_playing",
+                rotation_position=0,
+                notes=body.get("notes", ""),
+                requested_at=_now_iso(),
+                updated_at=_now_iso(),
+            ))
+
+    await db.commit()
+    return {"status": "ok", "singer_id": singer_id}
 
 
 def _queue_item_to_dict(item: QueueRequest) -> dict[str, Any]:
