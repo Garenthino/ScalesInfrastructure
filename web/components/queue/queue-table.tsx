@@ -67,6 +67,7 @@ const statusConfig: Record<
   { label: string; className: string }
 > = {
   pending: { label: "Pending", className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300" },
+  now_playing: { label: "Now", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300" },
   playing: { label: "Playing", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300" },
   completed: { label: "Done", className: "bg-muted text-muted-foreground" },
   rejected: { label: "Rejected", className: "bg-destructive/10 text-destructive" },
@@ -161,7 +162,7 @@ function SortableQueueRow({
         {item.position}
       </TableCell>
       <TableCell className="text-center font-medium">
-        {idx === 0 ? "Now" : idx === 1 ? "Next" : ""}
+        {item.status === "now_playing" ? "Now" : item.position === 2 ? "Next" : ""}
       </TableCell>
       <TableCell className="font-medium">{item.singer_name}</TableCell>
       <TableCell>{item.song_title}</TableCell>
