@@ -218,17 +218,17 @@ async def push_queue(
                 # server wins: skip this item, keep server state
                 continue
 
-            # Update existing — preserve song_id if client sends null
-            # (KJ desktop removes the song from rotation once playback starts,
-            # but the portal still needs to display it for the now_playing item)
+            # Update existing — preserve song_id ONLY for now_playing items
+            # (KJ desktop removes the song from rotation after playback starts,
+            # but the portal's Now Playing bar still needs to display it).
+            # For other items, allow null to clear the song so played songs
+            # don't linger next to singers who have no new song queued.
             existing.singer_id = item.singer_id
             if resolved_song_id is not None:
                 existing.song_id = resolved_song_id
-            # Don't regress terminal statuses (completed/skipped/rejected)
-            # back to pending — the KJ desktop sends "Ready" singers as
-            # "pending" but they may have already completed on the server.
-            if existing.status not in ("completed", "skipped", "rejected"):
-                existing.status = item.status
+            elif item.status != "now_playing":
+                existing.song_id = None
+            existing.status = item.status
             existing.rotation_position = item.position
             existing.notes = item.notes
             existing.requested_at = item.requested_at
