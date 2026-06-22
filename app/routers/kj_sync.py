@@ -192,6 +192,10 @@ async def push_queue(
         resolved_song_id = await _resolve_or_create_song(
             db, venue_id, item.song_id, item.song_title, item.song_artist
         )
+        # Flush so any newly created Song stub is visible to FK constraints
+        # before queue item updates/inserts are flushed.
+        if resolved_song_id and item.song_id:
+            await db.flush()
 
         # Check if server has newer state
         existing = (
@@ -218,19 +222,15 @@ async def push_queue(
                 # server wins: skip this item, keep server state
                 continue
 
-            # Update existing — preserve song_id when client sends null AND
-            # provides no song_title/song_artist. The KJ desktop removes the
-            # song from its rotation display after playback starts (sending
-            # song_id=null, song_title=null), but the server should keep the
-            # association so the Now Playing bar can display it.
-            #
-            # When the client sends song_title/song_artist that differ from
-            # the existing song, resolve to a new song. When the client sends
-            # null for everything, preserve the existing song_id.
+            # Update existing — preserve song_id only for now_playing items.
+            # The now_playing song is set by the dedicated /now_playing endpoint,
+            # not the rotation push. For other items, clear song_id when the
+            # client sends null so played songs don't linger in the queue table.
             existing.singer_id = item.singer_id
             if resolved_song_id is not None:
                 existing.song_id = resolved_song_id
-            # else: preserve existing song_id (don't overwrite with None)
+            elif item.status != "now_playing":
+                existing.song_id = None
             existing.status = item.status
             existing.rotation_position = item.position
             existing.notes = item.notes
@@ -361,6 +361,9 @@ async def push_now_playing(
                 )
                 if resolved:
                     existing.song_id = resolved
+                    # Flush so the Song stub (if newly created) is visible
+                    # to the FK constraint before the queue update commits.
+                    await db.flush()
         else:
             db.add(QueueRequest(
                 id=str(uuid.uuid4()),
