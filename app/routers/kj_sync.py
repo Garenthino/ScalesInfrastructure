@@ -349,16 +349,12 @@ async def push_now_playing(
 
 
 def _queue_item_to_dict(item: QueueRequest) -> dict[str, Any]:
-    singer = getattr(item, "singer", None)
-    song = getattr(item, "song", None)
-    singer_name = singer.stage_name if singer else (item.notes or "")
-    song_title = song.title if song else ""
+    # Avoid accessing lazy-loaded relationships (item.singer, item.song) in
+    # async context — that triggers MissingGreenlet.  Use only scalar columns.
     return {
         "request_id": str(item.id),
         "singer_id": str(item.singer_id),
         "song_id": str(item.song_id) if item.song_id is not None else None,
-        "singer_name": singer_name,
-        "song_title": song_title,
         "status": str(item.status),
         "position": (item.rotation_position or 0) + 1,
         "notes": str(item.notes) if item.notes is not None else None,
@@ -370,17 +366,15 @@ def _queue_item_to_dict(item: QueueRequest) -> dict[str, Any]:
 
 
 def _queue_item_to_sync(item: QueueRequest) -> SyncQueueItem:
-    song_title = None
-    song_artist = None
-    if item.song:
-        song_title = str(item.song.title) if item.song.title is not None else None
-        song_artist = str(item.song.artist) if item.song.artist is not None else None
+    # Avoid accessing lazy-loaded relationships (item.song) in async context.
+    # song_title/song_artist will be None on pull; the client can enrich
+    # from its own local DB if needed.
     return SyncQueueItem(
         request_id=str(item.id),
         singer_id=str(item.singer_id),
         song_id=str(item.song_id) if item.song_id is not None else None,
-        song_title=song_title,
-        song_artist=song_artist,
+        song_title=None,
+        song_artist=None,
         status=str(item.status),  # type: ignore[arg-type]
         position=item.rotation_position,
         notes=str(item.notes) if item.notes is not None else None,
