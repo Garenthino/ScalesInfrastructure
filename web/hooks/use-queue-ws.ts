@@ -87,7 +87,8 @@ export function useQueueWS(venueId: string = DEFAULT_VENUE_ID) {
         setNowPlaying({
           request_id: payload.request_id,
           singer_name: payload.singer_name || payload.singer_nickname || "Unknown",
-          song_title: payload.song_title || "Unknown",
+          song_title: payload.song_title ?? null,
+          song_artist: payload.song_artist ?? null,
           started_at: payload.started_at || new Date().toISOString(),
           elapsed_seconds: payload.elapsed_seconds || 0,
         });

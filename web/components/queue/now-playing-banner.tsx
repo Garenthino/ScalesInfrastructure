@@ -44,6 +44,12 @@ export function NowPlayingBanner({ nowPlaying }: NowPlayingBannerProps) {
     );
   }
 
+  const songDisplay = nowPlaying.song_title
+    ? nowPlaying.song_artist
+      ? `${nowPlaying.song_title} by ${nowPlaying.song_artist}`
+      : nowPlaying.song_title
+    : "(no song selected)";
+
   return (
     <div
       className={cn(
@@ -58,7 +64,7 @@ export function NowPlayingBanner({ nowPlaying }: NowPlayingBannerProps) {
         <div>
           <p className="text-sm font-medium text-muted-foreground">Now Playing</p>
           <p className="text-lg font-bold leading-tight">
-            {nowPlaying.singer_name} – {nowPlaying.song_title}
+            {nowPlaying.singer_name} – {songDisplay}
           </p>
         </div>
       </div>

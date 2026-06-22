@@ -274,6 +274,16 @@ async def push_queue(
 
     await db.commit()
 
+    # Broadcast the updated queue state via WebSocket so the portal reflects
+    # the KJ desktop's changes in real-time.
+    try:
+        from app.core.queue_service import QueueService
+        svc = QueueService(db)
+        await svc.broadcast_queue_state(venue_id)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("broadcast after queue push failed: %s", exc)
+
     if conflicts:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

@@ -43,7 +43,8 @@ export interface QueueRequest {
 export interface NowPlaying {
   request_id: string;
   singer_name: string;
-  song_title: string;
+  song_title: string | null;
+  song_artist?: string | null;
   started_at: string;
   elapsed_seconds: number;
 }

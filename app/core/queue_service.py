@@ -724,8 +724,9 @@ class QueueService:
             song = getattr(now_playing, "song", None)
             now_playing_out = {
                 "request_id": str(now_playing.id),
-                "singer_name": getattr(singer, "stage_name", "Unknown") if singer else "Unknown",
-                "song_title": getattr(song, "title", "Unknown") if song else "Unknown",
+                "singer_name": getattr(singer, "stage_name", "Unknown") if singer else (now_playing.notes or "Unknown"),
+                "song_title": getattr(song, "title", None) if song else None,
+                "song_artist": getattr(song, "artist", None) if song else None,
                 "started_at": str(now_playing.requested_at) if now_playing.requested_at else _NOW(),
                 "elapsed_seconds": 0,
             }
