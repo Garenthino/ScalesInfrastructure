@@ -45,6 +45,21 @@ export function useQueueWS(venueId: string = DEFAULT_VENUE_ID) {
         const items = data.items || [];
         setQueue(items);
         setHasReceivedData(items.length > 0);
+        // Derive nowPlaying from the queue list (REST fallback for
+        // when WebSocket isn't connected yet or page was refreshed)
+        const np = items.find(
+          (it: any) => it.status === "now_playing" || it.status === "playing"
+        );
+        if (np) {
+          setNowPlaying({
+            request_id: np.request_id,
+            singer_name: np.singer_name || "Unknown",
+            song_title: np.song_title || np.song?.title || null,
+            song_artist: np.song?.artist || null,
+            started_at: np.requested_at || np.submitted_at || new Date().toISOString(),
+            elapsed_seconds: 0,
+          });
+        }
       })
       .catch(() => {});
   }, [venueId]);
