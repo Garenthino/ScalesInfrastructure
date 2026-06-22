@@ -329,15 +329,18 @@ async def push_now_playing(
     singer_name = body.get("singer_name")
     is_dj_track = body.get("is_dj_track", False)
 
-    # Clear previous now_playing
-    await db.execute(
-        update(QueueRequest)
-        .where(
-            QueueRequest.venue_id == venue_id,
-            QueueRequest.status == "now_playing",
+    # Clear previous now_playing — but ONLY for karaoke singer tracks.
+    # DJ/filler tracks don't change the queue state; the previous singer
+    # keeps their now_playing status in the queue table.
+    if not is_dj_track:
+        await db.execute(
+            update(QueueRequest)
+            .where(
+                QueueRequest.venue_id == venue_id,
+                QueueRequest.status == "now_playing",
+            )
+            .values(status="pending", updated_at=_now_iso())
         )
-        .values(status="pending", updated_at=_now_iso())
-    )
 
     if singer_id and not is_dj_track:
         # Karaoke singer — update their queue item to now_playing
@@ -379,7 +382,9 @@ async def push_now_playing(
     await db.commit()
 
     # Broadcast now_playing via WebSocket so the portal updates in real-time.
-    # For DJ tracks, send the song info directly (no queue item needed).
+    # For DJ tracks, send the song info directly without broadcasting the
+    # queue state (the queue hasn't changed, and broadcast_queue_state would
+    # send an empty now_playing event that overwrites our DJ track event).
     try:
         from app.core.queue_service import QueueService, QueueEventPublisher
         now_playing_out = {
@@ -392,9 +397,12 @@ async def push_now_playing(
             "is_dj_track": is_dj_track,
         }
         await QueueEventPublisher.publish(venue_id, "now_playing", now_playing_out)
-        # Also broadcast the queue state so the queue table updates
-        svc = QueueService(db)
-        await svc.broadcast_queue_state(venue_id)
+        # Only broadcast queue state for karaoke singers (queue changed:
+        # previous now_playing cleared, new now_playing set).
+        # Skip for DJ tracks — queue is unchanged.
+        if not is_dj_track:
+            svc = QueueService(db)
+            await svc.broadcast_queue_state(venue_id)
     except Exception as exc:
         import logging
         logging.getLogger(__name__).warning("broadcast after now_playing push failed: %s", exc)
