@@ -774,8 +774,10 @@ class QueueService:
 
     async def broadcast_queue_state(self, venue_id: str) -> None:
         """Broadcast the full queue state + stats + now_playing via WebSocket."""
-        # Get active queue
-        items = await self.get_active_queue(venue_id, mode="round_robin", include_details=True)
+        # Get active queue — use rotation_position for ordering to match
+        # the KJ desktop's rotation order, NOT round_robin interleaving.
+        items = await self.get_active_queue(venue_id, mode="fifo", include_details=True)
+        items.sort(key=lambda i: i.rotation_position or 0)
         queue_data = []
         for idx, item in enumerate(items, start=1):
             singer = getattr(item, "singer", None)

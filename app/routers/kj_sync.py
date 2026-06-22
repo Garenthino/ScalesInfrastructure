@@ -224,7 +224,11 @@ async def push_queue(
             existing.singer_id = item.singer_id
             if resolved_song_id is not None:
                 existing.song_id = resolved_song_id
-            existing.status = item.status
+            # Don't regress terminal statuses (completed/skipped/rejected)
+            # back to pending — the KJ desktop sends "Ready" singers as
+            # "pending" but they may have already completed on the server.
+            if existing.status not in ("completed", "skipped", "rejected"):
+                existing.status = item.status
             existing.rotation_position = item.position
             existing.notes = item.notes
             existing.requested_at = item.requested_at
