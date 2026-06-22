@@ -807,6 +807,8 @@ class SyncQueueItem(ScalesModel):
     request_id: str
     singer_id: str
     song_id: str | None = None
+    song_title: str | None = None
+    song_artist: str | None = None
     status: Literal["pending", "approved", "now_playing", "completed", "skipped", "rejected"]
     position: int | None = None
     notes: str | None = None

@@ -62,6 +62,70 @@ def _require_venue_match(venue_id: str, current: KJDeviceUser) -> None:
         )
 
 
+async def _resolve_or_create_song(
+    db: AsyncSession,
+    venue_id: str,
+    song_id: str | None,
+    song_title: str | None = None,
+    song_artist: str | None = None,
+) -> str | None:
+    """Resolve a song_id from the KJ client to a server Song UUID.
+
+    The KJ desktop uses local integer IDs; the server uses UUID strings.
+    Strategy:
+    1. If song_id matches an existing Song UUID, use it.
+    2. If not, try to find by title + artist + venue.
+    3. If still no match, auto-create a stub Song row so the portal can display it.
+    Returns the server Song UUID, or None if no song info was provided.
+    """
+    if not song_id and not song_title:
+        return None
+
+    # 1. Try direct UUID match
+    if song_id:
+        existing = (
+            await db.execute(
+                select(Song).where(
+                    Song.id == song_id,
+                    Song.venue_id == venue_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            return str(existing.id)
+
+    # 2. Try title + artist match
+    if song_title and song_artist:
+        existing = (
+            await db.execute(
+                select(Song).where(
+                    Song.venue_id == venue_id,
+                    Song.title == song_title,
+                    Song.artist == song_artist,
+                    Song.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            return str(existing.id)
+
+    # 3. Auto-create stub song
+    new_id = str(uuid.uuid4())
+    song = Song(
+        id=new_id,
+        venue_id=venue_id,
+        catalog_id=song_id,
+        title=song_title or "Unknown",
+        artist=song_artist or "Unknown",
+        is_available=1,
+        is_active=1,
+        created_at=_now_iso(),
+        updated_at=_now_iso(),
+    )
+    db.add(song)
+    return new_id
+
+
 async def _get_venue_config_dict(db: AsyncSession, venue_id: str) -> dict[str, SyncSettingItem]:
     """Return all venue_configs as a dict keyed by config_key."""
     result = await db.execute(
@@ -123,6 +187,11 @@ async def push_queue(
 
     # Process upserts
     for item in body.items:
+        # Resolve song_id to a server Song UUID (auto-create stub if needed)
+        resolved_song_id = await _resolve_or_create_song(
+            db, venue_id, item.song_id, item.song_title, item.song_artist
+        )
+
         # Check if server has newer state
         existing = (
             await db.execute(
@@ -150,7 +219,7 @@ async def push_queue(
 
             # Update existing
             existing.singer_id = item.singer_id
-            existing.song_id = item.song_id
+            existing.song_id = resolved_song_id
             existing.status = item.status
             existing.rotation_position = item.position
             existing.notes = item.notes
@@ -166,7 +235,7 @@ async def push_queue(
                 id=item.request_id,
                 venue_id=venue_id,
                 singer_id=item.singer_id,
-                song_id=item.song_id,
+                song_id=resolved_song_id,
                 status=item.status,
                 notes=item.notes,
                 rotation_position=item.position,
@@ -287,7 +356,7 @@ def _queue_item_to_dict(item: QueueRequest) -> dict[str, Any]:
     return {
         "request_id": str(item.id),
         "singer_id": str(item.singer_id),
-        "song_id": str(item.song_id),
+        "song_id": str(item.song_id) if item.song_id is not None else None,
         "singer_name": singer_name,
         "song_title": song_title,
         "status": str(item.status),
@@ -301,10 +370,17 @@ def _queue_item_to_dict(item: QueueRequest) -> dict[str, Any]:
 
 
 def _queue_item_to_sync(item: QueueRequest) -> SyncQueueItem:
+    song_title = None
+    song_artist = None
+    if item.song:
+        song_title = str(item.song.title) if item.song.title is not None else None
+        song_artist = str(item.song.artist) if item.song.artist is not None else None
     return SyncQueueItem(
         request_id=str(item.id),
         singer_id=str(item.singer_id),
-        song_id=str(item.song_id),
+        song_id=str(item.song_id) if item.song_id is not None else None,
+        song_title=song_title,
+        song_artist=song_artist,
         status=str(item.status),  # type: ignore[arg-type]
         position=item.rotation_position,
         notes=str(item.notes) if item.notes is not None else None,
