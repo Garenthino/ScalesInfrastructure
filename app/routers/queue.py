@@ -29,12 +29,38 @@ from app.core.db import get_db
 from app.core.queue_service import QueueService, ACTIVE_STATUSES
 from app.core.permissions import Role
 from app.core.dependencies import require_role
-from app.models import QueueRequest, Song, Venue
+from app.models import QueueRequest, Song, Venue, KJDevice
 from app.schemas import QueueRequestCreate, QueueRequestUpdate, QueueReorder, QueueAdminListOut
 
 from app.core.loyalty_service import award_performance_points
 
+from datetime import datetime, timezone
+
 router = APIRouter()
+
+# How long since last KJ push before we consider the KJ offline.
+# The client syncs every ~5s so 30s gives plenty of margin.
+KJ_OFFLINE_THRESHOLD_SECONDS = 30
+
+
+async def _is_kj_online(db: AsyncSession, venue_id: str) -> bool:
+    """Check if any KJ device for this venue has been seen recently."""
+    from sqlalchemy import func as sa_func
+    cutoff = (
+        datetime.now(timezone.utc)
+        - __import__("datetime").timedelta(seconds=KJ_OFFLINE_THRESHOLD_SECONDS)
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    result = await db.execute(
+        select(sa_func.count())
+        .select_from(KJDevice)
+        .where(
+            KJDevice.venue_id == venue_id,
+            KJDevice.last_seen >= cutoff,
+            KJDevice.revoked_at.is_(None),
+        )
+    )
+    return result.scalar_one() > 0
 
 NOW = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -160,6 +186,11 @@ async def get_queue_list(
 ):
     if str(current.venue_id) != str(venue_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
+
+    # If no KJ device has been seen recently, return empty queue
+    # (the show is offline — stale DB data shouldn't display as live).
+    if not await _is_kj_online(db, venue_id):
+        return {"items": [], "total": 0, "page": page, "per_page": per_page}
 
     svc = QueueService(db)
     items = await svc.get_active_queue(venue_id, mode="fifo", include_details=True)

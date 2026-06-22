@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.models import QueueRequest, RotationSession
+from app.models import QueueRequest, RotationSession, KJDevice
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -772,8 +772,49 @@ class QueueService:
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def is_kj_online(self, venue_id: str, threshold_seconds: int = 30) -> bool:
+        """Check if any KJ device for this venue has been seen recently."""
+        from sqlalchemy import func
+        from datetime import timedelta
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(seconds=threshold_seconds)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(KJDevice)
+            .where(
+                KJDevice.venue_id == venue_id,
+                KJDevice.last_seen >= cutoff,
+                KJDevice.revoked_at.is_(None),
+            )
+        )
+        return result.scalar_one() > 0
+
     async def broadcast_queue_state(self, venue_id: str) -> None:
         """Broadcast the full queue state + stats + now_playing via WebSocket."""
+        # If no KJ device has been seen recently, broadcast empty state
+        # (the show is offline — portal should show empty, not stale data).
+        kj_online = await self.is_kj_online(venue_id)
+        if not kj_online:
+            logger.info("KJ offline for venue %s — broadcasting empty queue state", venue_id)
+            await QueueEventPublisher.publish(
+                venue_id, "queue_updated", {"queue": [], "total": 0}
+            )
+            await QueueEventPublisher.publish(
+                venue_id,
+                "stats",
+                {
+                    "total_pending": 0,
+                    "avg_wait_seconds": 0,
+                    "songs_completed_tonight": 0,
+                    "now_playing": None,
+                    "total_singers": 0,
+                    "kj_online": False,
+                },
+            )
+            await QueueEventPublisher.publish(venue_id, "now_playing", {})
+            return
+
         # Get active queue — use rotation_position for ordering to match
         # the KJ desktop's rotation order, NOT round_robin interleaving.
         items = await self.get_active_queue(venue_id, mode="fifo", include_details=True)
