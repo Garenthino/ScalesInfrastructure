@@ -94,7 +94,8 @@ async def _resolve_or_create_song(
         if existing:
             return str(existing.id)
 
-    # 2. Try title + artist match
+    # 2. Try title + artist match (use .first() to avoid MultipleResultsFound
+    #    if duplicate songs exist in the catalog)
     if song_title and song_artist:
         existing = (
             await db.execute(
@@ -103,9 +104,9 @@ async def _resolve_or_create_song(
                     Song.title == song_title,
                     Song.artist == song_artist,
                     Song.deleted_at.is_(None),
-                )
+                ).limit(1)
             )
-        ).scalar_one_or_none()
+        ).scalars().first()
         if existing:
             return str(existing.id)
 
