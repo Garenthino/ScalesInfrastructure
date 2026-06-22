@@ -268,11 +268,31 @@ export function QueueTable({ queue, venueId, onUpdate }: QueueTableProps) {
     return map;
   }, [queue]);
 
-  // Determine which item is "Next Up" (first approved/pending item)
+  // Determine which item is "Next Up" — first pending/approved item
+  // AFTER the now_playing item in rotation order.
   const nextUpRequestId = useMemo(() => {
-    for (const item of queue) {
-      if (item.status === "pending" || item.status === "approved") {
-        return item.request_id;
+    const nowPlayingIdx = queue.findIndex(
+      (item) => item.status === "now_playing" || item.status === "playing"
+    );
+    if (nowPlayingIdx === -1) {
+      // No one playing — first pending item is next up
+      for (const item of queue) {
+        if (item.status === "pending" || item.status === "approved") {
+          return item.request_id;
+        }
+      }
+      return null;
+    }
+    // Find first pending/approved AFTER the now_playing item
+    for (let i = nowPlayingIdx + 1; i < queue.length; i++) {
+      if (queue[i].status === "pending" || queue[i].status === "approved") {
+        return queue[i].request_id;
+      }
+    }
+    // Wrap around: no pending after now_playing, check from start
+    for (let i = 0; i < nowPlayingIdx; i++) {
+      if (queue[i].status === "pending" || queue[i].status === "approved") {
+        return queue[i].request_id;
       }
     }
     return null;
