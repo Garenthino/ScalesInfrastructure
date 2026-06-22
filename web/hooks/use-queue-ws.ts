@@ -106,6 +106,7 @@ export function useQueueWS(venueId: string = DEFAULT_VENUE_ID) {
           song_artist: payload.song_artist ?? null,
           started_at: payload.started_at || new Date().toISOString(),
           elapsed_seconds: payload.elapsed_seconds || 0,
+          is_dj_track: payload.is_dj_track ?? false,
         });
       } else {
         setNowPlaying(null);

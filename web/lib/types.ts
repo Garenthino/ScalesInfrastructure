@@ -47,6 +47,7 @@ export interface NowPlaying {
   song_artist?: string | null;
   started_at: string;
   elapsed_seconds: number;
+  is_dj_track?: boolean;
 }
 
 export interface QueueStats {

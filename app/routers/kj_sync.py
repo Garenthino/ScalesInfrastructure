@@ -218,16 +218,19 @@ async def push_queue(
                 # server wins: skip this item, keep server state
                 continue
 
-            # Update existing — preserve song_id ONLY for now_playing items
-            # (KJ desktop removes the song from rotation after playback starts,
-            # but the portal's Now Playing bar still needs to display it).
-            # For other items, allow null to clear the song so played songs
-            # don't linger next to singers who have no new song queued.
+            # Update existing — preserve song_id when client sends null AND
+            # provides no song_title/song_artist. The KJ desktop removes the
+            # song from its rotation display after playback starts (sending
+            # song_id=null, song_title=null), but the server should keep the
+            # association so the Now Playing bar can display it.
+            #
+            # When the client sends song_title/song_artist that differ from
+            # the existing song, resolve to a new song. When the client sends
+            # null for everything, preserve the existing song_id.
             existing.singer_id = item.singer_id
             if resolved_song_id is not None:
                 existing.song_id = resolved_song_id
-            elif item.status != "now_playing":
-                existing.song_id = None
+            # else: preserve existing song_id (don't overwrite with None)
             existing.status = item.status
             existing.rotation_position = item.position
             existing.notes = item.notes
@@ -315,12 +318,16 @@ async def push_now_playing(
     current: KJDeviceUser = Depends(kj_auth),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Push currently playing singer to cloud."""
+    """Push currently playing track to cloud (singer or DJ/filler)."""
     venue_id = venue_id or str(current.venue_id)
     _require_venue_match(venue_id, current)
 
     singer_id = body.get("singer_id")
     song_id = body.get("song_id")
+    song_title = body.get("song_title")
+    song_artist = body.get("song_artist")
+    singer_name = body.get("singer_name")
+    is_dj_track = body.get("is_dj_track", False)
 
     # Clear previous now_playing
     await db.execute(
@@ -332,8 +339,8 @@ async def push_now_playing(
         .values(status="pending", updated_at=_now_iso())
     )
 
-    if singer_id:
-        # Find existing queue item for this singer
+    if singer_id and not is_dj_track:
+        # Karaoke singer — update their queue item to now_playing
         existing = (
             await db.execute(
                 select(QueueRequest).where(
@@ -342,28 +349,54 @@ async def push_now_playing(
                     QueueRequest.deleted_at.is_(None),
                 )
             )
-        ).scalar_one_or_none()
+        ).scalars().first()
 
         if existing:
             existing.status = "now_playing"
             existing.updated_at = _now_iso()
             if song_id:
-                existing.song_id = song_id
+                # Resolve song_id (may be a local integer ID from the client)
+                resolved = await _resolve_or_create_song(
+                    db, venue_id, song_id, song_title, song_artist
+                )
+                if resolved:
+                    existing.song_id = resolved
         else:
             db.add(QueueRequest(
                 id=str(uuid.uuid4()),
                 venue_id=venue_id,
                 singer_id=singer_id,
-                song_id=song_id,
                 status="now_playing",
                 rotation_position=0,
-                notes=body.get("notes", ""),
+                notes=singer_name or body.get("notes", ""),
                 requested_at=_now_iso(),
                 updated_at=_now_iso(),
             ))
 
     await db.commit()
-    return {"status": "ok", "singer_id": singer_id}
+
+    # Broadcast now_playing via WebSocket so the portal updates in real-time.
+    # For DJ tracks, send the song info directly (no queue item needed).
+    try:
+        from app.core.queue_service import QueueService, QueueEventPublisher
+        now_playing_out = {
+            "request_id": str(singer_id) if singer_id else "dj_track",
+            "singer_name": singer_name or "DJ" if is_dj_track else singer_name,
+            "song_title": song_title,
+            "song_artist": song_artist,
+            "started_at": _now_iso(),
+            "elapsed_seconds": 0,
+            "is_dj_track": is_dj_track,
+        }
+        await QueueEventPublisher.publish(venue_id, "now_playing", now_playing_out)
+        # Also broadcast the queue state so the queue table updates
+        svc = QueueService(db)
+        await svc.broadcast_queue_state(venue_id)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("broadcast after now_playing push failed: %s", exc)
+
+    return {"status": "ok", "singer_id": singer_id, "is_dj_track": is_dj_track}
 
 
 def _queue_item_to_dict(item: QueueRequest) -> dict[str, Any]:

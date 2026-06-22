@@ -50,6 +50,9 @@ export function NowPlayingBanner({ nowPlaying }: NowPlayingBannerProps) {
       : nowPlaying.song_title
     : "(no song selected)";
 
+  const label = nowPlaying.is_dj_track ? "DJ Music" : "Now Playing";
+  const singerDisplay = nowPlaying.is_dj_track ? "" : `${nowPlaying.singer_name} – `;
+
   return (
     <div
       className={cn(
@@ -62,9 +65,9 @@ export function NowPlayingBanner({ nowPlaying }: NowPlayingBannerProps) {
           <PlayCircle className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <p className="text-sm font-medium text-muted-foreground">Now Playing</p>
+          <p className="text-sm font-medium text-muted-foreground">{label}</p>
           <p className="text-lg font-bold leading-tight">
-            {nowPlaying.singer_name} – {songDisplay}
+            {singerDisplay}{songDisplay}
           </p>
         </div>
       </div>
