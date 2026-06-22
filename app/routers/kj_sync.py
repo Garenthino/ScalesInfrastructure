@@ -218,9 +218,12 @@ async def push_queue(
                 # server wins: skip this item, keep server state
                 continue
 
-            # Update existing
+            # Update existing — preserve song_id if client sends null
+            # (KJ desktop removes the song from rotation once playback starts,
+            # but the portal still needs to display it for the now_playing item)
             existing.singer_id = item.singer_id
-            existing.song_id = resolved_song_id
+            if resolved_song_id is not None:
+                existing.song_id = resolved_song_id
             existing.status = item.status
             existing.rotation_position = item.position
             existing.notes = item.notes
