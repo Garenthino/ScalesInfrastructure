@@ -778,10 +778,34 @@ class QueueService:
         # the KJ desktop's rotation order, NOT round_robin interleaving.
         items = await self.get_active_queue(venue_id, mode="fifo", include_details=True)
         items.sort(key=lambda i: i.rotation_position or 0)
+
+        # Find the now_playing index so we can calculate estimated wait
+        # starting from the current singer, wrapping around the rotation.
+        AVG_SONG_SECONDS = 280  # 4:40
+        now_playing_idx = -1
+        for i, item in enumerate(items):
+            if str(item.status) == "now_playing":
+                now_playing_idx = i
+                break
+
         queue_data = []
         for idx, item in enumerate(items, start=1):
             singer = getattr(item, "singer", None)
             song = getattr(item, "song", None)
+
+            # Calculate estimated wait: count pending singers between
+            # the now_playing singer and this singer, wrapping around.
+            if now_playing_idx == -1 or item.status == "now_playing":
+                est_wait = 0
+            else:
+                # How many positions after now_playing (with wraparound)?
+                positions_after = (idx - 1) - now_playing_idx
+                if positions_after <= 0:
+                    # This singer is before now_playing in the list —
+                    # they'll wait for the wraparound
+                    positions_after = len(items) - now_playing_idx + (idx - 1)
+                est_wait = positions_after * AVG_SONG_SECONDS
+
             queue_data.append({
                 "request_id": str(item.id),
                 "position": idx,
@@ -793,7 +817,7 @@ class QueueService:
                 "status": str(item.status),
                 "notes": str(item.notes) if item.notes else None,
                 "requested_at": str(item.requested_at) if item.requested_at else None,
-                "estimated_wait_seconds": (idx - 1) * 280 if idx > 1 else 0,
+                "estimated_wait_seconds": est_wait,
             })
 
         # Stats

@@ -101,7 +101,7 @@ def _singer_out(singer) -> dict[str, Any] | None:
     }
 
 
-def _queue_request_out(item: QueueRequest, position: int | None = None) -> dict[str, Any]:
+def _queue_request_out(item: QueueRequest, position: int | None = None, est_wait: int = 0) -> dict[str, Any]:
     song = getattr(item, "song", None)
     singer = getattr(item, "singer", None)
     song_data = _song_out(song) or {}
@@ -116,6 +116,7 @@ def _queue_request_out(item: QueueRequest, position: int | None = None) -> dict[
         "song_title": song_data.get("title") if song_data else "",
         "singer_name": singer_data.get("stage_name") or singer_data.get("name") if singer_data else "",
         "submitted_at": str(item.requested_at),
+        "estimated_wait_seconds": est_wait,
         "estimated_start": None,
         "notes": str(item.notes) if item.notes is not None else None,
         "dedication": None,
@@ -163,15 +164,32 @@ async def get_queue_list(
     svc = QueueService(db)
     items = await svc.get_active_queue(venue_id, mode="fifo", include_details=True)
     # Re-sort by rotation_position to match KJ desktop order
-    
     items.sort(key=lambda i: i.rotation_position or 0)
+
+    # Calculate estimated wait starting from now_playing, wrapping around
+    AVG_SONG_SECONDS = 280
+    now_playing_idx = -1
+    for i, item in enumerate(items):
+        if str(item.status) == "now_playing":
+            now_playing_idx = i
+            break
 
     total = len(items)
     start = (page - 1) * per_page
     end = start + per_page
     paginated = items[start:end]
 
-    out = [_queue_request_out(item) for item in paginated]
+    out = []
+    for i, item in enumerate(paginated):
+        abs_idx = start + i  # 0-based index in full list
+        if now_playing_idx == -1 or str(item.status) == "now_playing":
+            est_wait = 0
+        else:
+            positions_after = abs_idx - now_playing_idx
+            if positions_after <= 0:
+                positions_after = total - now_playing_idx + abs_idx
+            est_wait = positions_after * AVG_SONG_SECONDS
+        out.append(_queue_request_out(item, position=abs_idx + 1, est_wait=est_wait))
     return {"items": out, "total": total, "page": page, "per_page": per_page}
 
 
