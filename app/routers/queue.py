@@ -39,8 +39,9 @@ from datetime import datetime, timezone
 router = APIRouter()
 
 # How long since last KJ push before we consider the KJ offline.
-# The client syncs every ~5s so 30s gives plenty of margin.
-KJ_OFFLINE_THRESHOLD_SECONDS = 30
+# The client syncs every few seconds, but we allow a generous window
+# for technical difficulties, pauses, etc. before clearing the portal.
+KJ_OFFLINE_THRESHOLD_SECONDS = 3600
 
 
 async def _is_kj_online(db: AsyncSession, venue_id: str) -> bool:

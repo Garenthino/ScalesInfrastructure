@@ -775,7 +775,7 @@ class QueueService:
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def is_kj_online(self, venue_id: str, threshold_seconds: int = 30) -> bool:
+    async def is_kj_online(self, venue_id: str, threshold_seconds: int = 3600) -> bool:
         """Check if any KJ device for this venue has been seen recently."""
         from sqlalchemy import func
         from datetime import timedelta
