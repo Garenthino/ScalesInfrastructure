@@ -23,7 +23,10 @@ def _NOW():
 
 
 ROTATION_MODES = {"fifo", "round_robin", "vip_priority", "balanced"}
-ACTIVE_STATUSES = {"pending", "approved", "now_playing"}
+ACTIVE_STATUSES = {"pending", "approved", "up_next", "now_playing"}
+# Terminal statuses — these are not part of the active rotation and shouldn't
+# be overwritten back to pending by a sync push.
+TERMINAL_STATUSES = {"completed", "skipped", "rejected"}
 
 
 # ---------------------------------------------------------------------------

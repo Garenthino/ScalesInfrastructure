@@ -22,6 +22,7 @@ from sqlalchemy import select, func, and_, or_, update
 
 from app.core.auth import kj_auth, KJDeviceUser
 from app.core.db import get_db
+from app.core.queue_service import QueueService, QueueEventPublisher, TERMINAL_STATUSES
 from app.models import QueueRequest, Singer, Song, VenueConfig
 from app.schemas import (
     SyncQueuePushPayload,
@@ -210,26 +211,16 @@ async def push_queue(
         if existing:
             # Conflict detection: if server updated_at > client last_modified_at
             if body.last_modified_at and existing.updated_at and str(existing.updated_at) > str(body.last_modified_at):
-                conflicts.append(
-                    SyncConflictDetail(
-                        entity_type="queue",
-                        entity_id=item.request_id,
-                        server_state=_queue_item_to_dict(existing),
-                        client_state=item.model_dump(),
-                        resolution="server_wins",
-                    )
-                )
-                # server wins: skip this item, keep server state
-                continue
-
-            # Update existing — preserve song_id only for now_playing items.
-            # The now_playing song is set by the dedicated /now_playing endpoint,
-            # not the rotation push. For other items, clear song_id when the
-            # client sends null so played songs don't linger in the queue table.
+                # KJ desktop is authoritative while it is online. Skip server-wins
+                # conflict resolution for queue state — the client drives the
+                # rotation.
+                pass
+            # Always trust the KJ desktop's incoming status unless the server
+            # has already moved this item to a terminal state.
             existing.singer_id = item.singer_id
             if resolved_song_id is not None:
                 existing.song_id = resolved_song_id
-            elif item.status != "now_playing":
+            elif item.status != "now_playing" and str(existing.status) not in TERMINAL_STATUSES:
                 existing.song_id = None
             existing.status = item.status
             existing.rotation_position = item.position
@@ -288,7 +279,6 @@ async def push_queue(
     # Broadcast the updated queue state via WebSocket so the portal reflects
     # the KJ desktop's changes in real-time.
     try:
-        from app.core.queue_service import QueueService
         svc = QueueService(db)
         await svc.broadcast_queue_state(venue_id)
     except Exception as exc:
@@ -386,7 +376,7 @@ async def push_now_playing(
     # queue state (the queue hasn't changed, and broadcast_queue_state would
     # send an empty now_playing event that overwrites our DJ track event).
     try:
-        from app.core.queue_service import QueueService, QueueEventPublisher
+        svc = QueueService(db)
         now_playing_out = {
             "request_id": str(singer_id) if singer_id else "dj_track",
             "singer_name": singer_name or "DJ" if is_dj_track else singer_name,

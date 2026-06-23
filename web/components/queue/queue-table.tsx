@@ -47,6 +47,7 @@ const statusConfig: Record<
 > = {
   pending: { label: "Pending", className: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300" },
   approved: { label: "Approved", className: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300" },
+  up_next: { label: "Next Up", className: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300" },
   now_playing: { label: "Now Playing", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300" },
   playing: { label: "Playing", className: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300" },
   completed: { label: "Done", className: "bg-muted text-muted-foreground" },
@@ -145,7 +146,7 @@ function QueueRow({
             statusStyle.className
           )}
         >
-          {isNextUp && item.status === "approved" ? "Next Up" : statusStyle.label}
+          {isNextUp && (item.status === "approved" || item.status === "up_next") ? "Next Up" : statusStyle.label}
         </span>
       </TableCell>
       <TableCell className="font-mono text-sm">
@@ -268,14 +269,21 @@ export function QueueTable({ queue, venueId, onUpdate }: QueueTableProps) {
     return map;
   }, [queue]);
 
-  // Determine which item is "Next Up" — first pending/approved item
+  // Determine which item is "Next Up" — prefer an item explicitly marked
+  // up_next by the KJ desktop. Fall back to first pending/approved item
   // AFTER the now_playing item in rotation order.
   const nextUpRequestId = useMemo(() => {
+    // 1. Explicit KJ selection takes priority
+    const explicitUpNext = queue.find((item) => item.status === "up_next");
+    if (explicitUpNext) {
+      return explicitUpNext.request_id;
+    }
+
     const nowPlayingIdx = queue.findIndex(
       (item) => item.status === "now_playing" || item.status === "playing"
     );
     if (nowPlayingIdx === -1) {
-      // No one playing — first pending item is next up
+      // No one playing — first pending/approved item is next up
       for (const item of queue) {
         if (item.status === "pending" || item.status === "approved") {
           return item.request_id;

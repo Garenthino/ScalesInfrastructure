@@ -24,7 +24,7 @@ export interface RefreshResponse {
   access_token: string;
 }
 
-export type QueueStatus = "pending" | "approved" | "now_playing" | "playing" | "completed" | "skipped" | "rejected";
+export type QueueStatus = "pending" | "approved" | "up_next" | "now_playing" | "playing" | "completed" | "skipped" | "rejected";
 
 export interface QueueRequest {
   request_id: string;

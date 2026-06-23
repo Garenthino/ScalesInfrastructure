@@ -284,7 +284,7 @@ class QueueRequest(Base):
     deleted_at = Column(Text)
 
     __table_args__ = (
-        CheckConstraint("status IN ('pending','approved','now_playing','completed','skipped','rejected')"),
+        CheckConstraint("status IN ('pending','approved','up_next','now_playing','completed','skipped','rejected')"),
         Index("ix_queue_venue_status", "venue_id", "status"),
         Index("queue_position_idx", "venue_id", "rotation_position"),
         Index("ix_queue_requests_singer_status", "singer_id", "status"),
