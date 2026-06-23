@@ -122,11 +122,6 @@ function QueueRow({
       <TableCell className="font-medium">
         <div className="flex flex-col gap-0.5">
           <span>{item.singer_name}</span>
-          {isNextUp && (
-            <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
-              Next Up
-            </span>
-          )}
         </div>
       </TableCell>
       <TableCell>
@@ -143,7 +138,9 @@ function QueueRow({
         <span
           className={cn(
             "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium",
-            statusStyle.className
+            isNextUp
+              ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+              : statusStyle.className
           )}
         >
           {isNextUp && (item.status === "approved" || item.status === "up_next") ? "Next Up" : statusStyle.label}
