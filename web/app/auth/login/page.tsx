@@ -15,7 +15,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      router.replace("/queue");
+      router.replace("/dashboard");
     }
   }, [isAuthenticated, router]);
   const [email, setEmail] = useState("");
@@ -49,7 +49,7 @@ export default function LoginPage() {
   if (isAuthenticated) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
-        <div className="text-muted-foreground">Already logged in. <Link href="/queue" className="underline">Go to queue</Link></div>
+        <div className="text-muted-foreground">Already logged in. <Link href="/dashboard" className="underline">Go to dashboard</Link></div>
       </div>
     );
   }
