@@ -265,6 +265,25 @@ async def require_admin(request: Request) -> dict:
     return payload
 
 
+async def require_platform_admin(request: Request) -> dict:
+    """Dependency: enforce platform admin role only."""
+    token = _extract_token(request)
+    payload = decode_token(token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    role = payload.get("role", "").lower()
+    if role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Platform admin access required",
+        )
+    return payload
+
+
 async def optional_token(request: Request) -> Optional[dict]:
     """Dependency: return decoded token if present, else None."""
     auth = request.headers.get("Authorization", "")

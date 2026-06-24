@@ -34,6 +34,9 @@ out/
 *~
 .DS_Store
 
+# Next.js build info
+web/tsconfig.tsbuildinfo
+
 # Terraform
 *.tfstate
 *.tfstate.backup

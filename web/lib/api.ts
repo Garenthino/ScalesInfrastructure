@@ -19,6 +19,13 @@ import {
   CheckinResponse,
   KJDevice,
   KJDevicesListResponse,
+  Venue,
+  VenueSignupPayload,
+  VenueSignupResponse,
+  VenueProvisionPayload,
+  VenueStatusUpdatePayload,
+  AdminVenue,
+  PaginatedResponse,
 } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://dancingdragonservices.com/api/v1";
@@ -560,5 +567,96 @@ export async function registerKJDevice(venue_id: string, name: string, token?: s
     body: JSON.stringify({ name }),
   });
   if (!res.ok) throw new Error("Failed to register KJ device");
+  return res.json();
+}
+
+/* ── Onboarding / Venue / Admin ───────────────────────── */
+
+export async function signupVenue(payload: VenueSignupPayload): Promise<VenueSignupResponse> {
+  const res = await fetch(`${API_BASE}/onboarding/venue`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Signup failed" }));
+    throw new Error(err.detail || "Signup failed");
+  }
+  return res.json();
+}
+
+export async function checkSlugAvailable(slug: string): Promise<{ slug: string; available: boolean }> {
+  const res = await fetch(`${API_BASE}/onboarding/check-slug/${encodeURIComponent(slug)}`);
+  if (!res.ok) throw new Error("Slug check failed");
+  return res.json();
+}
+
+export async function fetchMyVenue(token?: string): Promise<Venue> {
+  const res = await fetch(`${API_BASE}/onboarding/me`, { headers: authHeaders(token) });
+  if (!res.ok) throw new Error("Failed to fetch venue");
+  return res.json();
+}
+
+export async function updateVenue(venue_id: string, payload: Partial<Venue>, token?: string): Promise<Venue> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venue_id)}`, {
+    method: "PUT",
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Failed to update venue");
+  return res.json();
+}
+
+export async function fetchAdminVenues(
+  params?: { page?: number; per_page?: number; search?: string; status?: string; tier?: string },
+  token?: string
+): Promise<PaginatedResponse<AdminVenue>> {
+  const qs = new URLSearchParams();
+  if (params?.page !== undefined) qs.set("page", String(params.page));
+  if (params?.per_page !== undefined) qs.set("per_page", String(params.per_page));
+  if (params?.search) qs.set("search", params.search);
+  if (params?.status) qs.set("status", params.status);
+  if (params?.tier) qs.set("tier", params.tier);
+  const res = await fetch(`${API_BASE}/admin/venues?${qs.toString()}`, { headers: authHeaders(token) });
+  if (!res.ok) throw new Error("Failed to fetch venues");
+  return res.json();
+}
+
+export async function fetchAdminVenue(venue_id: string, token?: string): Promise<AdminVenue> {
+  const res = await fetch(`${API_BASE}/admin/venues/${encodeURIComponent(venue_id)}`, { headers: authHeaders(token) });
+  if (!res.ok) throw new Error("Failed to fetch venue");
+  return res.json();
+}
+
+export async function updateAdminVenueStatus(
+  venue_id: string,
+  payload: VenueStatusUpdatePayload,
+  token?: string
+): Promise<AdminVenue> {
+  const res = await fetch(`${API_BASE}/admin/venues/${encodeURIComponent(venue_id)}/status`, {
+    method: "PUT",
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Failed to update venue status");
+  return res.json();
+}
+
+export async function impersonateVenueOwner(venue_id: string, token?: string): Promise<{ access_token: string; expires_in: number }> {
+  const res = await fetch(`${API_BASE}/admin/venues/${encodeURIComponent(venue_id)}/impersonate`, {
+    method: "POST",
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error("Failed to impersonate owner");
+  return res.json();
+}
+
+export async function provisionVenue(payload: VenueProvisionPayload, token?: string): Promise<AdminVenue> {
+  const res = await fetch(`${API_BASE}/admin/venues/provision`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("Failed to provision venue");
   return res.json();
 }

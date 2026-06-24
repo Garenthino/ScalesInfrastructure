@@ -18,6 +18,14 @@ from app.schemas.dto import (
     VenueOut,
     VenueCompactOut,
     VenueStats,
+    # Onboarding / billing / admin
+    VenueSignupRequest,
+    VenueSignupResponse,
+    VenueBillingOut,
+    AdminVenueOut,
+    AdminVenueListItem,
+    AdminVenueStatusUpdate,
+    AdminVenueProvisionRequest,
     # Songs
     SongBase,
     SongCreate,

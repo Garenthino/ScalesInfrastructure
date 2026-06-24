@@ -11,6 +11,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginWithSignup: (data: { access_token: string; refresh_token: string }) => Promise<void>;
   logout: () => void;
   tokens: TokenPair | null;
   getAccessToken: () => string | null;
@@ -137,6 +138,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const loginWithSignup = async (data: { access_token: string; refresh_token: string }) => {
+    setIsLoading(true);
+    try {
+      setAccessToken(data.access_token);
+      setRefreshToken(data.refresh_token);
+      const u = await fetchMe(data.access_token);
+      setUser(u);
+      router.push("/venue");
+    } catch (err) {
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const tokens = accessToken && refreshTokenValue ? { access_token: accessToken, refresh_token: refreshTokenValue } : null;
 
   return (
@@ -146,6 +162,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isAuthenticated: !!user,
         login,
+        loginWithSignup,
         logout,
         tokens,
         getAccessToken,

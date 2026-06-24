@@ -5,7 +5,7 @@ Organized by domain: venues, songs, singers, queue, loyalty, commerce, analytics
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, EmailStr
 
 
 # ---------------------------------------------------------------------------
@@ -51,8 +51,8 @@ class VenueContact(ScalesModel):
 
 
 class VenueBranding(ScalesModel):
-    primary_color: str | None = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
-    secondary_color: str | None = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    primary_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    secondary_color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
     logo_url: str | None = None
     favicon_url: str | None = None
 
@@ -130,6 +130,90 @@ class VenueCompactOut(ScalesModel):
     venue_code: str
     timezone: str
     is_active: bool
+
+
+# ---------------------------------------------------------------------------
+# Onboarding / billing
+# ---------------------------------------------------------------------------
+
+class VenueSignupRequest(ScalesModel):
+    venue_name: str = Field(..., min_length=1, max_length=100)
+    slug: str = Field(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$")
+    owner_email: EmailStr
+    owner_password: str = Field(..., min_length=8, max_length=128)
+    owner_stage_name: str = Field(..., min_length=1, max_length=50)
+    timezone: str = Field(default="UTC", max_length=50)
+    signup_source: Literal["self_serve", "sales_assisted"] = "self_serve"
+    sales_rep_email: EmailStr | None = None
+
+
+class VenueSignupResponse(ScalesModel):
+    venue_id: str
+    singer_id: str
+    venue_code: str
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    refresh_token: str
+
+
+class VenueBillingOut(ScalesModel):
+    subscription_tier: str
+    subscription_status: str
+    billing_status: str
+    plan_expires_at: str | None = None
+    trial_ends_at: str | None = None
+    billing_email: str | None = None
+    signup_source: str
+    sales_rep_email: str | None = None
+
+
+class AdminVenueOut(VenueOut):
+    billing: VenueBillingOut
+    owner_email: str | None = None
+    total_singers: int = 0
+    total_kj_devices: int = 0
+    queue_depth: int = 0
+
+
+class AdminVenueListItem(ScalesModel):
+    id: str
+    name: str
+    slug: str
+    venue_code: str
+    timezone: str
+    is_active: bool
+    subscription_tier: str
+    subscription_status: str
+    billing_status: str
+    plan_expires_at: str | None = None
+    trial_ends_at: str | None = None
+    owner_email: str | None = None
+    total_singers: int = 0
+    total_kj_devices: int = 0
+    queue_depth: int = 0
+    created_at: str
+
+
+class AdminVenueStatusUpdate(ScalesModel):
+    is_active: bool | None = None
+    subscription_tier: str | None = None
+    subscription_status: str | None = None
+    billing_status: str | None = None
+    plan_expires_at: str | None = None
+    trial_ends_at: str | None = None
+    sales_rep_email: EmailStr | None = None
+
+
+class AdminVenueProvisionRequest(ScalesModel):
+    venue_name: str = Field(..., min_length=1, max_length=100)
+    slug: str = Field(..., min_length=1, max_length=100, pattern=r"^[a-z0-9-]+$")
+    owner_email: EmailStr
+    owner_password: str = Field(..., min_length=8, max_length=128)
+    owner_stage_name: str = Field(..., min_length=1, max_length=50)
+    timezone: str = Field(default="UTC", max_length=50)
+    subscription_tier: str = Field(default="basic")
+    sales_rep_email: EmailStr | None = None
 
 
 # ---------------------------------------------------------------------------

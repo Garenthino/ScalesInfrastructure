@@ -246,6 +246,102 @@ export interface RevenueBreakdown {
   hourly_revenue: HourlyPoint[];
 }
 
+// -- Venue / Onboarding / Billing --
+
+export interface Venue {
+  id: string;
+  name: string;
+  slug: string;
+  venue_code: string;
+  timezone: string;
+  is_active: boolean;
+  address?: {
+    street?: string | null;
+    city?: string | null;
+    state?: string | null;
+    zip?: string | null;
+    country?: string | null;
+  } | null;
+  contact?: {
+    phone?: string | null;
+    email?: string | null;
+  } | null;
+  branding?: {
+    primary_color?: string | null;
+    secondary_color?: string | null;
+    logo_url?: string | null;
+    favicon_url?: string | null;
+  } | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface VenueBilling {
+  subscription_tier: string;
+  subscription_status: string;
+  billing_status: string;
+  plan_expires_at?: string | null;
+  trial_ends_at?: string | null;
+  billing_email?: string | null;
+  signup_source: string;
+  sales_rep_email?: string | null;
+}
+
+export interface AdminVenue extends Venue {
+  billing: VenueBilling;
+  owner_email?: string | null;
+  total_singers: number;
+  total_kj_devices: number;
+  queue_depth: number;
+}
+
+export interface VenueSignupPayload {
+  venue_name: string;
+  slug: string;
+  owner_email: string;
+  owner_password: string;
+  owner_stage_name: string;
+  timezone?: string;
+}
+
+export interface VenueSignupResponse {
+  venue_id: string;
+  singer_id: string;
+  venue_code: string;
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  refresh_token: string;
+}
+
+export interface VenueProvisionPayload {
+  venue_name: string;
+  slug: string;
+  owner_email: string;
+  owner_password: string;
+  owner_stage_name: string;
+  timezone?: string;
+  subscription_tier?: string;
+  sales_rep_email?: string;
+}
+
+export interface VenueStatusUpdatePayload {
+  is_active?: boolean | null;
+  subscription_tier?: string | null;
+  subscription_status?: string | null;
+  billing_status?: string | null;
+  plan_expires_at?: string | null;
+  trial_ends_at?: string | null;
+  sales_rep_email?: string | null;
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
 // -- Songs --
 
 export interface Song {

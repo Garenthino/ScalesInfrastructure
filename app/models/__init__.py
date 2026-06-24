@@ -14,10 +14,26 @@ import string
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import Column, String, Integer, BigInteger, Text, ForeignKey, REAL, UniqueConstraint, CheckConstraint, Index
+from sqlalchemy import (
+    Column,
+    String,
+    Integer,
+    BigInteger,
+    Text,
+    ForeignKey,
+    REAL,
+    UniqueConstraint,
+    CheckConstraint,
+    Index,
+)
 from sqlalchemy.orm import relationship
 
 from app.core.db import Base
+
+
+_VALID_SUBSCRIPTION_STATUSES = {"trialing", "active", "past_due", "cancelled", "comped"}
+_VALID_BILLING_STATUSES = {"trial", "active", "past_due", "cancelled"}
+_VALID_SIGNUP_SOURCES = {"self_serve", "sales_assisted"}
 
 
 def _now_iso() -> str:
@@ -55,9 +71,37 @@ class Venue(Base):
     branding_json = Column(Text)
     subscription_tier = Column(Text, default="basic")
     is_active = Column(Integer, default=1)
+
+    # Billing / signup fields (Phase 1)
+    billing_email = Column(Text)
+    subscription_status = Column(Text, default="trialing")
+    billing_status = Column(Text, default="trial")
+    plan_expires_at = Column(Text)
+    trial_ends_at = Column(Text)
+    stripe_customer_id = Column(Text)
+    stripe_subscription_id = Column(Text)
+    signup_source = Column(Text, default="self_serve")
+    sales_rep_email = Column(Text)
+    plan_features_json = Column(Text)
+
     created_at = Column(Text, default=_now_iso)
     updated_at = Column(Text, default=_now_iso, onupdate=_now_iso)
     deleted_at = Column(Text)
+
+    __table_args__ = (
+        CheckConstraint(
+            f"subscription_status IS NULL OR subscription_status IN ({', '.join(repr(s) for s in _VALID_SUBSCRIPTION_STATUSES)})",
+            name="ck_venues_subscription_status",
+        ),
+        CheckConstraint(
+            f"billing_status IS NULL OR billing_status IN ({', '.join(repr(s) for s in _VALID_BILLING_STATUSES)})",
+            name="ck_venues_billing_status",
+        ),
+        CheckConstraint(
+            f"signup_source IS NULL OR signup_source IN ({', '.join(repr(s) for s in _VALID_SIGNUP_SOURCES)})",
+            name="ck_venues_signup_source",
+        ),
+    )
 
     # relationships
     songs = relationship("Song", back_populates="venue")
