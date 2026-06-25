@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { fetchMe, loginUser, refreshToken } from "@/lib/api";
 import { User, LoginResponse, TokenPair } from "@/lib/types";
@@ -41,8 +41,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const fetchedTokenRef = useRef<string | null>(null);
 
-  const getAccessToken = useCallback(() => accessToken, [accessToken]);
+  const getAccessToken = useCallback(() => accessToken, []);
 
   const logout = useCallback(() => {
     removeAccessToken();
@@ -54,7 +55,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Auto-refresh token before expiry
   useEffect(() => {
     if (!accessHydrated || !accessToken) {
-      setIsLoading(false);
       return;
     }
 
@@ -77,8 +77,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const buffer = 60_000; // refresh 1 min before expiry
       const delay = exp - now - buffer;
       if (delay <= 0) {
-        // Token already expired — log out instead of hammering refresh endpoint
-        logout();
+        removeAccessToken();
+        removeRefreshToken();
+        setUser(null);
+        router.push("/auth/login");
         return;
       }
       timer = setTimeout(performRefresh, delay);
@@ -92,7 +94,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAccessToken(data.access_token);
         scheduleRefresh();
       } catch {
-        logout();
+        removeAccessToken();
+        removeRefreshToken();
+        setUser(null);
+        router.push("/auth/login");
       } finally {
         setIsRefreshing(false);
       }
@@ -100,9 +105,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     scheduleRefresh();
     return () => clearTimeout(timer);
-  }, [accessHydrated, accessToken, refreshTokenValue, logout, setAccessToken]);
+  }, [accessHydrated, accessToken, refreshTokenValue, isRefreshing, removeAccessToken, removeRefreshToken, setAccessToken, router]);
 
-  // Fetch user on mount when tokens exist
+  // Fetch user on mount / when token changes
   useEffect(() => {
     if (!accessHydrated) return;
     if (!accessToken) {
@@ -110,17 +115,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // Only fetch once per token to prevent loops during impersonation/navigation
+    if (fetchedTokenRef.current === accessToken) {
+      return;
+    }
+    fetchedTokenRef.current = accessToken;
+
+    setIsLoading(true);
     fetchMe(accessToken)
       .then((u) => {
         setUser(u);
       })
       .catch(() => {
-        logout();
+        removeAccessToken();
+        removeRefreshToken();
+        setUser(null);
       })
       .finally(() => {
         setIsLoading(false);
       });
-  }, [accessHydrated, accessToken, logout]);
+  }, [accessHydrated, accessToken, removeAccessToken, removeRefreshToken]);
 
   const login = async (email: string, password: string) => {
     setIsLoading(true);
