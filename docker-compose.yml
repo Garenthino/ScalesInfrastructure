@@ -65,6 +65,7 @@ services:
       RATE_LIMIT_WINDOW: '60'
       SECURITY_HEADERS_ENABLED: 'true'
       REQUEST_MAX_BODY_SIZE_MB: '1.0'
+      CORS_ORIGINS_PROD: ${CORS_ORIGINS_PROD:-https://dancingdragonservices.com,https://www.dancingdragonservices.com}
     ports:
     - 8000:8000
     depends_on:
