@@ -1,0 +1,15 @@
+.next
+node_modules
+.turbo
+.env
+.env.local
+.env.*.local
+*.log
+Dockerfile
+.dockerignore
+coverage
+.nyc_output
+.vercel
+.DS_Store
+*.md
+!.env.example
