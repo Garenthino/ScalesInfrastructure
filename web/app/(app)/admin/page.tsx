@@ -56,8 +56,8 @@ export default function AdminPage() {
   const [page, setPage] = useState(1);
   const [perPage] = useState(20);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [tierFilter, setTierFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [tierFilter, setTierFilter] = useState("all");
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<AdminVenue | null>(null);
   const [provisionOpen, setProvisionOpen] = useState(false);
@@ -72,8 +72,8 @@ export default function AdminPage() {
           page: p,
           per_page: perPage,
           search: search || undefined,
-          status: statusFilter || undefined,
-          tier: tierFilter || undefined,
+          status: statusFilter === "all" ? undefined : statusFilter,
+          tier: tierFilter === "all" ? undefined : tierFilter,
         },
         token
       );
@@ -293,7 +293,7 @@ export default function AdminPage() {
             <SelectValue placeholder="Filter status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All statuses</SelectItem>
+            <SelectItem value="all">All statuses</SelectItem>
             <SelectItem value="trialing">Trialing</SelectItem>
             <SelectItem value="active">Active</SelectItem>
             <SelectItem value="past_due">Past Due</SelectItem>
@@ -306,7 +306,7 @@ export default function AdminPage() {
             <SelectValue placeholder="Filter tier" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All tiers</SelectItem>
+            <SelectItem value="all">All tiers</SelectItem>
             <SelectItem value="basic">Basic</SelectItem>
             <SelectItem value="pro">Pro</SelectItem>
             <SelectItem value="enterprise">Enterprise</SelectItem>
@@ -435,12 +435,12 @@ function VenueEditDialog({
 }) {
   const [payload, setPayload] = useState<VenueStatusUpdatePayload>({
     is_active: venue.is_active,
-    subscription_tier: venue.billing.subscription_tier,
-    subscription_status: venue.billing.subscription_status,
-    billing_status: venue.billing.billing_status,
-    plan_expires_at: venue.billing.plan_expires_at,
-    trial_ends_at: venue.billing.trial_ends_at,
-    sales_rep_email: venue.billing.sales_rep_email,
+    subscription_tier: venue.billing.subscription_tier || "basic",
+    subscription_status: venue.billing.subscription_status || "trialing",
+    billing_status: venue.billing.billing_status || "trial",
+    plan_expires_at: venue.billing.plan_expires_at ?? null,
+    trial_ends_at: venue.billing.trial_ends_at ?? null,
+    sales_rep_email: venue.billing.sales_rep_email ?? null,
   });
 
   return (
