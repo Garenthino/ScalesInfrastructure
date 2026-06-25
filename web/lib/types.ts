@@ -3,6 +3,9 @@ export interface User {
   username: string;
   role: "owner" | "admin" | "operator" | "kj";
   venue_id?: string;
+  email?: string;
+  real_name?: string | null;
+  stage_name?: string;
 }
 
 export interface TokenPair {
@@ -22,6 +25,7 @@ export interface LoginResponse {
 
 export interface RefreshResponse {
   access_token: string;
+  refresh_token: string;
 }
 
 export type QueueStatus = "pending" | "approved" | "up_next" | "now_playing" | "playing" | "completed" | "skipped" | "rejected";

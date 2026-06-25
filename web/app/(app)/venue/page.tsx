@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,13 +14,35 @@ import { Venue } from "@/lib/types";
 import { toast } from "sonner";
 
 export default function VenueSettingsPage() {
-  const { user, getAccessToken } = useAuth();
+  const { user, getAccessToken, loginWithSignup } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [venue, setVenue] = useState<Venue | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  // Admin impersonation: swap tokens from query param on load
+  useEffect(() => {
+    const impersonateToken = searchParams.get("impersonate");
+    if (impersonateToken) {
+      loginWithSignup({ access_token: impersonateToken, refresh_token: "" })
+        .then(() => {
+          toast.success("Impersonating venue owner");
+          router.replace("/venue");
+        })
+        .catch((err) => {
+          toast.error(err?.message || "Impersonation failed");
+          router.replace("/admin");
+        });
+    }
+  }, [searchParams, loginWithSignup, router]);
+
   useEffect(() => {
     const token = getAccessToken() || undefined;
+    if (!token) {
+      setLoading(false);
+      return;
+    }
     fetchMyVenue(token)
       .then(setVenue)
       .catch((err) => toast.error(err.message || "Failed to load venue"))
