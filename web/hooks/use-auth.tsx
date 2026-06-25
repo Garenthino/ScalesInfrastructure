@@ -178,7 +178,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const tokens = accessToken && refreshTokenValue ? { access_token: accessToken, refresh_token: refreshTokenValue } : null;
+  const tokens = accessToken ? { access_token: accessToken, refresh_token: refreshTokenValue || "" } : null;
 
   return (
     <AuthContext.Provider
