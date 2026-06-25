@@ -42,6 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const fetchedTokenRef = useRef<string | null>(null);
+  const fetchingRef = useRef<Promise<User> | null>(null);
 
   const getAccessToken = useCallback(() => accessToken, []);
 
@@ -121,8 +122,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     fetchedTokenRef.current = accessToken;
 
+    // Deduplicate concurrent in-flight fetches so only one /auth/me fires
+    if (fetchingRef.current) {
+      return;
+    }
+
     setIsLoading(true);
-    fetchMe(accessToken)
+    const fetchPromise = fetchMe(accessToken).finally(() => {
+      fetchingRef.current = null;
+    });
+    fetchingRef.current = fetchPromise;
+
+    fetchPromise
       .then((u) => {
         setUser(u);
       })
