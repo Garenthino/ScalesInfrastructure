@@ -141,9 +141,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         auth = request.headers.get("authorization", "")
         x_api_key = request.headers.get("x-api-key", "")
         is_authenticated = auth.lower().startswith("bearer ") or bool(x_api_key)
-        # Skip rate limiting for KJ sync and health endpoints
         path = request.url.path
-        if path.startswith("/kj/sync/") or path in ("/api/health", "/docs", "/openapi.json") or path.endswith("/health"):
+        # Skip rate limiting for KJ sync, health endpoints, and lightweight profile reads
+        if (
+            path.startswith("/kj/sync/")
+            or path in ("/api/health", "/docs", "/openapi.json")
+            or path.endswith("/health")
+            or path == "/v1/onboarding/me"
+        ):
             return await call_next(request)
 
         limited, retry_after = await _is_rate_limited(identity, is_authenticated)
