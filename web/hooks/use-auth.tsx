@@ -19,8 +19,12 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const ACCESS_TOKEN_KEY = "scales_access_token";
-const REFRESH_TOKEN_KEY = "scales_refresh_token";
+const ACCESS_TOKEN_KEY="scales...oken";
+const REFRESH_TOKEN_KEY="scales...oken";
+
+// Process-wide token guard so /auth/me is never fetched more than once for the same token,
+// even across component remounts or Strict Mode double-effects.
+const fetchedTokens = new Set<string>();
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -113,14 +117,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!accessHydrated) return;
     if (!accessToken) {
       setIsLoading(false);
+      fetchedTokenRef.current = null;
       return;
     }
 
     // Only fetch once per token to prevent loops during impersonation/navigation
-    if (fetchedTokenRef.current === accessToken) {
+    if (fetchedTokenRef.current === accessToken || fetchedTokens.has(accessToken)) {
       return;
     }
     fetchedTokenRef.current = accessToken;
+    fetchedTokens.add(accessToken);
 
     // Deduplicate concurrent in-flight fetches so only one /auth/me fires
     if (fetchingRef.current) {
