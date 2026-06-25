@@ -31,7 +31,6 @@ export default function VenueSettingsPage() {
     loginWithSignup({ access_token: impersonateToken, refresh_token: "" })
       .then(() => {
         toast.success("Impersonating venue owner");
-        router.replace("/venue");
       })
       .catch((err) => {
         toast.error(err?.message || "Impersonation failed");
@@ -40,12 +39,17 @@ export default function VenueSettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // run once on mount
 
+  const fetchedVenueTokenRef = useRef<string | null>(null);
   useEffect(() => {
     const token = tokens?.access_token;
     if (!token) {
       setLoading(false);
       return;
     }
+    if (fetchedVenueTokenRef.current === token) {
+      return;
+    }
+    fetchedVenueTokenRef.current = token;
     let cancelled = false;
     setLoading(true);
     fetchMyVenue(token)

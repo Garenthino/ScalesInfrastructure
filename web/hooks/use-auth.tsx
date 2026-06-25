@@ -144,14 +144,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(u);
       })
       .catch(() => {
-        removeAccessToken();
-        removeRefreshToken();
-        setUser(null);
+        // Only clear tokens if the failure happened with the same token we started with
+        if (getAccessToken() === accessToken) {
+          removeAccessToken();
+          removeRefreshToken();
+          setUser(null);
+          router.push("/auth/login");
+        }
       })
       .finally(() => {
         setIsLoading(false);
       });
-  }, [accessHydrated, accessToken, removeAccessToken, removeRefreshToken]);
+  }, [accessHydrated, accessToken, removeAccessToken, removeRefreshToken, getAccessToken, router]);
 
   const login = async (email: string, password: string) => {
     setIsLoading(true);
