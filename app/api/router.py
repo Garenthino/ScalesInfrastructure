@@ -14,7 +14,7 @@ api_router.include_router(kj_venue_router)
 api_router.include_router(kj_sync.router, prefix="/sync", tags=["Sync"])
 
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])
-api_router.include_router(admin_venues.router, prefix="/admin/venues", tags=["Admin Venues"])
+api_router.include_router(admin_venues.router, prefix="/admin", tags=["Admin Venues"])
 api_router.include_router(onboarding.router, prefix="/onboarding", tags=["Onboarding"])
 api_router.include_router(venues.router, prefix="/venues", tags=["Venues"])
 api_router.include_router(songs.router, prefix="/venues/{venue_id}/songs", tags=["Songs"])
