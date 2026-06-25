@@ -21,10 +21,13 @@ export default function VenueSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // Admin impersonation: swap tokens from query param on load
+  // Admin impersonation: swap tokens from query param on load (run once)
+  const [impersonating, setImpersonating] = useState(false);
   useEffect(() => {
+    if (impersonating) return;
     const impersonateToken = searchParams.get("impersonate");
     if (impersonateToken) {
+      setImpersonating(true);
       loginWithSignup({ access_token: impersonateToken, refresh_token: "" })
         .then(() => {
           toast.success("Impersonating venue owner");
@@ -35,7 +38,7 @@ export default function VenueSettingsPage() {
           router.replace("/admin");
         });
     }
-  }, [searchParams, loginWithSignup, router]);
+  }, [searchParams, loginWithSignup, router, impersonating]);
 
   useEffect(() => {
     const token = getAccessToken() || undefined;
