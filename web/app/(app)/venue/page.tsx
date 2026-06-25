@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,23 +22,23 @@ export default function VenueSettingsPage() {
   const [saving, setSaving] = useState(false);
 
   // Admin impersonation: swap tokens from query param on load (run once)
-  const [impersonating, setImpersonating] = useState(false);
+  const impersonatedRef = useRef(false);
   useEffect(() => {
-    if (impersonating) return;
+    if (impersonatedRef.current) return;
     const impersonateToken = searchParams.get("impersonate");
-    if (impersonateToken) {
-      setImpersonating(true);
-      loginWithSignup({ access_token: impersonateToken, refresh_token: "" })
-        .then(() => {
-          toast.success("Impersonating venue owner");
-          router.replace("/venue");
-        })
-        .catch((err) => {
-          toast.error(err?.message || "Impersonation failed");
-          router.replace("/admin");
-        });
-    }
-  }, [searchParams, loginWithSignup, router, impersonating]);
+    if (!impersonateToken) return;
+    impersonatedRef.current = true;
+    loginWithSignup({ access_token: impersonateToken, refresh_token: "" })
+      .then(() => {
+        toast.success("Impersonating venue owner");
+        router.replace("/venue");
+      })
+      .catch((err) => {
+        toast.error(err?.message || "Impersonation failed");
+        router.replace("/admin");
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount
 
   useEffect(() => {
     const token = getAccessToken() || undefined;
@@ -46,10 +46,12 @@ export default function VenueSettingsPage() {
       setLoading(false);
       return;
     }
+    let cancelled = false;
     fetchMyVenue(token)
-      .then(setVenue)
-      .catch((err) => toast.error(err.message || "Failed to load venue"))
-      .finally(() => setLoading(false));
+      .then((v) => { if (!cancelled) setVenue(v); })
+      .catch((err) => { if (!cancelled) toast.error(err.message || "Failed to load venue"); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [getAccessToken]);
 
   const handleChange = (field: keyof Venue, value: string) => {
