@@ -14,7 +14,7 @@ import { Venue } from "@/lib/types";
 import { toast } from "sonner";
 
 export default function VenueSettingsPage() {
-  const { user, getAccessToken, loginWithSignup } = useAuth();
+  const { user, getAccessToken, tokens, loginWithSignup } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [venue, setVenue] = useState<Venue | null>(null);
@@ -41,18 +41,19 @@ export default function VenueSettingsPage() {
   }, []); // run once on mount
 
   useEffect(() => {
-    const token = getAccessToken() || undefined;
+    const token = tokens?.access_token;
     if (!token) {
       setLoading(false);
       return;
     }
     let cancelled = false;
+    setLoading(true);
     fetchMyVenue(token)
       .then((v) => { if (!cancelled) setVenue(v); })
       .catch((err) => { if (!cancelled) toast.error(err.message || "Failed to load venue"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [getAccessToken]);
+  }, [tokens?.access_token]);
 
   const handleChange = (field: keyof Venue, value: string) => {
     if (!venue) return;
