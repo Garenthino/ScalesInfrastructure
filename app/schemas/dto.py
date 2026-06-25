@@ -183,11 +183,7 @@ class AdminVenueListItem(ScalesModel):
     venue_code: str
     timezone: str
     is_active: bool
-    subscription_tier: str
-    subscription_status: str
-    billing_status: str
-    plan_expires_at: str | None = None
-    trial_ends_at: str | None = None
+    billing: VenueBillingOut
     owner_email: str | None = None
     total_singers: int = 0
     total_kj_devices: int = 0
