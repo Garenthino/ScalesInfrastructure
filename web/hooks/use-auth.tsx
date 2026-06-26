@@ -190,7 +190,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAccessToken(data.access_token);
       setRefreshToken(data.refresh_token);
       await ensureUserForToken(data.access_token);
-      router.push("/venue");
+      // Already on the venue page during impersonation; don't remount by navigating.
+      if (typeof window === "undefined" || !window.location.pathname.startsWith("/venue")) {
+        router.push("/venue");
+      }
     } catch (err) {
       throw err;
     } finally {

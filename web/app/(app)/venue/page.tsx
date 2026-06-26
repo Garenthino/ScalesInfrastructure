@@ -51,6 +51,15 @@ export default function VenueSettingsPage() {
       setLoading(false);
       return;
     }
+    // If an impersonation token is in the URL and we still hold the old token,
+    // wait for loginWithSignup to swap before fetching the venue.
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const impersonateToken = params.get("impersonate");
+      if (impersonateToken && token !== impersonateToken && !impersonatedRef.current) {
+        return;
+      }
+    }
     if (fetchingVenueTokenRef.current === token) {
       return;
     }
