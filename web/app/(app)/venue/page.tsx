@@ -50,10 +50,15 @@ export default function VenueSettingsPage() {
       setLoading(false);
       return;
     }
-    // If an impersonation query is present, wait for the token swap (loginWithSignup)
-    // before fetching the venue, so we don't fetch for the old admin token.
-    if (typeof window !== "undefined" && window.location.search.includes("impersonate=")) {
-      return;
+    // If an impersonation token is in the URL and we are not yet using it,
+    // skip fetching for the old token. After loginWithSignup swaps to the new
+    // token, this effect will run again and fetch exactly once.
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const impersonateToken = params.get("impersonate");
+      if (impersonateToken && token !== impersonateToken) {
+        return;
+      }
     }
     if (fetchedVenueTokenRef.current === token || fetchedVenueTokens.has(token)) {
       return;
