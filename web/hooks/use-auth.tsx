@@ -46,16 +46,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const fetchedTokenRef = useRef<string | null>(null);
-  const fetchingRef = useRef<Promise<User> | null>(null);
+  const fetchingRef = useRef<{ token: string; promise: Promise<User> } | null>(null);
 
   const getAccessToken = useCallback(() => accessToken, [accessToken]);
 
   // Shared helper: fetch /auth/me once per token, deduping concurrent callers.
   const ensureUserForToken = useCallback(
     async (token: string) => {
-      // If a fetch for this token is already in flight, return the same promise so callers share it.
-      if (fetchingRef.current) {
-        return fetchingRef.current;
+      // If a fetch for this exact token is already in flight, share it.
+      if (fetchingRef.current?.token === token) {
+        return fetchingRef.current.promise;
       }
       // Already completed for this token; return the cached user.
       if (fetchedTokens.has(token)) {
@@ -78,9 +78,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error("Failed to fetch user");
         })
         .finally(() => {
-          fetchingRef.current = null;
+          if (fetchingRef.current?.token === token) {
+            fetchingRef.current = null;
+          }
         });
-      fetchingRef.current = promise;
+      fetchingRef.current = { token, promise };
       return promise;
     },
     [accessToken, user, getAccessToken, removeAccessToken, removeRefreshToken]
