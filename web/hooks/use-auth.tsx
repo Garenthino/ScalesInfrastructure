@@ -157,6 +157,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // If the URL contains an impersonation token, don't fetch for the old token;
+    // loginWithSignup in the venue page will swap to the new token and fetch once.
+    if (typeof window !== "undefined" && window.location.search.includes("impersonate=")) {
+      return;
+    }
+
     setIsLoading(true);
     ensureUserForToken(accessToken)
       .catch(() => {

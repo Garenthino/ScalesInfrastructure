@@ -50,6 +50,11 @@ export default function VenueSettingsPage() {
       setLoading(false);
       return;
     }
+    // If an impersonation query is present, wait for the token swap (loginWithSignup)
+    // before fetching the venue, so we don't fetch for the old admin token.
+    if (typeof window !== "undefined" && window.location.search.includes("impersonate=")) {
+      return;
+    }
     if (fetchedVenueTokenRef.current === token || fetchedVenueTokens.has(token)) {
       return;
     }
