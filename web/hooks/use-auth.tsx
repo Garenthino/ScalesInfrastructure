@@ -50,6 +50,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const getAccessToken = useCallback(() => accessToken, [accessToken]);
 
+  // Shared helper: fetch /auth/me once per token, deduping concurrent callers.
+  const ensureUserForToken = useCallback(
+    async (token: string) => {
+      // If a fetch for this token is already in flight, return the same promise so callers share it.
+      if (fetchingRef.current) {
+        return fetchingRef.current;
+      }
+      // Already completed for this token; return the cached user.
+      if (fetchedTokens.has(token)) {
+        return user as User;
+      }
+      fetchedTokens.add(token);
+      fetchedTokenRef.current = token;
+      const promise = fetchMe(token)
+        .then((u) => {
+          setUser(u);
+          return u;
+        })
+        .catch(() => {
+          // Only clear tokens if the failure happened with the same token we started with
+          if (getAccessToken() === token) {
+            removeAccessToken();
+            removeRefreshToken();
+            setUser(null);
+          }
+          throw new Error("Failed to fetch user");
+        })
+        .finally(() => {
+          fetchingRef.current = null;
+        });
+      fetchingRef.current = promise;
+      return promise;
+    },
+    [accessToken, user, getAccessToken, removeAccessToken, removeRefreshToken]
+  );
+
   const logout = useCallback(() => {
     removeAccessToken();
     removeRefreshToken();
@@ -121,41 +157,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Only fetch once per token to prevent loops during impersonation/navigation
-    if (fetchedTokenRef.current === accessToken || fetchedTokens.has(accessToken)) {
-      return;
-    }
-    fetchedTokenRef.current = accessToken;
-    fetchedTokens.add(accessToken);
-
-    // Deduplicate concurrent in-flight fetches so only one /auth/me fires
-    if (fetchingRef.current) {
-      return;
-    }
-
     setIsLoading(true);
-    const fetchPromise = fetchMe(accessToken).finally(() => {
-      fetchingRef.current = null;
-    });
-    fetchingRef.current = fetchPromise;
-
-    fetchPromise
-      .then((u) => {
-        setUser(u);
-      })
+    ensureUserForToken(accessToken)
       .catch(() => {
-        // Only clear tokens if the failure happened with the same token we started with
-        if (getAccessToken() === accessToken) {
-          removeAccessToken();
-          removeRefreshToken();
-          setUser(null);
-          router.push("/auth/login");
-        }
+        // navigate handled inside helper
       })
       .finally(() => {
         setIsLoading(false);
       });
-  }, [accessHydrated, accessToken, removeAccessToken, removeRefreshToken, getAccessToken, router]);
+  }, [accessHydrated, accessToken, ensureUserForToken]);
 
   const login = async (email: string, password: string) => {
     setIsLoading(true);
@@ -163,11 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data: LoginResponse = await loginUser(email, password);
       setAccessToken(data.access_token);
       setRefreshToken(data.refresh_token);
-      // Eagerly fetch user and mark token as seen so the auth effect doesn't duplicate /auth/me
-      const u = await fetchMe(data.access_token);
-      setUser(u);
-      fetchedTokens.add(data.access_token);
-      fetchedTokenRef.current = data.access_token;
+      await ensureUserForToken(data.access_token);
       router.push("/queue");
     } catch (err) {
       throw err;
@@ -181,11 +187,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setAccessToken(data.access_token);
       setRefreshToken(data.refresh_token);
-      // Eagerly fetch user and mark token as seen so the auth effect doesn't duplicate /auth/me
-      const u = await fetchMe(data.access_token);
-      setUser(u);
-      fetchedTokens.add(data.access_token);
-      fetchedTokenRef.current = data.access_token;
+      await ensureUserForToken(data.access_token);
       router.push("/venue");
     } catch (err) {
       throw err;
