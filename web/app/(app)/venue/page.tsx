@@ -13,6 +13,10 @@ import { fetchMyVenue, updateVenue } from "@/lib/api";
 import { Venue } from "@/lib/types";
 import { toast } from "sonner";
 
+// Process-wide guard so /onboarding/me is not fetched more than once for the same token,
+// even if the venue page remounts during impersonation navigation.
+const fetchedVenueTokens = new Set<string>();
+
 export default function VenueSettingsPage() {
   const { user, getAccessToken, tokens, loginWithSignup } = useAuth();
   const router = useRouter();
@@ -46,10 +50,11 @@ export default function VenueSettingsPage() {
       setLoading(false);
       return;
     }
-    if (fetchedVenueTokenRef.current === token) {
+    if (fetchedVenueTokenRef.current === token || fetchedVenueTokens.has(token)) {
       return;
     }
     fetchedVenueTokenRef.current = token;
+    fetchedVenueTokens.add(token);
     let cancelled = false;
     setLoading(true);
     fetchMyVenue(token)
