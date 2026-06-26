@@ -163,8 +163,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data: LoginResponse = await loginUser(email, password);
       setAccessToken(data.access_token);
       setRefreshToken(data.refresh_token);
-      const u = await fetchMe(data.access_token);
-      setUser(u);
       router.push("/queue");
     } catch (err) {
       throw err;
