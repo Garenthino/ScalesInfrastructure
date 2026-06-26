@@ -163,6 +163,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data: LoginResponse = await loginUser(email, password);
       setAccessToken(data.access_token);
       setRefreshToken(data.refresh_token);
+      // Eagerly fetch user and mark token as seen so the auth effect doesn't duplicate /auth/me
+      const u = await fetchMe(data.access_token);
+      setUser(u);
+      fetchedTokens.add(data.access_token);
+      fetchedTokenRef.current = data.access_token;
       router.push("/queue");
     } catch (err) {
       throw err;
@@ -176,6 +181,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setAccessToken(data.access_token);
       setRefreshToken(data.refresh_token);
+      // Eagerly fetch user and mark token as seen so the auth effect doesn't duplicate /auth/me
+      const u = await fetchMe(data.access_token);
+      setUser(u);
+      fetchedTokens.add(data.access_token);
+      fetchedTokenRef.current = data.access_token;
       router.push("/venue");
     } catch (err) {
       throw err;
