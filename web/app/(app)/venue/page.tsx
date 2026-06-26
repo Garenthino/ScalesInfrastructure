@@ -43,18 +43,18 @@ export default function VenueSettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // run once on mount
 
-  const fetchedVenueTokenRef = useRef<string | null>(null);
+  // Fetch venue for the current token, deduped per token.
+  const fetchingVenueTokenRef = useRef<string | null>(null);
   useEffect(() => {
     const token = tokens?.access_token;
     if (!token) {
       setLoading(false);
       return;
     }
-    if (fetchedVenueTokenRef.current === token || fetchedVenueTokens.has(token)) {
+    if (fetchingVenueTokenRef.current === token) {
       return;
     }
-    fetchedVenueTokenRef.current = token;
-    fetchedVenueTokens.add(token);
+    fetchingVenueTokenRef.current = token;
     let cancelled = false;
     setLoading(true);
     fetchMyVenue(token)
