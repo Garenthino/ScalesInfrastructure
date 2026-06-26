@@ -48,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchedTokenRef = useRef<string | null>(null);
   const fetchingRef = useRef<Promise<User> | null>(null);
 
-  const getAccessToken = useCallback(() => accessToken, []);
+  const getAccessToken = useCallback(() => accessToken, [accessToken]);
 
   const logout = useCallback(() => {
     removeAccessToken();
@@ -178,8 +178,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setAccessToken(data.access_token);
       setRefreshToken(data.refresh_token);
-      const u = await fetchMe(data.access_token);
-      setUser(u);
       router.push("/venue");
     } catch (err) {
       throw err;
