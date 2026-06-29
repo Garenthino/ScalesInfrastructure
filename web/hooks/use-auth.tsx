@@ -13,6 +13,8 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   loginWithSignup: (data: { access_token: string; refresh_token: string }) => Promise<void>;
   logout: () => void;
+  stopImpersonating: () => void;
+  isImpersonating: boolean;
   tokens: TokenPair | null;
   getAccessToken: () => string | null;
 }
@@ -47,6 +49,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const fetchedTokenRef = useRef<string | null>(null);
   const fetchingRef = useRef<{ token: string; promise: Promise<User> } | null>(null);
+
+  // Preserve admin tokens while impersonating a venue owner.
+  const adminTokensRef = useRef<{ access_token: string; refresh_token: string } | null>(null);
+  const [isImpersonating, setIsImpersonating] = useState(false);
 
   const getAccessToken = useCallback(() => accessToken, [accessToken]);
 
@@ -186,6 +192,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginWithSignup = async (data: { access_token: string; refresh_token: string }) => {
     setIsLoading(true);
     try {
+      // If this is the first impersonation, stash the current admin tokens.
+      if (!isImpersonating && accessToken && accessToken !== data.access_token) {
+        adminTokensRef.current = {
+          access_token: accessToken,
+          refresh_token: refreshTokenValue || "",
+        };
+        setIsImpersonating(true);
+      }
       setAccessToken(data.access_token);
       setRefreshToken(data.refresh_token);
       await ensureUserForToken(data.access_token);
@@ -200,6 +214,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const stopImpersonating = () => {
+    const admin = adminTokensRef.current;
+    if (!admin) {
+      // Nothing stashed; full logout as fallback.
+      logout();
+      router.push("/admin");
+      return;
+    }
+    setIsImpersonating(false);
+    adminTokensRef.current = null;
+    setAccessToken(admin.access_token);
+    setRefreshToken(admin.refresh_token);
+    router.push("/admin");
+  };
+
   const tokens = accessToken ? { access_token: accessToken, refresh_token: refreshTokenValue || "" } : null;
 
   return (
@@ -211,6 +240,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         loginWithSignup,
         logout,
+        stopImpersonating,
+        isImpersonating,
         tokens,
         getAccessToken,
       }}

@@ -18,7 +18,7 @@ import { toast } from "sonner";
 const venueCache = new Map<string, Venue>();
 
 export default function VenueSettingsPage() {
-  const { user, getAccessToken, tokens, loginWithSignup } = useAuth();
+  const { user, getAccessToken, tokens, loginWithSignup, stopImpersonating, isImpersonating } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [venue, setVenue] = useState<Venue | null>(null);
@@ -125,11 +125,18 @@ export default function VenueSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Venue Settings</h1>
-        <p className="text-muted-foreground">
-          Manage your venue profile, branding, and check-in options.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Venue Settings</h1>
+          <p className="text-muted-foreground">
+            Manage your venue profile, branding, and check-in options.
+          </p>
+        </div>
+        {isImpersonating && (
+          <Button variant="outline" onClick={stopImpersonating}>
+            Back to Admin
+          </Button>
+        )}
       </div>
 
       <form onSubmit={handleSubmit}>
