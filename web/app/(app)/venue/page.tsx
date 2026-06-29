@@ -13,9 +13,9 @@ import { fetchMyVenue, updateVenue } from "@/lib/api";
 import { Venue } from "@/lib/types";
 import { toast } from "sonner";
 
-// Module-level guard: never call /onboarding/me more than once for the same
-// access token, even if the venue page remounts during impersonation.
-const fetchedVenueTokens = new Set<string>();
+// Module-level cache: venue data fetched for a given access token survives remounts
+// during impersonation, so /onboarding/me is called once and the page finishes loading.
+const venueCache = new Map<string, Venue>();
 
 export default function VenueSettingsPage() {
   const { user, getAccessToken, tokens, loginWithSignup } = useAuth();
@@ -45,8 +45,8 @@ export default function VenueSettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // run once on mount
 
-  // Fetch venue for the current token, guarded by a module-level Set so remounts
-  // during impersonation do not refetch.
+  // Fetch venue for the current token. Cached per token so remounts during
+  // impersonation don't refetch /onboarding/me and don't get stuck on loading.
   useEffect(() => {
     const token = tokens?.access_token;
     if (!token) {
@@ -54,7 +54,6 @@ export default function VenueSettingsPage() {
       return;
     }
     // While an impersonation token is in the URL, skip fetching for the old token.
-    // After loginWithSignup swaps to the new token, that token will be fetched once.
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const impersonateToken = params.get("impersonate");
@@ -62,14 +61,21 @@ export default function VenueSettingsPage() {
         return;
       }
     }
-    if (fetchedVenueTokens.has(token)) {
+    const cached = venueCache.get(token);
+    if (cached) {
+      setVenue(cached);
+      setLoading(false);
       return;
     }
-    fetchedVenueTokens.add(token);
     let cancelled = false;
     setLoading(true);
     fetchMyVenue(token)
-      .then((v) => { if (!cancelled) setVenue(v); })
+      .then((v) => {
+        if (!cancelled) {
+          venueCache.set(token, v);
+          setVenue(v);
+        }
+      })
       .catch((err) => { if (!cancelled) toast.error(err.message || "Failed to load venue"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
