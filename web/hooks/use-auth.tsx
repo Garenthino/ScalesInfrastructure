@@ -54,7 +54,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const adminTokensRef = useRef<{ access_token: string; refresh_token: string } | null>(null);
   const [isImpersonating, setIsImpersonating] = useState(false);
 
-  const getAccessToken = useCallback(() => accessToken, [accessToken]);
+  const getAccessToken = useCallback(() => {
+    try {
+      const raw = localStorage.getItem(ACCESS_TOKEN_KEY);
+      if (!raw) return null;
+      if (raw.startsWith('"')) return JSON.parse(raw);
+      return raw;
+    } catch {
+      return null;
+    }
+  }, []);
 
   // Shared helper: fetch /auth/me once per token, deduping concurrent callers.
   const ensureUserForToken = useCallback(
