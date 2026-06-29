@@ -231,11 +231,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const stopImpersonating = () => {
     const admin = adminTokensRef.current;
-    console.log("[stopImpersonating] admin stashed=" + !!admin + " tail=" + (admin?.access_token?.slice(-12) || "none"));
     if (!admin) {
       // Nothing stashed; full logout as fallback.
       logout();
-      router.push("/admin");
+      window.location.href = "/auth/login";
       return;
     }
     setIsImpersonating(false);
@@ -246,10 +245,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       fetchingRef.current = null;
     }
     setUser(null);
-    console.log("[stopImpersonating] setting access=" + admin.access_token.slice(-12) + " refresh=" + admin.refresh_token.slice(-12));
     setAccessToken(admin.access_token);
     setRefreshToken(admin.refresh_token);
-    router.push("/admin");
+    // Use a full page navigation to /admin so the venue page (and its impersonation effect) is
+    // completely torn down and cannot race to re-impersonate during the route transition.
+    window.location.href = "/admin";
   };
 
   const tokens = accessToken ? { access_token: accessToken, refresh_token: refreshTokenValue || "" } : null;
