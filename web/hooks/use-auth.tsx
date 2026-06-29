@@ -224,6 +224,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setIsImpersonating(false);
     adminTokensRef.current = null;
+    // Force a fresh /auth/me fetch for the restored admin token; stale owner user must not persist.
+    fetchedTokens.delete(admin.access_token);
+    if (fetchingRef.current?.token === admin.access_token) {
+      fetchingRef.current = null;
+    }
+    setUser(null);
     setAccessToken(admin.access_token);
     setRefreshToken(admin.refresh_token);
     router.push("/admin");
