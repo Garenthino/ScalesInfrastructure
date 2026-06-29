@@ -234,7 +234,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!admin) {
       // Nothing stashed; full logout as fallback.
       logout();
-      window.location.href = "/auth/login";
+      router.push("/auth/login");
       return;
     }
     setIsImpersonating(false);
@@ -247,9 +247,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setAccessToken(admin.access_token);
     setRefreshToken(admin.refresh_token);
-    // Use a full page navigation to /admin so the venue page (and its impersonation effect) is
-    // completely torn down and cannot race to re-impersonate during the route transition.
-    window.location.href = "/admin";
+    // Soft navigation back to /admin; the venue page will remount but the module-level
+    // processedImpersonationTokens guard prevents re-impersonation.
+    router.push("/admin");
   };
 
   const tokens = accessToken ? { access_token: accessToken, refresh_token: refreshTokenValue || "" } : null;

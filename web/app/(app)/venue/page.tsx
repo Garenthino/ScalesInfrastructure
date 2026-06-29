@@ -17,6 +17,10 @@ import { toast } from "sonner";
 // during impersonation, so /onboarding/me is called once and the page finishes loading.
 const venueCache = new Map<string, Venue>();
 
+// Track impersonation tokens we have already processed so the venue page effect does
+// not re-swap to the owner token if the component remounts during stopImpersonating.
+const processedImpersonationTokens = new Set<string>();
+
 export default function VenueSettingsPage() {
   const { user, getAccessToken, tokens, loginWithSignup, stopImpersonating, isImpersonating } = useAuth();
   const router = useRouter();
@@ -25,7 +29,7 @@ export default function VenueSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // Admin impersonation: swap tokens from query param on load (run once)
+  // Admin impersonation: swap tokens from query param on load (run once per token)
   const impersonatedRef = useRef(false);
   useEffect(() => {
     if (impersonatedRef.current) return;
@@ -33,6 +37,9 @@ export default function VenueSettingsPage() {
     if (!impersonateToken) return;
     // If we already hold this token (e.g. remount after swap), nothing to do.
     if (tokens?.access_token === impersonateToken) return;
+    // Guard against remounts during stopImpersonating re-triggering the swap.
+    if (processedImpersonationTokens.has(impersonateToken)) return;
+    processedImpersonationTokens.add(impersonateToken);
     impersonatedRef.current = true;
     loginWithSignup({ access_token: impersonateToken, refresh_token: "" })
       .then(() => {
