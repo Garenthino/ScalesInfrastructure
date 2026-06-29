@@ -193,7 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAccessToken(data.access_token);
       setRefreshToken(data.refresh_token);
       await ensureUserForToken(data.access_token);
-      // Already on the venue page during impersonation; don't remount by navigating.
+      // During impersonation we already are on /venue; avoid a redundant navigation that remounts the page.
       if (typeof window === "undefined" || !window.location.pathname.startsWith("/venue")) {
         console.log("[loginWithSignup] redirecting to /venue");
         router.push("/venue");

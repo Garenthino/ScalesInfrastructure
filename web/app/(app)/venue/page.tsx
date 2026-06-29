@@ -60,7 +60,7 @@ export default function VenueSettingsPage() {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const impersonateToken = params.get("impersonate");
-      if (impersonateToken && token !== impersonateToken && !impersonatedRef.current) {
+      if (impersonateToken && token !== impersonateToken) {
         skipReason = "stale-admin";
       }
     }
