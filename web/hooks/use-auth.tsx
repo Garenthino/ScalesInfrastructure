@@ -21,8 +21,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const ACCESS_TOKEN_KEY="scales...oken";
-const REFRESH_TOKEN_KEY="scales...oken";
+const ACCESS_TOKEN_KEY = "scales_access_token";
+const REFRESH_TOKEN_KEY = "scales_refresh_token";
 
 // Process-wide token guard so /auth/me is never fetched more than once for the same token,
 // even across component remounts or Strict Mode double-effects.
