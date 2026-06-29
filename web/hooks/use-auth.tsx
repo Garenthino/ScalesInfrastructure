@@ -53,7 +53,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Shared helper: fetch /auth/me once per token, deduping concurrent callers.
   const ensureUserForToken = useCallback(
     async (token: string) => {
-      console.log("[ensureUserForToken] token=" + token.slice(-12) + " inFlight=" + fetchingRef.current?.token.slice(-12) + " seen=" + fetchedTokens.has(token));
       // If a fetch for this exact token is already in flight, share it.
       if (fetchingRef.current?.token === token) {
         return fetchingRef.current.promise;
@@ -66,7 +65,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       fetchedTokenRef.current = token;
       const promise = fetchMe(token)
         .then((u) => {
-          console.log("[ensureUserForToken] fetched user=" + u.email + " for token=" + token.slice(-12));
           setUser(u);
           return u;
         })
@@ -160,7 +158,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       fetchedTokenRef.current = null;
       return;
     }
-    console.log("[auth-effect] token=" + accessToken.slice(-12) + " user=" + user?.email + " loading=" + isLoading);
     setIsLoading(true);
     ensureUserForToken(accessToken)
       .catch(() => {
@@ -189,16 +186,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginWithSignup = async (data: { access_token: string; refresh_token: string }) => {
     setIsLoading(true);
     try {
-      console.log("[loginWithSignup] token=" + data.access_token.slice(-12) + " path=" + (typeof window !== "undefined" ? window.location.pathname : "ssr"));
       setAccessToken(data.access_token);
       setRefreshToken(data.refresh_token);
       await ensureUserForToken(data.access_token);
       // During impersonation we already are on /venue; avoid a redundant navigation that remounts the page.
       if (typeof window === "undefined" || !window.location.pathname.startsWith("/venue")) {
-        console.log("[loginWithSignup] redirecting to /venue");
         router.push("/venue");
-      } else {
-        console.log("[loginWithSignup] already on /venue, no redirect");
       }
     } catch (err) {
       throw err;

@@ -13,8 +13,8 @@ import { fetchMyVenue, updateVenue } from "@/lib/api";
 import { Venue } from "@/lib/types";
 import { toast } from "sonner";
 
-// Process-wide guard so /onboarding/me is not fetched more than once for the same token,
-// even if the venue page remounts during impersonation navigation.
+// Module-level guard: never call /onboarding/me more than once for the same
+// access token, even if the venue page remounts during impersonation.
 const fetchedVenueTokens = new Set<string>();
 
 export default function VenueSettingsPage() {
@@ -31,48 +31,41 @@ export default function VenueSettingsPage() {
     if (impersonatedRef.current) return;
     const impersonateToken = searchParams.get("impersonate");
     if (!impersonateToken) return;
-    console.log("[impersonation-effect] start token=" + impersonateToken.slice(-12));
+    // If we already hold this token (e.g. remount after swap), nothing to do.
+    if (tokens?.access_token === impersonateToken) return;
     impersonatedRef.current = true;
     loginWithSignup({ access_token: impersonateToken, refresh_token: "" })
       .then(() => {
-        console.log("[impersonation-effect] success");
         toast.success("Impersonating venue owner");
       })
       .catch((err) => {
-        console.error("[impersonation-effect] failed", err);
         toast.error(err?.message || "Impersonation failed");
         router.replace("/admin");
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // run once on mount
 
-  // Fetch venue for the current token, deduped per token.
-  const fetchingVenueTokenRef = useRef<string | null>(null);
+  // Fetch venue for the current token, guarded by a module-level Set so remounts
+  // during impersonation do not refetch.
   useEffect(() => {
     const token = tokens?.access_token;
     if (!token) {
       setLoading(false);
       return;
     }
-    // If an impersonation token is in the URL and we still hold the old token,
-    // wait for loginWithSignup to swap before fetching the venue.
-    let skipReason: string | null = null;
+    // While an impersonation token is in the URL, skip fetching for the old token.
+    // After loginWithSignup swaps to the new token, that token will be fetched once.
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const impersonateToken = params.get("impersonate");
       if (impersonateToken && token !== impersonateToken) {
-        skipReason = "stale-admin";
+        return;
       }
     }
-    const isDup = fetchingVenueTokenRef.current === token;
-    console.log("[venue-effect] token=" + token.slice(-12) + " skip=" + skipReason + " dup=" + isDup + " ref=" + fetchingVenueTokenRef.current?.slice(-12) + " impersonated=" + impersonatedRef.current);
-    if (skipReason) {
+    if (fetchedVenueTokens.has(token)) {
       return;
     }
-    if (isDup) {
-      return;
-    }
-    fetchingVenueTokenRef.current = token;
+    fetchedVenueTokens.add(token);
     let cancelled = false;
     setLoading(true);
     fetchMyVenue(token)
