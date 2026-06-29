@@ -32,14 +32,23 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
   fetchAdminVenues,
+  fetchAdminVenue,
   updateAdminVenueStatus,
+  deleteAdminVenue,
   provisionVenue,
   impersonateVenueOwner,
 } from "@/lib/api";
 import { AdminVenue, VenueProvisionPayload, VenueStatusUpdatePayload } from "@/lib/types";
 import { toast } from "sonner";
-import { Search, Plus, RefreshCw, Eye, UserCircle, Loader2 } from "lucide-react";
+import { Search, Plus, RefreshCw, Eye, UserCircle, Loader2, Trash2, AlertTriangle } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
   trialing: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
@@ -62,6 +71,8 @@ export default function AdminPage() {
   const [selected, setSelected] = useState<AdminVenue | null>(null);
   const [provisionOpen, setProvisionOpen] = useState(false);
   const [impersonating, setImpersonating] = useState(false);
+  const [venueToDelete, setVenueToDelete] = useState<AdminVenue | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const load = async (p = page) => {
     setLoading(true);
@@ -108,6 +119,23 @@ export default function AdminPage() {
       toast.success("Venue updated");
     } catch (err: any) {
       toast.error(err.message || "Update failed");
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!venueToDelete) return;
+    setIsDeleting(true);
+    try {
+      const token = getAccessToken() || undefined;
+      await deleteAdminVenue(venueToDelete.id, token);
+      setVenues((prev) => prev.filter((v) => v.id !== venueToDelete.id));
+      setTotal((t) => Math.max(0, t - 1));
+      toast.success(`Deleted ${venueToDelete.name}`);
+    } catch (err: any) {
+      toast.error(err.message || "Delete failed");
+    } finally {
+      setIsDeleting(false);
+      setVenueToDelete(null);
     }
   };
 
@@ -376,6 +404,15 @@ export default function AdminPage() {
                     >
                       <Eye className="h-4 w-4" />
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setVenueToDelete(venue)}
+                      title="Delete venue"
+                      className="text-destructive hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -420,6 +457,34 @@ export default function AdminPage() {
           onUpdate={handleStatusUpdate}
         />
       )}
+
+      <Dialog open={!!venueToDelete} onOpenChange={(open) => !open && setVenueToDelete(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              Delete venue?
+            </DialogTitle>
+            <DialogDescription>
+              This will soft-delete <strong>{venueToDelete?.name}</strong> ({venueToDelete?.slug}).
+              The venue and its data will be hidden from normal queries but remain in the database.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVenueToDelete(null)} disabled={isDeleting}>Cancel</Button>
+            <Button onClick={handleDelete} disabled={isDeleting} variant="destructive">
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

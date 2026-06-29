@@ -366,6 +366,26 @@ async def impersonate_venue_owner(
     }
 
 
+@router.delete("/venues/{venue_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_venue(
+    venue_id: str,
+    _: dict = Depends(require_platform_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft-delete a venue."""
+    venue = (
+        await db.execute(
+            select(Venue).where(Venue.id == venue_id, Venue.deleted_at.is_(None))
+        )
+    ).scalar_one_or_none()
+    if not venue:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Venue not found")
+    venue.deleted_at = _now_iso()
+    venue.updated_at = _now_iso()
+    await db.commit()
+    return None
+
+
 @router.post("/venues/provision", response_model=AdminVenueOut, status_code=status.HTTP_201_CREATED)
 async def provision_venue(
     body: AdminVenueProvisionRequest,

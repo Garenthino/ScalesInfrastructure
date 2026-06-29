@@ -651,6 +651,14 @@ export async function impersonateVenueOwner(venue_id: string, token?: string): P
   return res.json();
 }
 
+export async function deleteAdminVenue(venue_id: string, token?: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/admin/venues/${encodeURIComponent(venue_id)}`, {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error("Failed to delete venue");
+}
+
 export async function provisionVenue(payload: VenueProvisionPayload, token?: string): Promise<AdminVenue> {
   const res = await fetch(`${API_BASE}/admin/venues/provision`, {
     method: "POST",
