@@ -31,12 +31,15 @@ export default function VenueSettingsPage() {
     if (impersonatedRef.current) return;
     const impersonateToken = searchParams.get("impersonate");
     if (!impersonateToken) return;
+    console.log("[impersonation-effect] start token=" + impersonateToken.slice(-12));
     impersonatedRef.current = true;
     loginWithSignup({ access_token: impersonateToken, refresh_token: "" })
       .then(() => {
+        console.log("[impersonation-effect] success");
         toast.success("Impersonating venue owner");
       })
       .catch((err) => {
+        console.error("[impersonation-effect] failed", err);
         toast.error(err?.message || "Impersonation failed");
         router.replace("/admin");
       });
@@ -53,14 +56,20 @@ export default function VenueSettingsPage() {
     }
     // If an impersonation token is in the URL and we still hold the old token,
     // wait for loginWithSignup to swap before fetching the venue.
+    let skipReason: string | null = null;
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const impersonateToken = params.get("impersonate");
       if (impersonateToken && token !== impersonateToken && !impersonatedRef.current) {
-        return;
+        skipReason = "stale-admin";
       }
     }
-    if (fetchingVenueTokenRef.current === token) {
+    const isDup = fetchingVenueTokenRef.current === token;
+    console.log("[venue-effect] token=" + token.slice(-12) + " skip=" + skipReason + " dup=" + isDup + " ref=" + fetchingVenueTokenRef.current?.slice(-12) + " impersonated=" + impersonatedRef.current);
+    if (skipReason) {
+      return;
+    }
+    if (isDup) {
       return;
     }
     fetchingVenueTokenRef.current = token;
