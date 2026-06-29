@@ -57,10 +57,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const getAccessToken = useCallback(() => {
     try {
       const raw = localStorage.getItem(ACCESS_TOKEN_KEY);
+      console.log("[getAccessToken] raw key=" + ACCESS_TOKEN_KEY + " present=" + !!raw);
       if (!raw) return null;
-      if (raw.startsWith('"')) return JSON.parse(raw);
-      return raw;
-    } catch {
+      const token = raw.startsWith('"') ? JSON.parse(raw) : raw;
+      console.log("[getAccessToken] token tail=" + token.slice(-12));
+      return token;
+    } catch (e) {
+      console.error("[getAccessToken] error", e);
       return null;
     }
   }, []);
@@ -173,11 +176,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       fetchedTokenRef.current = null;
       return;
     }
+    console.log("[auth-effect] accessToken tail=" + accessToken.slice(-12) + " user=" + user?.email + " role=" + user?.role);
     setIsLoading(true);
     ensureUserForToken(accessToken)
-      .catch(() => {
-        // navigate handled inside helper
-      })
+      .then((u) => console.log("[auth-effect] fetched user=" + u.email + " role=" + u.role))
+      .catch((e) => console.error("[auth-effect] failed", e))
       .finally(() => {
         setIsLoading(false);
       });
@@ -203,11 +206,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       // If this is the first impersonation, stash the current admin tokens.
       if (!isImpersonating && accessToken && accessToken !== data.access_token) {
+        console.log("[loginWithSignup] stashing admin tail=" + accessToken.slice(-12) + " before swap to owner tail=" + data.access_token.slice(-12));
         adminTokensRef.current = {
           access_token: accessToken,
           refresh_token: refreshTokenValue || "",
         };
         setIsImpersonating(true);
+      } else {
+        console.log("[loginWithSignup] no stash: isImpersonating=" + isImpersonating + " access=" + accessToken?.slice(-12) + " data=" + data.access_token.slice(-12));
       }
       setAccessToken(data.access_token);
       setRefreshToken(data.refresh_token);
@@ -225,6 +231,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const stopImpersonating = () => {
     const admin = adminTokensRef.current;
+    console.log("[stopImpersonating] admin stashed=" + !!admin + " tail=" + (admin?.access_token?.slice(-12) || "none"));
     if (!admin) {
       // Nothing stashed; full logout as fallback.
       logout();
@@ -239,6 +246,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       fetchingRef.current = null;
     }
     setUser(null);
+    console.log("[stopImpersonating] setting access=" + admin.access_token.slice(-12) + " refresh=" + admin.refresh_token.slice(-12));
     setAccessToken(admin.access_token);
     setRefreshToken(admin.refresh_token);
     router.push("/admin");
