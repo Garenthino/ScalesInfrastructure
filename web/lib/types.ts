@@ -292,11 +292,65 @@ export interface VenueBilling {
 }
 
 export interface AdminVenue extends Venue {
+  admin_notes?: string | null;
   billing: VenueBilling;
   owner_email?: string | null;
   total_singers: number;
   total_kj_devices: number;
   queue_depth: number;
+}
+
+export interface AdminVenueDetail extends AdminVenue {
+  stats: {
+    queue_depth: number;
+    current_song: Record<string, unknown> | null;
+    total_songs: number;
+    total_singers: number;
+    active_singers: number;
+  };
+  settings: {
+    max_queue_depth: number;
+    require_approval: boolean;
+    allow_duplicates: boolean;
+    rotation_mode: "fifo" | "weighted" | "vip_priority";
+  } | null;
+  operating_hours: {
+    timezone: string;
+    schedule: Record<string, unknown>[];
+  } | null;
+  deleted_at?: string | null;
+}
+
+export interface AdminDashboard {
+  total_venues: number;
+  active_venues: number;
+  trialing_venues: number;
+  past_due_venues: number;
+  total_singers: number;
+  total_kj_devices: number;
+  queue_depth: number;
+  by_tier: Record<string, number>;
+}
+
+export interface AdminAuditLog {
+  id: string;
+  admin_email: string;
+  action: string;
+  venue_id?: string | null;
+  venue_name?: string | null;
+  details_json?: string | null;
+  created_at: string;
+}
+
+export interface VenueStatusUpdatePayload {
+  is_active?: boolean | null;
+  subscription_tier?: string | null;
+  subscription_status?: string | null;
+  billing_status?: string | null;
+  plan_expires_at?: string | null;
+  trial_ends_at?: string | null;
+  sales_rep_email?: string | null;
+  admin_notes?: string | null;
 }
 
 export interface VenueSignupPayload {
@@ -327,16 +381,6 @@ export interface VenueProvisionPayload {
   timezone?: string;
   subscription_tier?: string;
   sales_rep_email?: string;
-}
-
-export interface VenueStatusUpdatePayload {
-  is_active?: boolean | null;
-  subscription_tier?: string | null;
-  subscription_status?: string | null;
-  billing_status?: string | null;
-  plan_expires_at?: string | null;
-  trial_ends_at?: string | null;
-  sales_rep_email?: string | null;
 }
 
 export interface PaginatedResponse<T> {

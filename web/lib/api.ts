@@ -25,6 +25,9 @@ import {
   VenueProvisionPayload,
   VenueStatusUpdatePayload,
   AdminVenue,
+  AdminVenueDetail,
+  AdminDashboard,
+  AdminAuditLog,
   PaginatedResponse,
 } from "@/lib/types";
 
@@ -622,9 +625,29 @@ export async function fetchAdminVenues(
   return res.json();
 }
 
-export async function fetchAdminVenue(venue_id: string, token?: string): Promise<AdminVenue> {
+export async function fetchAdminVenue(venue_id: string, token?: string): Promise<AdminVenueDetail> {
   const res = await fetch(`${API_BASE}/admin/venues/${encodeURIComponent(venue_id)}`, { headers: authHeaders(token) });
   if (!res.ok) throw new Error("Failed to fetch venue");
+  return res.json();
+}
+
+export async function fetchAdminDashboard(token?: string): Promise<AdminDashboard> {
+  const res = await fetch(`${API_BASE}/admin/dashboard`, { headers: authHeaders(token) });
+  if (!res.ok) throw new Error("Failed to fetch dashboard");
+  return res.json();
+}
+
+export async function fetchAdminAuditLogs(
+  params?: { page?: number; per_page?: number; venue_id?: string; action?: string },
+  token?: string
+): Promise<PaginatedResponse<AdminAuditLog>> {
+  const qs = new URLSearchParams();
+  if (params?.page !== undefined) qs.set("page", String(params.page));
+  if (params?.per_page !== undefined) qs.set("per_page", String(params.per_page));
+  if (params?.venue_id) qs.set("venue_id", params.venue_id);
+  if (params?.action) qs.set("action", params.action);
+  const res = await fetch(`${API_BASE}/admin/audit-logs?${qs.toString()}`, { headers: authHeaders(token) });
+  if (!res.ok) throw new Error("Failed to fetch admin audit logs");
   return res.json();
 }
 
