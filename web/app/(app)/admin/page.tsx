@@ -36,18 +36,16 @@ import {
   SheetContent,
   SheetDescription,
   SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
-  fetchAdminVenues,
-  fetchAdminVenue,
-  fetchAdminDashboard,
-  updateAdminVenueStatus,
-  deleteAdminVenue,
-  provisionVenue,
-  impersonateVenueOwner,
-  fetchAdminAuditLogs,
-} from "@/lib/api";
+  } from "@/components/ui/sheet";
+  import {
+    fetchAdminVenues,
+    fetchAdminVenue,
+    fetchAdminDashboard,
+    updateAdminVenueStatus,
+    deleteAdminVenue,
+    provisionVenue,
+    impersonateVenueOwner,
+  } from "@/lib/api";
 import {
   AdminVenue,
   AdminVenueDetail,
@@ -439,7 +437,7 @@ export default function AdminPage() {
                     Object.entries(dashboard.by_tier).map(([tier, count]) => (
                       <div key={tier} className="flex justify-between">
                         <span className="capitalize text-muted-foreground">{tier}</span>
-                        <span className="font-medium">{count as number}</span>
+                        <span className="font-medium">{Number(count)}</span>
                       </div>
                     ))
                   ) : (
