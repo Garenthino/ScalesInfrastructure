@@ -36,16 +36,18 @@ import {
   SheetContent,
   SheetDescription,
   SheetHeader,
-  } from "@/components/ui/sheet";
-  import {
-    fetchAdminVenues,
-    fetchAdminVenue,
-    fetchAdminDashboard,
-    updateAdminVenueStatus,
-    deleteAdminVenue,
-    provisionVenue,
-    impersonateVenueOwner,
-  } from "@/lib/api";
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  fetchAdminVenues,
+  fetchAdminVenue,
+  fetchAdminDashboard,
+  fetchAdminAuditLogs,
+  updateAdminVenueStatus,
+  deleteAdminVenue,
+  provisionVenue,
+  impersonateVenueOwner,
+} from "@/lib/api";
 import {
   AdminVenue,
   AdminVenueDetail,

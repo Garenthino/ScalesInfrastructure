@@ -169,6 +169,7 @@ class VenueBillingOut(ScalesModel):
 
 
 class AdminVenueOut(VenueOut):
+    admin_notes: str | None = None
     billing: VenueBillingOut
     owner_email: str | None = None
     total_singers: int = 0
@@ -183,6 +184,7 @@ class AdminVenueListItem(ScalesModel):
     venue_code: str
     timezone: str
     is_active: bool
+    admin_notes: str | None = None
     billing: VenueBillingOut
     owner_email: str | None = None
     total_singers: int = 0
@@ -199,6 +201,7 @@ class AdminVenueStatusUpdate(ScalesModel):
     plan_expires_at: str | None = None
     trial_ends_at: str | None = None
     sales_rep_email: EmailStr | None = None
+    admin_notes: str | None = Field(None, max_length=5000)
 
 
 class AdminVenueProvisionRequest(ScalesModel):
@@ -210,6 +213,27 @@ class AdminVenueProvisionRequest(ScalesModel):
     timezone: str = Field(default="UTC", max_length=50)
     subscription_tier: str = Field(default="basic")
     sales_rep_email: EmailStr | None = None
+
+
+class AdminDashboardOut(ScalesModel):
+    total_venues: int = 0
+    active_venues: int = 0
+    trialing_venues: int = 0
+    past_due_venues: int = 0
+    total_singers: int = 0
+    total_kj_devices: int = 0
+    queue_depth: int = 0
+    by_tier: dict[str, int] = Field(default_factory=dict)
+
+
+class AdminAuditLogOut(ScalesModel):
+    id: str
+    admin_email: str
+    action: str
+    venue_id: str | None = None
+    venue_name: str | None = None
+    details_json: str | None = None
+    created_at: str
 
 
 # ---------------------------------------------------------------------------

@@ -83,6 +83,7 @@ class Venue(Base):
     signup_source = Column(Text, default="self_serve")
     sales_rep_email = Column(Text)
     plan_features_json = Column(Text)
+    admin_notes = Column(Text)
 
     created_at = Column(Text, default=_now_iso)
     updated_at = Column(Text, default=_now_iso, onupdate=_now_iso)
@@ -607,6 +608,24 @@ class AuditLog(Base):
         Index("ix_audit_logs_user", "user_id", "created_at"),
         Index("ix_audit_logs_venue", "venue_id", "created_at"),
         Index("ix_audit_logs_action", "action", "created_at"),
+    )
+
+
+class AdminAuditLog(Base):
+    __tablename__ = "admin_audit_logs"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    admin_email = Column(Text, nullable=False)
+    action = Column(Text, nullable=False)
+    venue_id = Column(String(36), ForeignKey("venues.id"), nullable=True)
+    venue_name = Column(Text, nullable=True)
+    details_json = Column(Text)
+    created_at = Column(Text, default=_now_iso)
+
+    __table_args__ = (
+        Index("ix_admin_audit_logs_venue", "venue_id", "created_at"),
+        Index("ix_admin_audit_logs_action", "action", "created_at"),
+        Index("ix_admin_audit_logs_admin", "admin_email", "created_at"),
     )
 
 

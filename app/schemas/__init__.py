@@ -26,6 +26,8 @@ from app.schemas.dto import (
     AdminVenueListItem,
     AdminVenueStatusUpdate,
     AdminVenueProvisionRequest,
+    AdminDashboardOut,
+    AdminAuditLogOut,
     # Songs
     SongBase,
     SongCreate,
