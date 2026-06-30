@@ -298,6 +298,7 @@ export interface AdminVenue extends Venue {
   total_singers: number;
   total_kj_devices: number;
   queue_depth: number;
+  deleted_at?: string | null;
 }
 
 export interface AdminVenueDetail extends AdminVenue {

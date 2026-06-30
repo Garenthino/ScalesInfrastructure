@@ -611,7 +611,7 @@ export async function updateVenue(venue_id: string, payload: Partial<Venue>, tok
 }
 
 export async function fetchAdminVenues(
-  params?: { page?: number; per_page?: number; search?: string; status?: string; tier?: string },
+  params?: { page?: number; per_page?: number; search?: string; status?: string; tier?: string; deleted?: boolean },
   token?: string
 ): Promise<PaginatedResponse<AdminVenue>> {
   const qs = new URLSearchParams();
@@ -620,13 +620,15 @@ export async function fetchAdminVenues(
   if (params?.search) qs.set("search", params.search);
   if (params?.status) qs.set("status", params.status);
   if (params?.tier) qs.set("tier", params.tier);
+  if (params?.deleted) qs.set("deleted", "true");
   const res = await fetch(`${API_BASE}/admin/venues?${qs.toString()}`, { headers: authHeaders(token) });
   if (!res.ok) throw new Error("Failed to fetch venues");
   return res.json();
 }
 
-export async function fetchAdminVenue(venue_id: string, token?: string): Promise<AdminVenueDetail> {
-  const res = await fetch(`${API_BASE}/admin/venues/${encodeURIComponent(venue_id)}`, { headers: authHeaders(token) });
+export async function fetchAdminVenue(venue_id: string, includeDeleted: boolean = false, token?: string): Promise<AdminVenueDetail> {
+  const qs = includeDeleted ? "?include_deleted=true" : "";
+  const res = await fetch(`${API_BASE}/admin/venues/${encodeURIComponent(venue_id)}${qs}`, { headers: authHeaders(token) });
   if (!res.ok) throw new Error("Failed to fetch venue");
   return res.json();
 }
@@ -680,6 +682,28 @@ export async function deleteAdminVenue(venue_id: string, token?: string): Promis
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error("Failed to delete venue");
+}
+
+export async function purgeAdminVenue(venue_id: string, token?: string): Promise<{ action: "hard_delete" | "anonymize"; venue_id: string; performed_at: string; anonymized_singer_count?: number | null }> {
+  const res = await fetch(`${API_BASE}/admin/venues/${encodeURIComponent(venue_id)}/purge`, {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Purge failed" }));
+    throw new Error(err.detail || "Purge failed");
+  }
+  return res.json();
+}
+
+export async function restoreAdminVenue(venue_id: string, payload?: { is_active?: boolean; admin_notes?: string | null }, token?: string): Promise<AdminVenue> {
+  const res = await fetch(`${API_BASE}/admin/venues/${encodeURIComponent(venue_id)}/restore`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify(payload ?? {}),
+  });
+  if (!res.ok) throw new Error("Failed to restore venue");
+  return res.json();
 }
 
 export async function provisionVenue(payload: VenueProvisionPayload, token?: string): Promise<AdminVenue> {

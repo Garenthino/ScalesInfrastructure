@@ -37,8 +37,12 @@ async def lifespan(app: FastAPI):
     configure_logging()
     from app.core.notification_service import register_tasks
     register_tasks()
-    yield
-    await engine.dispose()
+    from app.services.retention import schedule_nightly_retention
+    retention_thread = schedule_nightly_retention()
+    try:
+        yield
+    finally:
+        await engine.dispose()
 
 
 app = FastAPI(

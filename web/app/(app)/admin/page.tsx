@@ -45,6 +45,8 @@ import {
   fetchAdminAuditLogs,
   updateAdminVenueStatus,
   deleteAdminVenue,
+  purgeAdminVenue,
+  restoreAdminVenue,
   provisionVenue,
   impersonateVenueOwner,
 } from "@/lib/api";
@@ -81,6 +83,8 @@ const ACTION_LABELS: Record<string, string> = {
   "venue.status.update": "Status Update",
   "venue.impersonate": "Impersonate Owner",
   "venue.delete": "Delete Venue",
+  "venue.purge": "Purge Venue",
+  "venue.restore": "Restore Venue",
   "venue.provision": "Provision Venue",
 };
 
@@ -102,15 +106,19 @@ export default function AdminPage() {
   const [impersonating, setImpersonating] = useState(false);
   const [venueToDelete, setVenueToDelete] = useState<AdminVenue | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [venueToPurge, setVenueToPurge] = useState<AdminVenue | null>(null);
+  const [isPurging, setIsPurging] = useState(false);
+  const [venueToRestore, setVenueToRestore] = useState<AdminVenue | null>(null);
+  const [isRestoring, setIsRestoring] = useState(false);
   const [dashboard, setDashboard] = useState<AdminDashboard | null>(null);
-  const [activeTab, setActiveTab] = useState<"venues" | "audit">("venues");
+  const [activeTab, setActiveTab] = useState<"venues" | "audit" | "deleted">("venues");
   const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>([]);
   const [auditTotal, setAuditTotal] = useState(0);
   const [auditPage, setAuditPage] = useState(1);
   const [auditPerPage] = useState(20);
   const [auditLoading, setAuditLoading] = useState(false);
 
-  const load = async (p = page) => {
+  const load = async (p = page, tab = activeTab) => {
     setLoading(true);
     try {
       const token = getAccessToken() || undefined;
@@ -123,6 +131,7 @@ export default function AdminPage() {
             search: search || undefined,
             status: statusFilter === "all" ? undefined : statusFilter,
             tier: tierFilter === "all" ? undefined : tierFilter,
+            deleted: tab === "deleted",
           },
           token
         ),
@@ -165,7 +174,7 @@ export default function AdminPage() {
 
   const handlePage = (p: number) => {
     setPage(p);
-    load(p);
+    load(p, activeTab);
   };
 
   const handleAuditPage = (p: number) => {
@@ -194,7 +203,7 @@ export default function AdminPage() {
     setDetailLoading(true);
     try {
       const token = getAccessToken() || undefined;
-      const full = await fetchAdminVenue(venue.id, token);
+      const full = await fetchAdminVenue(venue.id, venue.deleted_at != null, token);
       setDetail(full);
     } catch (err: any) {
       toast.error(err.message || "Failed to load venue details");
@@ -217,6 +226,41 @@ export default function AdminPage() {
     } finally {
       setIsDeleting(false);
       setVenueToDelete(null);
+    }
+  };
+
+  const handlePurge = async () => {
+    if (!venueToPurge) return;
+    setIsPurging(true);
+    try {
+      const token = getAccessToken() || undefined;
+      const res = await purgeAdminVenue(venueToPurge.id, token);
+      setVenues((prev) => prev.filter((v) => v.id !== venueToPurge.id));
+      setTotal((t) => Math.max(0, t - 1));
+      const actionLabel = res.action === "hard_delete" ? "Purged" : "Anonymized";
+      toast.success(`${actionLabel} ${venueToPurge.name}`);
+    } catch (err: any) {
+      toast.error(err.message || "Purge failed");
+    } finally {
+      setIsPurging(false);
+      setVenueToPurge(null);
+    }
+  };
+
+  const handleRestore = async () => {
+    if (!venueToRestore) return;
+    setIsRestoring(true);
+    try {
+      const token = getAccessToken() || undefined;
+      await restoreAdminVenue(venueToRestore.id, { is_active: true }, token);
+      setVenues((prev) => prev.filter((v) => v.id !== venueToRestore.id));
+      setTotal((t) => Math.max(0, t - 1));
+      toast.success(`Restored ${venueToRestore.name}`);
+    } catch (err: any) {
+      toast.error(err.message || "Restore failed");
+    } finally {
+      setIsRestoring(false);
+      setVenueToRestore(null);
     }
   };
 
@@ -290,6 +334,12 @@ export default function AdminPage() {
               onClick={() => setActiveTab("venues")}
             >
               Venues
+            </button>
+            <button
+              className={`inline-flex items-center justify-center rounded-md px-3 py-1 text-sm font-medium transition-all ${activeTab === "deleted" ? "bg-background text-foreground shadow" : ""}`}
+              onClick={() => setActiveTab("deleted")}
+            >
+              Deleted
             </button>
             <button
               className={`inline-flex items-center justify-center rounded-md px-3 py-1 text-sm font-medium transition-all ${activeTab === "audit" ? "bg-background text-foreground shadow" : ""}`}
@@ -366,89 +416,91 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {activeTab === "venues" ? (
-        <>
-          <div className="grid gap-4 md:grid-cols-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Total Venues</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{dashboard?.total_venues ?? total}</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Active</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{dashboard?.active_venues ?? venues.filter((v) => v.is_active).length}</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Trialing</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {dashboard?.trialing_venues ?? venues.filter((v) => v.billing.subscription_status === "trialing").length}
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Past Due</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {dashboard?.past_due_venues ?? venues.filter((v) => v.billing.subscription_status === "past_due").length}
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Total Singers</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{dashboard?.total_singers ?? "—"}</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Total KJ Devices</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{dashboard?.total_kj_devices ?? "—"}</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Queue Depth</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{dashboard?.queue_depth ?? "—"}</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">By Tier</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-sm space-y-1">
-                  {dashboard?.by_tier && Object.keys(dashboard.by_tier).length > 0 ? (
-                    Object.entries(dashboard.by_tier).map(([tier, count]) => (
-                      <div key={tier} className="flex justify-between">
-                        <span className="capitalize text-muted-foreground">{tier}</span>
-                        <span className="font-medium">{Number(count)}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+      {activeTab === "venues" || activeTab === "deleted" ? (
+        <div className="space-y-6">
+          {activeTab === "venues" && (
+            <div className="grid gap-4 md:grid-cols-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Total Venues</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{dashboard?.total_venues ?? total}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Active</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{dashboard?.active_venues ?? venues.filter((v) => v.is_active).length}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Trialing</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {dashboard?.trialing_venues ?? venues.filter((v) => v.billing.subscription_status === "trialing").length}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Past Due</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">
+                    {dashboard?.past_due_venues ?? venues.filter((v) => v.billing.subscription_status === "past_due").length}
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Total Singers</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{dashboard?.total_singers ?? "—"}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Total KJ Devices</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{dashboard?.total_kj_devices ?? "—"}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">Queue Depth</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{dashboard?.queue_depth ?? "—"}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">By Tier</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-sm space-y-1">
+                    {dashboard?.by_tier && Object.keys(dashboard.by_tier).length > 0 ? (
+                      Object.entries(dashboard.by_tier).map(([tier, count]) => (
+                        <div key={tier} className="flex justify-between">
+                          <span className="capitalize text-muted-foreground">{tier}</span>
+                          <span className="font-medium">{Number(count)}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
           <div className="flex flex-col gap-4 md:flex-row">
             <div className="relative flex-1">
@@ -484,7 +536,7 @@ export default function AdminPage() {
                 <SelectItem value="enterprise">Enterprise</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" onClick={() => load(page)} disabled={loading}>
+            <Button variant="outline" onClick={() => load(page, activeTab)} disabled={loading}>
               <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
@@ -534,47 +586,72 @@ export default function AdminPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleImpersonate(venue.id)}
-                          disabled={impersonating}
-                          title="Impersonate owner"
-                        >
-                          {impersonating ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <UserCircle className="h-4 w-4" />
-                          )}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleViewDetail(venue)}
-                          title="View details"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setSelected(venue)}
-                          title="Edit status"
-                        >
-                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M12 20h9" />
-                            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                          </svg>
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setVenueToDelete(venue)}
-                          title="Delete venue"
-                          className="text-destructive hover:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {activeTab === "deleted" ? (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setVenueToRestore(venue)}
+                              title="Restore venue"
+                            >
+                              <RefreshCw className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setVenueToPurge(venue)}
+                              title="Purge venue"
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleImpersonate(venue.id)}
+                              disabled={impersonating}
+                              title="Impersonate owner"
+                            >
+                              {impersonating ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <UserCircle className="h-4 w-4" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleViewDetail(venue)}
+                              title="View details"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setSelected(venue)}
+                              title="Edit status"
+                            >
+                              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M12 20h9" />
+                                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                              </svg>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setVenueToDelete(venue)}
+                              title="Delete venue"
+                              className="text-destructive hover:text-destructive"
+                              disabled={!!venue.deleted_at}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -611,9 +688,9 @@ export default function AdminPage() {
               </Button>
             </div>
           )}
-        </>
+        </div>
       ) : (
-        <>
+        <div className="space-y-6">
           <div className="flex items-center justify-between">
             <p className="text-muted-foreground">Recent admin actions across venues.</p>
             <Button variant="outline" onClick={() => loadAudit(auditPage)} disabled={auditLoading}>
@@ -690,7 +767,7 @@ export default function AdminPage() {
               </Button>
             </div>
           )}
-        </>
+        </div>
       )}
 
       {selected && (
@@ -849,6 +926,60 @@ export default function AdminPage() {
                 </>
               ) : (
                 "Delete"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!venueToPurge} onOpenChange={(open) => !open && setVenueToPurge(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              Permanently purge venue?
+            </DialogTitle>
+            <DialogDescription>
+              This will either hard-delete <strong>{venueToPurge?.name}</strong> or anonymize it
+              if it has billing history. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVenueToPurge(null)} disabled={isPurging}>Cancel</Button>
+            <Button onClick={handlePurge} disabled={isPurging} variant="destructive">
+              {isPurging ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Purging...
+                </>
+              ) : (
+                "Purge Now"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!venueToRestore} onOpenChange={(open) => !open && setVenueToRestore(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              Restore venue?
+            </DialogTitle>
+            <DialogDescription>
+              Restore <strong>{venueToRestore?.name}</strong> ({venueToRestore?.slug}).
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVenueToRestore(null)} disabled={isRestoring}>Cancel</Button>
+            <Button onClick={handleRestore} disabled={isRestoring}>
+              {isRestoring ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Restoring...
+                </>
+              ) : (
+                "Restore"
               )}
             </Button>
           </DialogFooter>

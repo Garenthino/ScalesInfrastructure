@@ -34,6 +34,8 @@ from app.schemas import (
     AdminVenueListItem,
     AdminVenueStatusUpdate,
     AdminVenueProvisionRequest,
+    AdminVenuePurgeResult,
+    AdminVenueRestore,
     AdminAuditLogOut,
     AdminDashboardOut,
     VenueBillingOut,
@@ -42,6 +44,9 @@ from app.schemas import (
     VenueContact,
     VenueBranding,
 )
+
+from app.services.venue_purge import purge_venue, venue_has_billing_history
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -311,10 +316,15 @@ async def list_venues(
     search: str | None = Query(None, max_length=100),
     status: str | None = Query(None),
     tier: str | None = Query(None),
+    deleted: bool = Query(False),
 ):
-    """List all venues with aggregate stats. Platform admin only."""
+    """List venues. Pass deleted=true to see soft-deleted venues."""
 
-    filters = [Venue.deleted_at.is_(None)]
+    filters: list[Any] = []
+    if deleted:
+        filters.append(Venue.deleted_at.isnot(None))
+    else:
+        filters.append(Venue.deleted_at.is_(None))
     if search:
         like = f"%{search}%"
         filters.append(
@@ -379,11 +389,16 @@ async def get_venue(
     venue_id: str,
     _: dict = Depends(require_platform_admin),
     db: AsyncSession = Depends(get_db),
+    include_deleted: bool = Query(False),
 ):
-    """Get full venue details including billing and stats."""
+    """Get full venue details including billing and stats.
+    Pass include_deleted=true to inspect a soft-deleted venue."""
+    venue_filters = [Venue.id == venue_id]
+    if not include_deleted:
+        venue_filters.append(Venue.deleted_at.is_(None))
     venue = (
         await db.execute(
-            select(Venue).where(Venue.id == venue_id, Venue.deleted_at.is_(None))
+            select(Venue).where(*venue_filters)
         )
     ).scalar_one_or_none()
     if not venue:
@@ -527,6 +542,95 @@ async def delete_venue(
     ))
     await db.commit()
     return None
+
+
+@router.delete("/venues/{venue_id}/purge", response_model=AdminVenuePurgeResult)
+async def purge_venue_endpoint(
+    venue_id: str,
+    admin: dict = Depends(require_platform_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Purge a soft-deleted venue.
+
+    - If the venue has no billing history, hard-delete all related data.
+    - If billing history exists, anonymize personal data while keeping
+      financial records for compliance/payout calculations.
+    """
+    venue = (
+        await db.execute(
+            select(Venue).where(Venue.id == venue_id)
+        )
+    ).scalar_one_or_none()
+    if not venue:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Venue not found")
+    if venue.deleted_at is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Venue must be soft-deleted before it can be purged",
+        )
+
+    has_billing = await venue_has_billing_history(db, venue_id)
+    result = await purge_venue(db, venue_id)
+
+    db.add(_log_entry(
+        admin,
+        action="venue.purge",
+        venue_id=venue_id,
+        venue_name=venue.name if not has_billing else "Anonymized Venue",
+        details={
+            "action": result["action"],
+            "had_billing_history": has_billing,
+            "anonymized_singer_count": result.get("anonymized_singer_count"),
+        },
+    ))
+    await db.commit()
+
+    return AdminVenuePurgeResult(
+        action=result["action"],  # type: ignore[arg-type]
+        venue_id=venue_id,
+        performed_at=_now_iso(),
+        anonymized_singer_count=result.get("anonymized_singer_count"),
+    )
+
+
+@router.post("/venues/{venue_id}/restore", response_model=AdminVenueOut)
+async def restore_venue(
+    venue_id: str,
+    body: AdminVenueRestore | None = None,
+    admin: dict = Depends(require_platform_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Restore a soft-deleted venue."""
+    venue = (
+        await db.execute(
+            select(Venue).where(Venue.id == venue_id, Venue.deleted_at.isnot(None))
+        )
+    ).scalar_one_or_none()
+    if not venue:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Deleted venue not found")
+
+    venue.deleted_at = None
+    if body is not None:
+        if body.is_active is not None:
+            venue.is_active = 1 if body.is_active else 0
+        if body.admin_notes is not None:
+            venue.admin_notes = body.admin_notes
+    venue.updated_at = _now_iso()
+    await db.commit()
+    await db.refresh(venue)
+
+    db.add(_log_entry(
+        admin,
+        action="venue.restore",
+        venue_id=venue.id,
+        venue_name=venue.name,
+        details={"is_active": bool(venue.is_active)},
+    ))
+    await db.commit()
+
+    stats = await _get_venue_stats(db, venue_id)
+    owner_email = await _get_owner_email(db, venue_id)
+    return _admin_venue_out(venue, stats, owner_email)
 
 
 @router.post("/venues/provision", response_model=AdminVenueOut, status_code=status.HTTP_201_CREATED)

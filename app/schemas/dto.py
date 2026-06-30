@@ -226,6 +226,18 @@ class AdminDashboardOut(ScalesModel):
     by_tier: dict[str, int] = Field(default_factory=dict)
 
 
+class AdminVenuePurgeResult(ScalesModel):
+    action: Literal["hard_delete", "anonymize"]
+    venue_id: str
+    performed_at: str
+    anonymized_singer_count: int | None = None
+
+
+class AdminVenueRestore(ScalesModel):
+    is_active: bool = True
+    admin_notes: str | None = None
+
+
 class AdminAuditLogOut(ScalesModel):
     id: str
     admin_email: str

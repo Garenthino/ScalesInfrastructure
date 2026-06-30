@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     STRIPE_TEST_SECRET_KEY: str | None = None
     STRIPE_WEBHOOK_SECRET: str | None = None
 
+    # Data retention / compliance
+    PURGE_RETENTION_DAYS: int = 30
+
     # Error tracking (optional — set SENTRY_DSN env var to enable)
     SENTRY_DSN: str | None = None
 
