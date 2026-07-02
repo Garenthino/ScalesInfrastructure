@@ -1,0 +1,21 @@
+{
+  "qa_task": "t_6373c0ca",
+  "commit": "ff074f0",
+  "build_api_image": "sha256:e8ac074523e6",
+  "build_web_image": "sha256:5f7fa80b624c",
+  "test_date": "2026-07-02T22:15:00Z",
+  "admin_email": "admin@dancingdragonservices.com",
+  "results": {
+    "admin_login": "PASS (200)",
+    "admin_notes_update": "PASS (via /admin/venues/{id}/status endpoint)",
+    "venue_status_update": "PASS (200, subscription_status=active, billing_status=active)",
+    "soft_delete_venue": "PASS (204)",
+    "restore_venue": "PASS (200)",
+    "impersonate_owner": "PASS (200, /onboarding/me returns venue as owner)",
+    "audit_logs": "PASS (4 entries recorded: venue.delete, venue.status.update x3)"
+  },
+  "caveats": [
+    "Browser CDP endpoint was stale in qa worker process, so verified via authenticated curl instead of browser UI.",
+    "Admin notes are updated through /admin/venues/{id}/status; there is no dedicated /admin/venues/{id}/notes endpoint."
+  ]
+}

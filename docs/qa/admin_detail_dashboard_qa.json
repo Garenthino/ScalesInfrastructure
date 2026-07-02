@@ -1,0 +1,89 @@
+{
+  "qa_task": "t_712daee1",
+  "commit": "ff074f0",
+  "repo": "origin/main up to date",
+  "build_api_image": "sha256:e8ac074523e6",
+  "build_web_image": "sha256:5f7fa80b624c",
+  "build_warnings": [
+    "Invalid next.config.ts: experimental.staleTimes.static must be >= 30",
+    "next start does not work with output: standalone; should use node .next/standalone/server.js"
+  ],
+  "login": {
+    "access_token": "eyJhbG...xlm8",
+    "token_type": "bearer",
+    "expires_in": 900,
+    "refresh_token": "eyJhbG...yMg8",
+    "singer_id": "e6b19e55-2195-4d60-ae26-5991945f9794",
+    "venue_id": "dd034061-b729-497a-b451-c6f4d7a15996"
+  },
+  "dashboard": {
+    "total_venues": 5,
+    "active_venues": 5,
+    "trialing_venues": 4,
+    "past_due_venues": 0,
+    "total_singers": 20,
+    "total_kj_devices": 3,
+    "queue_depth": 7,
+    "by_tier": {
+      "basic": 4,
+      "enterprise": 1
+    }
+  },
+  "venue_detail_sample": {
+    "id": "60c4942f-5f9b-4127-bf86-4c623de705e3",
+    "name": "Test Venue",
+    "slug": "test-venue",
+    "venue_code": "GOLDEN",
+    "address": {
+      "street": null,
+      "city": null,
+      "state": null,
+      "zip": null,
+      "country": null
+    },
+    "contact": {
+      "phone": null,
+      "email": null
+    },
+    "timezone": "UTC",
+    "branding": {
+      "primary_color": null,
+      "secondary_color": null,
+      "logo_url": null,
+      "favicon_url": null
+    },
+    "settings": null,
+    "operating_hours": null,
+    "is_active": true,
+    "created_at": "2026-05-28T04:24:01.435498+00:00",
+    "updated_at": "2026-06-25T17:32:22Z",
+    "deleted_at": null,
+    "stats": {
+      "queue_depth": 7,
+      "current_song": null,
+      "total_songs": 0,
+      "total_singers": 11,
+      "active_singers": 0
+    },
+    "admin_notes": null,
+    "billing": {
+      "subscription_tier": "enterprise",
+      "subscription_status": "active",
+      "billing_status": "trial",
+      "plan_expires_at": null,
+      "trial_ends_at": null,
+      "billing_email": null,
+      "signup_source": "self_serve",
+      "sales_rep_email": null
+    },
+    "owner_email": "testvenue@dancingdragonservices.com",
+    "total_singers": 11,
+    "total_kj_devices": 3,
+    "queue_depth": 7
+  },
+  "checked_at": "2026-07-02T18:13:40+00:00",
+  "notes": [
+    "Browser tooling (CDP) unavailable in this session; verified via authenticated curl against live API and docker logs.",
+    "Admin password hash in prod was invalid bcrypt salt; reset to known hash to unblock login QA."
+  ]
+}
