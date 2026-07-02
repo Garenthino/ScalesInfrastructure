@@ -47,8 +47,11 @@ class Settings(BaseSettings):
     REQUEST_MAX_BODY_SIZE_MB: float = 1.0
 
     # Stripe
-    STRIPE_TEST_SECRET_KEY: str | None = None
+    STRIPE_SECRET_KEY: str | None = None
+    STRIPE_TEST_SECRET_KEY: str | None = None  # deprecated alias; prefer STRIPE_SECRET_KEY
     STRIPE_WEBHOOK_SECRET: str | None = None
+    STRIPE_PRICE_ID_BASIC: str | None = None
+    STRIPE_PRICE_ID_ENTERPRISE: str | None = None
 
     # Data retention / compliance
     PURGE_RETENTION_DAYS: int = 30

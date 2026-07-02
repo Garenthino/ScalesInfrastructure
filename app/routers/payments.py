@@ -66,7 +66,9 @@ def _get_stripe():
     global _stripe_client
     if _stripe_client is None:
         import stripe
-        stripe.api_key = settings.STRIPE_TEST_SECRET_KEY or "sk_test_"
+        stripe.api_key = (
+            settings.STRIPE_SECRET_KEY or settings.STRIPE_TEST_SECRET_KEY or "sk_test_"
+        )
         _stripe_client = stripe
     return _stripe_client
 
@@ -355,7 +357,11 @@ async def stripe_webhook(
     stripe_signature: str | None = Header(None, alias="Stripe-Signature"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Handle Stripe webhook events for payment confirmation."""
+    """Handle Stripe webhook events for payment confirmation.
+
+    This endpoint is intentionally venue-unscoped: Stripe sends webhooks
+    directly to the platform and the event metadata carries the payment_id.
+    """
     payload = await request.body()
 
     stripe = _get_stripe()

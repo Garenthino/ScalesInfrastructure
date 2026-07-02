@@ -66,6 +66,10 @@ services:
       SECURITY_HEADERS_ENABLED: 'true'
       REQUEST_MAX_BODY_SIZE_MB: '1.0'
       CORS_ORIGINS_PROD: ${CORS_ORIGINS_PROD:-https://dancingdragonservices.com,https://www.dancingdragonservices.com}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRICE_ID_BASIC: ${STRIPE_PRICE_ID_BASIC:-}
+      STRIPE_PRICE_ID_ENTERPRISE: ${STRIPE_PRICE_ID_ENTERPRISE:-}
     ports:
     - 8000:8000
     depends_on:

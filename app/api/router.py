@@ -31,4 +31,6 @@ api_router.include_router(commerce.router, prefix="/venues/{venue_id}/merch", ta
 api_router.include_router(social.router, prefix="/venues/{venue_id}/leaderboard", tags=["Social"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
 api_router.include_router(payments.router, prefix="/venues/{venue_id}/payments", tags=["Payments"])
+# Stripe webhook is intentionally unscoped; it is exposed here under /v1/stripe/
+api_router.include_router(payments.router, prefix="/stripe", tags=["Stripe Webhook"])
 api_router.include_router(notifications.router, prefix="/venues/{venue_id}/singers", tags=["Notifications"])
