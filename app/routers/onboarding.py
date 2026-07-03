@@ -28,6 +28,7 @@ from app.core.security import hash_password, create_access_token, create_refresh
 from app.core.auth import get_current_user, SingerUser
 from app.core.rls import set_session_venue_id
 from app.models import Venue, Singer, KJDevice, _now_iso, _venue_code
+from app.services.billing_customer import create_stripe_customer_for_venue
 from app.schemas import (
     VenueSignupRequest,
     VenueSignupResponse,
@@ -192,6 +193,9 @@ async def signup_venue(body: VenueSignupRequest, db: AsyncSession = Depends(get_
     await db.commit()
     await db.refresh(venue)
     await db.refresh(owner)
+
+    # Phase 2: create Stripe customer (best-effort; does not block signup)
+    await create_stripe_customer_for_venue(db, venue)
 
     tokens = _issue_token_pair(owner)
     return VenueSignupResponse(

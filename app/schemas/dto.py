@@ -226,6 +226,38 @@ class AdminDashboardOut(ScalesModel):
     by_tier: dict[str, int] = Field(default_factory=dict)
 
 
+class CheckoutSessionRequest(ScalesModel):
+    tier: Literal["basic", "enterprise"] = "basic"
+    success_url: str = Field(..., min_length=1, max_length=500)
+    cancel_url: str = Field(..., min_length=1, max_length=500)
+
+
+class CheckoutSessionOut(ScalesModel):
+    checkout_url: str
+    session_id: str
+    stripe_customer_id: str | None = None
+
+
+class SubscriptionStatusOut(ScalesModel):
+    venue_id: str
+    subscription_tier: str
+    subscription_status: str
+    billing_status: str
+    trial_ends_at: str | None = None
+    plan_expires_at: str | None = None
+    stripe_subscription_id: str | None = None
+    is_trialing: bool
+    in_grace_period: bool
+    grace_period_ends_at: str | None = None
+
+
+class WebhookEventOut(ScalesModel):
+    status: str
+    event_id: str | None = None
+    handled_at: str | None = None
+    message: str | None = None
+
+
 class AdminVenuePurgeResult(ScalesModel):
     action: Literal["hard_delete", "anonymize"]
     venue_id: str

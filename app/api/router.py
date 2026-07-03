@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.routers import venues, songs, singers, singer_favorites, singer_follows, queue_singer, queue, queue_admin, loyalty, commerce, social, analytics, auth, kj_auth, kj_sync, payments, notifications, admin, onboarding, admin_venues
+from app.routers import venues, songs, singers, singer_favorites, singer_follows, queue_singer, queue, queue_admin, loyalty, commerce, social, analytics, auth, kj_auth, kj_sync, payments, notifications, admin, onboarding, admin_venues, billing
 
 api_router = APIRouter()
 
@@ -33,4 +33,5 @@ api_router.include_router(analytics.router, prefix="/analytics", tags=["Analytic
 api_router.include_router(payments.router, prefix="/venues/{venue_id}/payments", tags=["Payments"])
 # Stripe webhook is intentionally unscoped; it is exposed here under /v1/stripe/
 api_router.include_router(payments.router, prefix="/stripe", tags=["Stripe Webhook"])
+api_router.include_router(billing.router, prefix="/venues/{venue_id}/billing", tags=["Billing"])
 api_router.include_router(notifications.router, prefix="/venues/{venue_id}/singers", tags=["Notifications"])

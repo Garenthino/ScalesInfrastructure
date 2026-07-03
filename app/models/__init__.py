@@ -57,6 +57,28 @@ def _venue_code_unique(db=None) -> str:
     return code
 
 
+# Billing / subscription lifecycle events (Stripe webhook idempotency)
+class BillingEvent(Base):
+    __tablename__ = "billing_events"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
+    stripe_event_id = Column(Text, nullable=False)
+    event_type = Column(Text, nullable=False)
+    stripe_subscription_id = Column(Text)
+    payload_json = Column(Text)
+    processed = Column(Integer, default=0)
+    created_at = Column(Text, default=_now_iso)
+
+    __table_args__ = (
+        UniqueConstraint("venue_id", "stripe_event_id", name="uq_billing_event"),
+        Index("ix_billing_events_stripe_event_id", "stripe_event_id"),
+        Index("ix_billing_events_venue", "venue_id", "created_at"),
+    )
+
+    venue = relationship("Venue")
+
+
 class Venue(Base):
     __tablename__ = "venues"
 
