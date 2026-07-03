@@ -1,0 +1,18 @@
+{
+  "qa_task": "t_c2a14032",
+  "commit": "b030ac1",
+  "build_api_image": "latest after b030ac1",
+  "test_date": "2026-07-03T02:09:00Z",
+  "admin_email": "admin@dancingdragonservices.com",
+  "results": {
+    "soft_delete_venue": "PASS (204)",
+    "venue_in_deleted_list": "PASS",
+    "purge_no_billing": "PASS (hard_delete, venue and related rows removed)",
+    "purge_with_billing": "PASS (anonymize, venue renamed, payment retained, singer email hashed)",
+    "fk_audit_log": "PASS (no 500 after fix; admin_audit_log venue_id nullable / on delete set null)"
+  },
+  "caveats": [
+    "QA verified via authenticated curl + direct DB queries rather than browser UI due to prior CDP endpoint staleness in qa worker.",
+    "Test payment used payment_type='tip' because the payments table check constraint only allows 'tip' or 'priority_bump'."
+  ]
+}
