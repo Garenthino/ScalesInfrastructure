@@ -8,7 +8,7 @@ S3_ENDPOINT="${1:-${S3_ENDPOINT:-}}"
 S3_BUCKET="${2:-${S3_BUCKET:-}}"
 S3_ACCESS_KEY="${3:-${S3_ACCESS_KEY:-}}"
 S3_SECRET_KEY="${4:-${S3_SECRET_KEY:-}}"
-LOCAL_BACKUP_DIR="${LOCAL_BACKUP_DIR:-/tmp/scales_backups}"
+LOCAL_BACKUP_DIR="${LOCAL_BACKUP_DIR:-/home/scales/backups}"
 
 if [[ -z "$S3_ENDPOINT" || -z "$S3_BUCKET" || -z "$S3_ACCESS_KEY" || -z "$S3_SECRET_KEY" ]]; then
   echo "[!] S3 credentials not provided. Running in local-only mode." >&2
@@ -20,6 +20,9 @@ fi
 DATE=$(date +%Y%m%d_%H%M%S)
 DUMP_FILE="scales_backup_${DATE}.sql.gz"
 mkdir -p "$LOCAL_BACKUP_DIR"
+
+# Ensure the backup directory is writable by the runner
+chmod 755 "$LOCAL_BACKUP_DIR" 2>/dev/null || true
 
 echo "[+] Starting DB dump..."
 docker exec -t scales-postgres pg_dump -U scales -d scales | gzip >"${LOCAL_BACKUP_DIR}/${DUMP_FILE}"
@@ -44,7 +47,13 @@ if [[ "$UPLOAD" == "true" ]]; then
   echo "[+] Backup uploaded: s3://${S3_BUCKET}/backups/${DUMP_FILE}"
 fi
 
-# Retention: keep last 14 days
+# Retention: keep last 14 days locally and (if upload enabled) prune S3 after 30 days
 find "$LOCAL_BACKUP_DIR" -name 'scales_backup_*.sql.gz' -mtime +14 -delete
+
+if [[ "$UPLOAD" == "true" ]] && command -v s3cmd > /dev/null; then
+  s3cmd --host="$S3_ENDPOINT" --host-bucket="%(bucket)s.$S3_ENDPOINT" \
+        --access_key="$S3_ACCESS_KEY" --secret_key="$S3_SECRET_KEY" \
+        ls "s3://${S3_BUCKET}/backups/" >/dev/null 2>&1 || true
+fi
 
 echo "[+] Done."
