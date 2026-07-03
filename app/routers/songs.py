@@ -55,10 +55,13 @@ async def _require_venue_owner_or_match(
     if venue is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Venue not found")
     if token is not None and not venue_match(venue_id, token):
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            detail="Venue access denied",
-        )
+        # Admins and KJs can access any venue for management purposes
+        role = (token.get("role") or "").lower()
+        if role not in ("admin", "kj"):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="Venue access denied",
+            )
 
 
 # ---------------------------------------------------------------------------
