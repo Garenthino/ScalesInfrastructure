@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import time
 import uuid
 from collections import defaultdict
@@ -34,8 +35,6 @@ def _get_client_ip(request: Request) -> str:
 
 def _get_identity(request: Request) -> str:
     """Return user_id from token if authenticated, else IP address."""
-    import hashlib
-
     auth = request.headers.get("authorization", "")
     x_api_key = request.headers.get("x-api-key", "")
     if auth.lower().startswith("bearer "):
@@ -47,12 +46,14 @@ def _get_identity(request: Request) -> str:
         # Cloud sync clients use x-api-key — treat as authenticated with own bucket
         key_hash = hashlib.sha256(x_api_key.encode()).hexdigest()[:16]
         return f"apikey:{key_hash}"
-
     return f"ip:{_get_client_ip(request)}"
 
 
-async def _is_rate_limited(identity: str, is_authenticated: bool) -> tuple[bool, int]:
-    limit = settings.RATE_LIMIT_REQUESTS if is_authenticated else settings.RATE_LIMIT_UNAUTHED_REQUESTS
+async def _is_rate_limited(identity: str, is_authenticated: bool, is_read: bool = False) -> tuple[bool, int]:
+    if is_authenticated and is_read:
+        limit = settings.RATE_LIMIT_READ_REQUESTS
+    else:
+        limit = settings.RATE_LIMIT_REQUESTS if is_authenticated else settings.RATE_LIMIT_UNAUTHED_REQUESTS
     window = settings.RATE_LIMIT_WINDOW
     now = time.time()
 
@@ -142,6 +143,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         x_api_key = request.headers.get("x-api-key", "")
         is_authenticated = auth.lower().startswith("bearer ") or bool(x_api_key)
         path = request.url.path
+
         # Skip rate limiting for KJ sync, health endpoints, and lightweight identity/profile reads
         if (
             path.startswith("/kj/sync/")
@@ -149,10 +151,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             or path.endswith("/health")
             or path == "/v1/onboarding/me"
             or path == "/v1/auth/me"
+            or path.startswith("/v1/venues/") and "/singers/me" in path
         ):
             return await call_next(request)
 
-        limited, retry_after = await _is_rate_limited(identity, is_authenticated)
+        # Authenticated read endpoints get a higher burst limit to avoid
+        # throttling dashboards, queue views, and song catalogs.
+        is_read = request.method in ("GET", "HEAD", "OPTIONS")
+        rate_limit_key_suffix = "read" if (is_authenticated and is_read) else "write"
+        limited, retry_after = await _is_rate_limited(
+            f"{identity}:{rate_limit_key_suffix}",
+            is_authenticated,
+            is_read=is_read,
+        )
         if limited:
             logger.warning(
                 "rate_limit_exceeded",

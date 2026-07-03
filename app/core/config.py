@@ -40,6 +40,7 @@ class Settings(BaseSettings):
 
     # Security hardening
     RATE_LIMIT_REQUESTS: int = 300
+    RATE_LIMIT_READ_REQUESTS: int = 1200
     RATE_LIMIT_UNAUTHED_REQUESTS: int = 30
     RATE_LIMIT_WINDOW: int = 60
     SECURITY_HEADERS_ENABLED: bool = True
@@ -52,6 +53,8 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: str | None = None
     STRIPE_PRICE_ID_BASIC: str | None = None
     STRIPE_PRICE_ID_ENTERPRISE: str | None = None
+    STRIPE_BASIC_MONTHLY_AMOUNT_CENTS: int = 4900
+    STRIPE_ENTERPRISE_MONTHLY_AMOUNT_CENTS: int = 9900
 
     # Data retention / compliance
     PURGE_RETENTION_DAYS: int = 30
