@@ -46,6 +46,7 @@ from app.schemas import (
 )
 
 from app.services.venue_purge import purge_venue, venue_has_billing_history
+from app.services.billing_customer import create_stripe_customer_for_venue
 from app.core.config import settings
 
 router = APIRouter()
@@ -570,20 +571,15 @@ async def purge_venue_endpoint(
         )
 
     has_billing = await venue_has_billing_history(db, venue_id)
-    result = await purge_venue(db, venue_id)
-
-    db.add(_log_entry(
-        admin,
-        action="venue.purge",
-        venue_id=venue_id,
-        venue_name=venue.name if not has_billing else "Anonymized Venue",
-        details={
-            "action": result["action"],
+    result = await purge_venue(
+        db,
+        venue_id,
+        admin_email=admin.get("email") or admin.get("sub") or "unknown",
+        admin_action_details={
             "had_billing_history": has_billing,
-            "anonymized_singer_count": result.get("anonymized_singer_count"),
+            "venue_name_before": venue.name,
         },
-    ))
-    await db.commit()
+    )
 
     return AdminVenuePurgeResult(
         action=result["action"],  # type: ignore[arg-type]
@@ -686,6 +682,9 @@ async def provision_venue(
     db.add(owner)
     await db.commit()
     await db.refresh(venue)
+
+    # Phase 2: create Stripe customer (best-effort; does not block provisioning)
+    await create_stripe_customer_for_venue(db, venue)
 
     db.add(_log_entry(
         admin,

@@ -7,9 +7,10 @@ from datetime import datetime, timezone, timedelta
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Venue, Singer, Payment, Order
+from app.models import Venue, Singer, Payment, Order, AdminAuditLog
 from app.services.venue_purge import (
     purge_venue,
     venue_has_billing_history,
@@ -94,10 +95,30 @@ async def test_venue_has_billing_history_true_with_paid_order(db: AsyncSession):
 async def test_purge_hard_deletes_venue_without_billing(db: AsyncSession):
     venue = await _seed_venue(db)
     await _seed_singer(db, venue.id)
-    result = await purge_venue(db, venue.id)
+    result = await purge_venue(
+        db,
+        venue.id,
+        admin_email="qa@example.com",
+        admin_action_details={"reason": "test"},
+    )
     assert result["action"] == "hard_delete"
     gone = await db.get(Venue, venue.id)
     assert gone is None
+
+    # Audit log is written inside the purge transaction before the venue row
+    # is deleted, so PostgreSQL never sees an FK violation. SQLite keeps the
+    # venue_id because it does not emulate ON DELETE SET NULL by default.
+    audit = (
+        await db.execute(
+            select(AdminAuditLog).where(
+                AdminAuditLog.action == "venue.purge",
+                AdminAuditLog.admin_email == "qa@example.com",
+            )
+        )
+    ).scalar_one_or_none()
+    assert audit is not None
+    assert audit.venue_name == venue.name
+    assert audit.details_json == '{"reason": "test"}'
 
 
 @pytest.mark.anyio
@@ -169,7 +190,7 @@ async def test_admin_purge_endpoint_hard_deletes_soft_deleted(client: AsyncClien
     venue = await _seed_venue(db, deleted_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
     admin = await _seed_singer(db, venue.id, stage_name="Admin", role="admin")
     token = __import__("jose").jwt.encode(
-        {"sub": admin.id, "venue_id": admin.venue_id, "role": "admin"},
+        {"sub": admin.id, "venue_id": admin.venue_id, "role": "admin", "email": admin.email},
         "test-jwt-secret-do-not-use-in-production",
         algorithm="HS256",
     )
@@ -177,6 +198,20 @@ async def test_admin_purge_endpoint_hard_deletes_soft_deleted(client: AsyncClien
     assert resp.status_code == 200
     data = resp.json()
     assert data["action"] == "hard_delete"
+
+    # The audit log row is written inside the purge transaction before the venue
+    # row is deleted, so PostgreSQL never sees an FK violation.
+    audit = (
+        await db.execute(
+            select(AdminAuditLog).where(
+                AdminAuditLog.action == "venue.purge",
+                AdminAuditLog.admin_email == admin.email,
+            )
+        )
+    ).scalar_one_or_none()
+    assert audit is not None
+    assert audit.venue_name == venue.name
+    assert audit.details_json is not None
 
 
 @pytest.mark.anyio

@@ -120,7 +120,13 @@ async def venue_has_billing_history(db: AsyncSession, venue_id: str) -> bool:
     return order_count > 0
 
 
-async def anonymize_venue(db: AsyncSession, venue_id: str) -> dict[str, Any]:
+async def anonymize_venue(
+    db: AsyncSession,
+    venue_id: str,
+    *,
+    admin_email: str | None = None,
+    admin_action_details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Anonymize all personal data for a venue while keeping financial records."""
     venue = (
         await db.execute(select(Venue).where(Venue.id == venue_id))
@@ -183,6 +189,19 @@ async def anonymize_venue(db: AsyncSession, venue_id: str) -> dict[str, Any]:
         row.user_agent = None
         row.details_json = None
 
+    # Record the purge action; the venue row still exists (anonymized), so FK
+    # is not an issue and venue_id can remain populated.
+    db.add(
+        AdminAuditLog(
+            admin_email=admin_email or "system",
+            action="venue.purge",
+            venue_id=venue_id,
+            venue_name=venue.name,
+            details_json=json.dumps(admin_action_details) if admin_action_details else None,
+            created_at=now,
+        )
+    )
+
     await db.commit()
 
     return {
@@ -194,7 +213,13 @@ async def anonymize_venue(db: AsyncSession, venue_id: str) -> dict[str, Any]:
     }
 
 
-async def hard_delete_venue(db: AsyncSession, venue_id: str) -> dict[str, Any]:
+async def hard_delete_venue(
+    db: AsyncSession,
+    venue_id: str,
+    *,
+    admin_email: str | None = None,
+    admin_action_details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Hard-delete a venue and all related tenant data in FK-safe order."""
     venue = (
         await db.execute(select(Venue).where(Venue.id == venue_id))
@@ -277,6 +302,20 @@ async def hard_delete_venue(db: AsyncSession, venue_id: str) -> dict[str, Any]:
 
     # 10. Venue itself
     await db.execute(delete(Venue).where(Venue.id == venue_id))
+
+    # 11. Audit trail: record the purge. venue_id is left NULL so the row
+    # survives even when the venue row is hard-deleted (with ON DELETE SET NULL
+    # as a safety net on PostgreSQL).
+    db.add(
+        AdminAuditLog(
+            admin_email=admin_email or "system",
+            action="venue.purge",
+            venue_id=None,
+            venue_name=venue.name if venue else None,
+            details_json=json.dumps(admin_action_details) if admin_action_details else None,
+            created_at=_now_iso(),
+        )
+    )
     await db.commit()
 
     return {
@@ -286,12 +325,28 @@ async def hard_delete_venue(db: AsyncSession, venue_id: str) -> dict[str, Any]:
     }
 
 
-async def purge_venue(db: AsyncSession, venue_id: str) -> dict[str, Any]:
+async def purge_venue(
+    db: AsyncSession,
+    venue_id: str,
+    *,
+    admin_email: str | None = None,
+    admin_action_details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Public entrypoint: hard-delete if no billing history, otherwise anonymize."""
     has_billing = await venue_has_billing_history(db, venue_id)
     if has_billing:
-        return await anonymize_venue(db, venue_id)
-    return await hard_delete_venue(db, venue_id)
+        return await anonymize_venue(
+            db,
+            venue_id,
+            admin_email=admin_email,
+            admin_action_details=admin_action_details,
+        )
+    return await hard_delete_venue(
+        db,
+        venue_id,
+        admin_email=admin_email,
+        admin_action_details=admin_action_details,
+    )
 
 
 async def purge_expired_soft_deleted_venues(
@@ -322,7 +377,14 @@ async def purge_expired_soft_deleted_venues(
     results: list[dict[str, Any]] = []
     for venue_id in rows:
         try:
-            results.append(await purge_venue(db, venue_id))
+            results.append(
+                await purge_venue(
+                    db,
+                    venue_id,
+                    admin_email="system.retention",
+                    admin_action_details={"reason": "retention_scheduler", "cutoff": cutoff_iso},
+                )
+            )
         except Exception as exc:  # pragma: no cover
             logger.exception("Failed to purge venue %s: %s", venue_id, exc)
             results.append({"action": "error", "venue_id": venue_id, "error": str(exc)})
