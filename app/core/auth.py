@@ -301,3 +301,11 @@ def venue_match(venue_id_param: str, token_payload: dict) -> bool:
     if token_venue is None:
         return True
     return str(token_venue) == str(venue_id_param)
+
+
+def venue_match_or_admin(venue_id_param: str, token_payload: dict) -> bool:
+    """Return True for matching venue, admin, or KJ tokens."""
+    if venue_match(venue_id_param, token_payload):
+        return True
+    role = (token_payload.get("role") or "").lower()
+    return role in ("admin", "kj")

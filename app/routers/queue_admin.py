@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.core.auth import require_admin, venue_match, get_current_user, SingerUser
+from app.core.auth import require_admin, venue_match_or_admin, get_current_user, SingerUser
 from app.core.dependencies import require_role
 from app.core.permissions import Role
 from app.core.db import get_db
@@ -85,7 +85,7 @@ async def get_admin_queue(
     db: AsyncSession = Depends(get_db),
     token: dict = Depends(require_admin),
 ):
-    if not venue_match(venue_id, token):
+    if not venue_match_or_admin(venue_id, token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
     svc = QueueService(db)
@@ -109,7 +109,7 @@ async def approve_request(
     db: AsyncSession = Depends(get_db),
     token: dict = Depends(require_admin),
 ):
-    if not venue_match(venue_id, token):
+    if not venue_match_or_admin(venue_id, token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
     svc = QueueService(db)
@@ -132,7 +132,7 @@ async def reject_request(
     db: AsyncSession = Depends(get_db),
     token: dict = Depends(require_admin),
 ):
-    if not venue_match(venue_id, token):
+    if not venue_match_or_admin(venue_id, token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
     svc = QueueService(db)
@@ -154,7 +154,7 @@ async def complete_request(
     db: AsyncSession = Depends(get_db),
     token: dict = Depends(require_admin),
 ):
-    if not venue_match(venue_id, token):
+    if not venue_match_or_admin(venue_id, token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
     svc = QueueService(db)
@@ -176,7 +176,7 @@ async def reorder_queue(
     db: AsyncSession = Depends(get_db),
     token: dict = Depends(require_admin),
 ):
-    if not venue_match(venue_id, token):
+    if not venue_match_or_admin(venue_id, token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
     if not body.singer_ids or not isinstance(body.singer_ids, list):
@@ -205,7 +205,7 @@ async def reorder_queue_by_request(
     db: AsyncSession = Depends(get_db),
     token: dict = Depends(require_admin),
 ):
-    if not venue_match(venue_id, token):
+    if not venue_match_or_admin(venue_id, token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
     if not body.order or not isinstance(body.order, list):
@@ -235,7 +235,7 @@ async def skip_to_end(
     token: dict = Depends(require_admin),
 ):
     """Move a request to the end of the queue."""
-    if not venue_match(venue_id, token):
+    if not venue_match_or_admin(venue_id, token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
     svc = QueueService(db)
@@ -257,7 +257,7 @@ async def remove_request(
     db: AsyncSession = Depends(get_db),
     token: dict = Depends(require_admin),
 ):
-    if not venue_match(venue_id, token):
+    if not venue_match_or_admin(venue_id, token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
     svc = QueueService(db)
@@ -279,7 +279,7 @@ async def get_queue_analytics(
     token: dict = Depends(require_admin),
 ):
     """Queue throughput, avg wait, top songs — KJ/Admin only."""
-    if not venue_match(venue_id, token):
+    if not venue_match_or_admin(venue_id, token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
     svc = QueueService(db)
@@ -298,7 +298,7 @@ async def get_rotation_mode(
     token: dict = Depends(require_admin),
 ):
     """Get the active rotation mode for this venue."""
-    if not venue_match(venue_id, token):
+    if not venue_match_or_admin(venue_id, token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
     svc = QueueService(db)
@@ -315,7 +315,7 @@ async def set_rotation_mode(
     token: dict = Depends(require_admin),
 ):
     """Set the active rotation mode for this venue."""
-    if not venue_match(venue_id, token):
+    if not venue_match_or_admin(venue_id, token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
     if body.mode not in ROTATION_MODES:

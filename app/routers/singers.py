@@ -94,12 +94,15 @@ def _singer_out(singer: Singer) -> SingerOut:
 
 
 def _require_venue(venue_id: str, current: SingerUser) -> None:
-    """Enforce that the current user's venue matches the URL venue."""
-    if str(current.venue_id) != str(venue_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Venue access denied",
-        )
+    """Enforce that the current user's venue matches the URL venue, or admin/KJ."""
+    if str(current.venue_id) == str(venue_id):
+        return
+    if current.role.lower() in ("admin", "kj"):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Venue access denied",
+    )
 
 
 # ---------------------------------------------------------------------------
