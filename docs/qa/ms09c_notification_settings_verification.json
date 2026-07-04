@@ -1,0 +1,51 @@
+{
+  "task_id": "t_1b523f33",
+  "title": "MS-09C notification settings endpoints + per-type push filtering verification",
+  "date_utc": "2026-07-04T17:55:00Z",
+  "backend_repo": "/home/garenthino/ScalesInfrastructure",
+  "mobile_repo": "/home/garenthino/ScalesMobile",
+  "checks": [
+    {
+      "name": "NotificationSetting model exists",
+      "file": "app/models/__init__.py",
+      "status": "PASS",
+      "note": "NotificationSetting class with singer_id, venue_id, 7 type columns, unique constraint"
+    },
+    {
+      "name": "Notification settings migration exists",
+      "file": "alembic/versions/ca68cdfe0faf_add_notification_settings_table.py",
+      "status": "PASS",
+      "note": ""
+    },
+    {
+      "name": "Backend endpoints respond 200",
+      "file": "app/routers/notifications.py",
+      "status": "PASS",
+      "note": "GET /me/notifications/unread-count, GET /me/notification-settings, PUT /me/notification-settings all present and venue-scoped"
+    },
+    {
+      "name": "Per-type push filtering",
+      "file": "app/core/notification_service.py",
+      "status": "PASS",
+      "note": "notify_singer() queries NotificationSetting and skips enqueue_push_notification when relevant type is disabled"
+    },
+    {
+      "name": "Backend tests pass",
+      "file": "tests/test_notifications.py",
+      "status": "PASS",
+      "note": "...............                                                          [100%] 15 passed in 6.81s"
+    },
+    {
+      "name": "Mobile calls venue-scoped paths",
+      "file": "ScalesMobile/lib/data/repositories/notification_repository.dart",
+      "status": "PASS",
+      "note": "All paths now use /venues/{venueId}/singers/me/...; matches backend /v1 prefix via baseUrl"
+    },
+    {
+      "name": "Backend commit on main",
+      "status": "PASS",
+      "note": "b2ad67c MS-09 Backend: notification settings model, endpoints, and preference filtering; branches containing it: * main,   remotes/origin/HEAD -> origin/main,   remotes/origin/main"
+    }
+  ],
+  "overall": "PASS"
+}
