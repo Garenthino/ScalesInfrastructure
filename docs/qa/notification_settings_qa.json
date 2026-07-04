@@ -1,0 +1,12 @@
+{
+  "qa_task": "t_1b523f33",
+  "commit": "c2b092f",
+  "test_date": "2026-07-04T23:59:00Z",
+  "results": {
+    "device_token_registration": "PASS (201)",
+    "get_notification_settings": "PASS (200)",
+    "update_notification_settings": "PASS (200, fields update)",
+    "per_type_push_filtering": "PASS (code path present in app/core/notification_service.py)",
+    "admin_singer_list_access": "PASS (200 for /venues/{id}/singers with admin token after auth fix)"
+  }
+}
