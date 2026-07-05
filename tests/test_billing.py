@@ -475,3 +475,77 @@ async def test_webhook_ignores_unhandled_event(client: AsyncClient):
     response = await _send_webhook(client, payload)
     assert response.status_code == 200
     assert response.json()["status"] == "ignored"
+
+
+# ---------------------------------------------------------------------------
+# Admin billing metrics
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_admin_billing_metrics_requires_admin(client: AsyncClient, owner_token_for):
+    """Only platform admins can read billing metrics."""
+    r = await client.get("/v1/admin/billing-metrics", headers={"Authorization": f"Bearer {owner_token_for}"})
+    assert r.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_admin_billing_metrics_computes_mrr_and_trialing(
+    client: AsyncClient,
+    db: AsyncSession,
+):
+    """Billing metrics reflect active/past_due/trialing/cancelled venues."""
+    from app.core.security import hash_password
+    from app.core.config import settings as _settings
+    from jose import jwt
+
+    admin_id = str(uuid.uuid4())
+    admin = Singer(
+        id=admin_id,
+        venue_id=str(uuid.uuid4()),
+        stage_name="Admin",
+        email="admin-metrics@example.com",
+        password_hash=hash_password("pw"),
+        role="admin",
+    )
+    db.add(admin)
+
+    now = datetime.now(timezone.utc)
+    future_7d = (now + timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    future_30d = (now + timedelta(days=25)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    past_30d = (now - timedelta(days=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    past_old = (now - timedelta(days=45)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    venues = [
+        Venue(id=str(uuid.uuid4()), name="A", slug="a", venue_code="AAAAAA", subscription_status="active", subscription_tier="basic", plan_expires_at=future_30d, updated_at=now.strftime("%Y-%m-%dT%H:%M:%SZ")),
+        Venue(id=str(uuid.uuid4()), name="B", slug="b", venue_code="BBBBBB", subscription_status="active", subscription_tier="enterprise", plan_expires_at=future_7d, updated_at=now.strftime("%Y-%m-%dT%H:%M:%SZ")),
+        Venue(id=str(uuid.uuid4()), name="C", slug="c", venue_code="CCCCCC", subscription_status="past_due", subscription_tier="basic", plan_expires_at=future_30d, updated_at=now.strftime("%Y-%m-%dT%H:%M:%SZ")),
+        Venue(id=str(uuid.uuid4()), name="D", slug="d", venue_code="DDDDDD", subscription_status="trialing", updated_at=now.strftime("%Y-%m-%dT%H:%M:%SZ")),
+        Venue(id=str(uuid.uuid4()), name="E", slug="e", venue_code="EEEEEE", subscription_status="cancelled", updated_at=past_30d),
+        Venue(id=str(uuid.uuid4()), name="F", slug="f", venue_code="FFFFFF", subscription_status="cancelled", updated_at=past_old),
+    ]
+    for v in venues:
+        db.add(v)
+    await db.commit()
+
+    token = jwt.encode(
+        {"sub": admin_id, "venue_id": str(uuid.uuid4()), "role": "admin", "iat": now, "exp": now.replace(year=now.year + 1)},
+        _settings.JWT_SECRET_KEY,
+        algorithm="HS256",
+    )
+
+    r = await client.get("/v1/admin/billing-metrics", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    body = r.json()
+
+    basic_cents = _settings.STRIPE_BASIC_MONTHLY_AMOUNT_CENTS
+    enterprise_cents = _settings.STRIPE_ENTERPRISE_MONTHLY_AMOUNT_CENTS
+
+    assert body["active_subscriptions"] == 2
+    assert body["trialing_venues"] == 1
+    assert body["past_due_venues"] == 1
+    assert body["churned_last_30_days"] == 1
+    assert body["upcoming_renewals_7d"] == 1
+    assert body["upcoming_renewals_30d"] == 3
+    assert body["mrr_cents"] == basic_cents + enterprise_cents + basic_cents
+    assert body["revenue_by_tier_cents"]["basic"] == basic_cents * 2
+    assert body["revenue_by_tier_cents"]["enterprise"] == enterprise_cents

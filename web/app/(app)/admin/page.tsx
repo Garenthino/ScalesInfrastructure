@@ -828,9 +828,7 @@ export default function AdminPage() {
             </Card>
           </div>
         </div>
-      ) : (
-        <BillingTab billing={billing} loading={billingLoading} onRefresh={loadBilling} />
-      ) : (
+      ) : activeTab === "audit" ? (
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <p className="text-muted-foreground">Recent admin actions across venues.</p>
@@ -909,7 +907,7 @@ export default function AdminPage() {
             </div>
           )}
         </div>
-      )}
+      ) : null}
 
       {selected && (
         <VenueEditDialog
