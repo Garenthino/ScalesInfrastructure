@@ -24,7 +24,8 @@ Replace the current per-venue-only singer model with a global mobile account so 
 - Plan created: 2026-07-04.
 - Schema migration committed: `013719e` — accounts table, account_id on singers, unique(account_id, venue_id), linked_singer_id, singer_link_merge_logs, backfill for existing singers.
 - Global account endpoints committed: `22bc07e` — POST /accounts/register, /accounts/login, /accounts/me, /accounts/refresh. QA passed via ASGI client.
-- Next task to start: **t_2ad55995** (join venue with global account).
+- Venue join committed: `20342e5` — POST /venues/{venue_id}/join creates per-venue Singer from account token; GET /venues/{venue_id}/singers/me added. QA passed end-to-end.
+- Next task to start: **t_9a14a6c1** (KJ-to-mobile singer linking and history merge).
 - Safe checkpoint: after each task finishes, commit and run `hermes kanban complete <id>`.
 
 ## Quota-Resilience Notes
@@ -34,3 +35,4 @@ Replace the current per-venue-only singer model with a global mobile account so 
 ## Resume State Log
 1. 2026-07-04: t_71b6e954 schema done and pushed.
 2. 2026-07-04: t_77d8c3e7 and t_5600569d global account endpoints done and pushed.
+3. 2026-07-04: t_2ad55995 venue join done and pushed.
