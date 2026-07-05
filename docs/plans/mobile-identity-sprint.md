@@ -22,10 +22,13 @@ Replace the current per-venue-only singer model with a global mobile account so 
 
 ## Resume State
 - Plan created: 2026-07-04.
-- No implementation commits yet.
-- Next task to start: **t_71b6e954** (schema migration).
+- Schema migration committed: `013719e` — accounts table, account_id on singers, unique(account_id, venue_id), linked_singer_id, singer_link_merge_logs, backfill for existing singers.
+- Next task to start: **t_77d8c3e7** (global account registration endpoint).
 - Safe checkpoint: after each task finishes, commit and run `hermes kanban complete <id>`.
 
 ## Quota-Resilience Notes
 - Before each major implementation push, update this file with the current in-progress task and any uncommitted changes.
 - If the API quota maxes out and Kanban workers error, run the skill `kanban-quota-resilience` to cleanly pause and resume.
+
+## Resume State Log
+1. 2026-07-04: t_71b6e954 schema done and pushed.
