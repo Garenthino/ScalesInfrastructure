@@ -19,10 +19,11 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
+from app.core.security import create_access_token, create_refresh_token
 from app.core.auth import get_current_user, SingerUser, optional_token
 from app.core.permissions import Role, has_role
 from app.core.db import get_db
-from app.models import Venue, Song, Singer, QueueRequest
+from app.models import Venue, Song, Singer, QueueRequest, Account
 from app.schemas import (
     VenueCreate,
     VenueUpdate,
@@ -33,6 +34,7 @@ from app.schemas import (
     VenueAddress,
     VenueContact,
     VenueStats,
+    TokenPairOut,
 )
 
 router = APIRouter()
@@ -268,6 +270,99 @@ async def lookup_venue_by_code(
             detail="Venue not found. Please check your code and try again.",
         )
     return _venue_compact(venue)
+
+
+# ------------------------------------------------------------------
+# JOIN (account-scoped mobile identity)
+# ------------------------------------------------------------------
+
+@router.post("/{venue_id}/join", response_model=TokenPairOut)
+async def join_venue(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Link a global account to a venue, creating a per-venue singer row.
+
+    Returns a venue-scoped token pair for subsequent singer endpoints.
+    Idempotent: returns existing membership if already present.
+    """
+    if current.role != Role.ACCOUNT:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account-scoped token required",
+        )
+
+    venue = (
+        await db.execute(
+            select(Venue).where(
+                Venue.id == venue_id,
+                Venue.is_active == 1,
+                Venue.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if venue is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Venue not found")
+
+    account = (
+        await db.execute(
+            select(Account).where(
+                Account.id == current.id,
+                Account.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if account is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Account not found")
+
+    # Check existing membership
+    existing = (
+        await db.execute(
+            select(Singer).where(
+                Singer.account_id == account.id,
+                Singer.venue_id == venue_id,
+                Singer.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+    now = _now_iso()
+    if existing:
+        singer = existing
+    else:
+        singer = Singer(
+            id=str(uuid.uuid4()),
+            account_id=account.id,
+            venue_id=venue_id,
+            stage_name=account.real_name or account.email.split("@")[0],
+            real_name=account.real_name,
+            pronouns=account.pronouns,
+            email=account.email,
+            phone=account.phone,
+            bio=account.bio,
+            avatar_url=account.avatar_url,
+            social_links=account.social_links,
+            role="singer",
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(singer)
+        await db.commit()
+        await db.refresh(singer)
+
+    # Issue venue-scoped tokens
+    claims = {
+        "venue_id": singer.venue_id,
+        "role": "singer",
+    }
+    return TokenPairOut(
+        access_token=create_access_token(str(singer.id), extra_claims=claims),
+        token_type="bearer",
+        expires_in=60 * 15,
+        refresh_token=create_refresh_token(str(singer.id), extra_claims=claims),
+        account_id=singer.id,
+    )
 
 
 # ------------------------------------------------------------------

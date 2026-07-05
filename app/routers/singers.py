@@ -1297,6 +1297,32 @@ async def create_singer(
 # --- Get --------------------------------------------------------------------
 
 
+@router.get("/me", response_model=SingerOut)
+async def get_me(
+    venue_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the authenticated singer's own profile in this venue."""
+    _require_venue(venue_id, current)
+
+    singer = (
+        await db.execute(
+            select(Singer)
+            .where(
+                Singer.id == current.id,
+                Singer.venue_id == venue_id,
+                Singer.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if singer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
+
+    return _singer_out(singer)
+
+
 @router.get("/{singer_id}", response_model=SingerOut)
 async def get_singer(
     venue_id: str,
