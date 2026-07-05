@@ -37,6 +37,12 @@ from app.schemas.dto import (
     AdminVenueRestore,
     AdminAuditLogOut,
     AdminBillingMetricsOut,
+    # Accounts (global mobile identity)
+    AccountRegisterRequest,
+    AccountLoginRequest,
+    AccountMeOut,
+    TokenPairOut,
+    AccountRegisterResponse,
     # Songs
     SongBase,
     SongCreate,

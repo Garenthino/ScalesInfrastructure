@@ -9,6 +9,7 @@ class Role(str, Enum):
     KJ = "kj"
     SINGER = "singer"
     OWNER = "owner"
+    ACCOUNT = "account"
 
     @classmethod
     def from_string(cls, value: str) -> Role | None:
@@ -20,11 +21,13 @@ class Role(str, Enum):
 
 # Each role maps to the set of roles it is permitted to act as.
 # Used for hierarchical checks (admin can do anything an owner or kj can do).
+# ACCOUNT is intentionally outside the venue hierarchy; it is checked separately.
 ROLE_HIERARCHY: dict[Role, set[Role]] = {
     Role.ADMIN: {Role.ADMIN, Role.OWNER, Role.KJ, Role.SINGER},
     Role.OWNER: {Role.OWNER, Role.KJ, Role.SINGER},
     Role.KJ:    {Role.KJ, Role.SINGER},
     Role.SINGER:{Role.SINGER},
+    Role.ACCOUNT: {Role.ACCOUNT},
 }
 
 

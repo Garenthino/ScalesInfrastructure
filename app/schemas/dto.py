@@ -28,6 +28,60 @@ class ProblemDetail(ScalesModel):
     title: str
     status: int
     detail: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Accounts (global mobile identity)
+# ---------------------------------------------------------------------------
+
+class AccountRegisterRequest(ScalesModel):
+    email: EmailStr
+    password: str = Field(..., min_length=6, max_length=128)
+    stage_name: str = Field(..., min_length=1, max_length=50)
+    real_name: str | None = None
+    pronouns: str | None = None
+    phone: str | None = None
+    bio: str | None = Field(None, max_length=500)
+    avatar_url: str | None = Field(None, max_length=500)
+    social_links: str | None = Field(None, max_length=1000)
+
+
+class AccountLoginRequest(ScalesModel):
+    email: EmailStr
+    password: str
+
+
+class AccountMeOut(ScalesModel):
+    id: str
+    email: str
+    real_name: str | None = None
+    pronouns: str | None = None
+    phone: str | None = None
+    bio: str | None = None
+    avatar_url: str | None = None
+    social_links: str | None = None
+    is_active: bool = True
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class TokenPairOut(ScalesModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    refresh_token: str
+    account_id: str
+
+
+class AccountRegisterResponse(TokenPairOut):
+    message: str = "Account created"
+
+
+class ProblemDetail(ScalesModel):
+    type: str = "about:blank"
+    title: str
+    status: int
+    detail: str | None = None
     instance: str | None = None
 
 

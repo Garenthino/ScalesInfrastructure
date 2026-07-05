@@ -19,7 +19,7 @@ from sqlalchemy.orm import undefer
 from app.core.db import async_session_factory
 from app.core.security import decode_token, verify_password, hash_password
 from app.core.permissions import Role
-from app.models import Singer, KJDevice, _now_iso
+from app.models import Singer, KJDevice, _now_iso, Account
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +37,9 @@ class SingerUser:
 
 
 async def get_current_user(request: Request) -> SingerUser:
-    """Dependency: resolve current singer from the Authorization header."""
+    """Dependency: resolve current singer or account from the Authorization header."""
+    from app.models import Account
+
     auth = request.headers.get("Authorization")
     if not auth or not auth.lower().startswith("bearer "):
         raise HTTPException(
@@ -63,7 +65,30 @@ async def get_current_user(request: Request) -> SingerUser:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Load singer from DB for current role / venue_id (could be stale in token)
+    # Account-scoped token (mobile global identity)
+    if claims.get("role") == "account":
+        async with async_session_factory() as session:
+            try:
+                await session.rollback()
+            except Exception:
+                pass
+            account = await _load_account(session, sub)
+            if not account or account.deleted_at is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Account not found or deactivated",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        return SingerUser(
+            id=account.id,
+            venue_id="",
+            stage_name=account.real_name or account.email,
+            email=account.email,
+            role=Role.ACCOUNT,
+            token_claims=claims,
+        )
+
+    # Singer-scoped token (legacy venue identity)
     async with async_session_factory() as session:
         from app.core.rls import set_session_venue_id
         try:
@@ -98,6 +123,13 @@ async def get_current_user(request: Request) -> SingerUser:
         role=role,
         token_claims=claims,
     )
+
+
+async def _load_account(session: AsyncSession, account_id: str) -> Account | None:
+    result = await session.execute(
+        select(Account).options(undefer(Account.password_hash)).where(Account.id == account_id)
+    )
+    return result.scalar_one_or_none()
 
 
 async def _load_singer(session: AsyncSession, singer_id: str) -> Singer | None:
