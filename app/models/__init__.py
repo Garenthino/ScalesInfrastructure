@@ -222,10 +222,37 @@ class Song(Base):
     venue = relationship("Venue", back_populates="songs")
 
 
+class Account(Base):
+    __tablename__ = "accounts"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    email = Column(Text, unique=True, nullable=False)
+    password_hash = Column(Text)
+    auth_provider = Column(Text)
+    auth_provider_id = Column(Text)
+    real_name = Column(Text)
+    pronouns = Column(Text)
+    phone = Column(Text)
+    bio = Column(Text)
+    avatar_url = Column(Text)
+    social_links = Column(Text)
+    is_active = Column(Integer, default=1)
+    created_at = Column(Text, default=_now_iso)
+    updated_at = Column(Text, default=_now_iso, onupdate=_now_iso)
+    deleted_at = Column(Text)
+
+    __table_args__ = (
+        Index("ix_accounts_email", "email"),
+    )
+
+    singers = relationship("Singer", back_populates="account")
+
+
 class Singer(Base):
     __tablename__ = "singers"
 
     id = Column(String(36), primary_key=True, default=_new_uuid)
+    account_id = Column(String(36), ForeignKey("accounts.id"), nullable=True)
     venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
     auth_provider = Column(Text)
     auth_provider_id = Column(Text)
@@ -245,6 +272,7 @@ class Singer(Base):
     last_seen = Column(Text)
     deactivated_at = Column(Text)
     gdpr_erased_at = Column(Text)
+    linked_singer_id = Column(String(36), ForeignKey("singers.id"))
     created_at = Column(Text, default=_now_iso)
     updated_at = Column(Text, default=_now_iso, onupdate=_now_iso)
     deleted_at = Column(Text)
@@ -253,10 +281,33 @@ class Singer(Base):
         Index("ix_singers_venue_id", "venue_id"),
         Index("singer_venue_idx", "venue_id", "deactivated_at"),
         Index("ix_singers_gdpr_erased", "venue_id", "gdpr_erased_at"),
+        UniqueConstraint("account_id", "venue_id", name="uq_singer_account_venue"),
     )
 
+    account = relationship("Account", back_populates="singers")
     venue = relationship("Venue", back_populates="singers")
     check_in_sessions = relationship("CheckInSession", back_populates="singer", lazy="selectin", cascade="all, delete-orphan")
+    linked_singer = relationship("Singer", remote_side=[id])
+
+
+class SingerLinkMergeLog(Base):
+    __tablename__ = "singer_link_merge_logs"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
+    source_singer_id = Column(String(36), ForeignKey("singers.id"), nullable=False)
+    target_singer_id = Column(String(36), ForeignKey("singers.id"), nullable=False)
+    merged_by_account_id = Column(String(36), ForeignKey("accounts.id"))
+    merged_by_kj_device_id = Column(String(36), ForeignKey("kj_devices.id"))
+    queue_requests_moved = Column(Integer, default=0)
+    payments_moved = Column(Integer, default=0)
+    favorites_moved = Column(Integer, default=0)
+    achievements_moved = Column(Integer, default=0)
+    created_at = Column(Text, default=_now_iso)
+
+    __table_args__ = (
+        Index("ix_singer_link_merge_logs_venue", "venue_id", "created_at"),
+    )
 
 
 class CheckInSession(Base):
