@@ -291,6 +291,25 @@ export interface VenueBilling {
   sales_rep_email?: string | null;
 }
 
+export interface SubscriptionStatus {
+  venue_id: string;
+  subscription_tier: string;
+  subscription_status: string;
+  billing_status: string;
+  trial_ends_at?: string | null;
+  plan_expires_at?: string | null;
+  stripe_subscription_id?: string | null;
+  is_trialing: boolean;
+  in_grace_period: boolean;
+  grace_period_ends_at?: string | null;
+}
+
+export interface CheckoutSessionResponse {
+  checkout_url: string;
+  session_id: string;
+  stripe_customer_id?: string | null;
+}
+
 export interface AdminVenue extends Venue {
   admin_notes?: string | null;
   billing: VenueBilling;
@@ -331,6 +350,17 @@ export interface AdminDashboard {
   total_kj_devices: number;
   queue_depth: number;
   by_tier: Record<string, number>;
+}
+
+export interface AdminBillingMetrics {
+  mrr_cents: number;
+  active_subscriptions: number;
+  trialing_venues: number;
+  past_due_venues: number;
+  churned_last_30_days: number;
+  upcoming_renewals_7d: number;
+  upcoming_renewals_30d: number;
+  revenue_by_tier_cents: Record<string, number>;
 }
 
 export interface AdminAuditLog {

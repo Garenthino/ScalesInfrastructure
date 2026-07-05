@@ -226,6 +226,17 @@ class AdminDashboardOut(ScalesModel):
     by_tier: dict[str, int] = Field(default_factory=dict)
 
 
+class AdminBillingMetricsOut(ScalesModel):
+    mrr_cents: int = 0
+    active_subscriptions: int = 0
+    trialing_venues: int = 0
+    past_due_venues: int = 0
+    churned_last_30_days: int = 0
+    upcoming_renewals_7d: int = 0
+    upcoming_renewals_30d: int = 0
+    revenue_by_tier_cents: dict[str, int] = Field(default_factory=dict)
+
+
 class CheckoutSessionRequest(ScalesModel):
     tier: Literal["basic", "enterprise"] = "basic"
     success_url: str = Field(..., min_length=1, max_length=500)
@@ -256,6 +267,14 @@ class WebhookEventOut(ScalesModel):
     event_id: str | None = None
     handled_at: str | None = None
     message: str | None = None
+
+
+class BillingPortalRequest(ScalesModel):
+    return_url: str = Field(..., min_length=1, max_length=500)
+
+
+class BillingPortalOut(ScalesModel):
+    url: str
 
 
 class AdminVenuePurgeResult(ScalesModel):

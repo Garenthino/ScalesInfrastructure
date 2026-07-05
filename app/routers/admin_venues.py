@@ -38,6 +38,7 @@ from app.schemas import (
     AdminVenueRestore,
     AdminAuditLogOut,
     AdminDashboardOut,
+    AdminBillingMetricsOut,
     VenueBillingOut,
     VenueStats,
     VenueAddress,
@@ -48,6 +49,7 @@ from app.schemas import (
 from app.services.venue_purge import purge_venue, venue_has_billing_history
 from app.services.billing_customer import create_stripe_customer_for_venue
 from app.core.config import settings
+from app.services.billing_lifecycle import in_grace_period, _parse_iso
 
 router = APIRouter()
 
@@ -261,6 +263,96 @@ async def _get_dashboard(db: AsyncSession) -> AdminDashboardOut:
     )
 
 
+async def _get_billing_metrics(db: AsyncSession) -> AdminBillingMetricsOut:
+    """Compute platform-wide billing metrics from venue state.
+
+    MRR is estimated from subscription_tier for active/past_due venues that
+    are still within their grace period (i.e. billable this month). Trialing
+    venues contribute $0 to MRR. Churn counts venues whose status flipped to
+    "cancelled" in the last 30 days; we approximate this via updated_at because
+    we do not yet store a dedicated cancelled_at timestamp.
+    """
+    from datetime import datetime, timezone, timedelta
+
+    now = datetime.now(timezone.utc)
+    thirty_days_ago = (now - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    seven_days_ahead = (now + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    thirty_days_ahead = (now + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    rows = (
+        await db.execute(
+            select(Venue).where(
+                Venue.deleted_at.is_(None),
+                Venue.subscription_status.in_(("active", "past_due", "trialing", "cancelled")),
+            )
+        )
+    ).scalars().all()
+
+    tier_amounts = {
+        "basic": settings.STRIPE_BASIC_MONTHLY_AMOUNT_CENTS,
+        "enterprise": settings.STRIPE_ENTERPRISE_MONTHLY_AMOUNT_CENTS,
+    }
+
+    trialing_venues = 0
+    past_due_venues = 0
+    active_subscriptions = 0
+    churned_last_30_days = 0
+    upcoming_renewals_7d = 0
+    upcoming_renewals_30d = 0
+    revenue_by_tier_cents: dict[str, int] = {}
+    mrr_cents = 0
+
+    for venue in rows:
+        status = str(venue.subscription_status or "trialing").lower()
+        tier = str(venue.subscription_tier or "basic") if status == "active" else "basic"
+        amount = tier_amounts.get(tier, tier_amounts["basic"])
+
+        if status == "trialing":
+            trialing_venues += 1
+            continue
+
+        if status == "cancelled":
+            updated_at_val = venue.updated_at
+            updated_at = str(updated_at_val) if updated_at_val is not None else None
+            if updated_at is not None and updated_at >= thirty_days_ago:
+                churned_last_30_days += 1
+            continue
+
+        # active or past_due: count as billable if still within grace
+        if status == "past_due":
+            past_due_venues += 1
+            if not in_grace_period(venue):
+                continue
+        elif status == "active":
+            active_subscriptions += 1
+        else:
+            continue
+
+        mrr_cents += amount
+        revenue_by_tier_cents[tier] = revenue_by_tier_cents.get(tier, 0) + amount
+
+        plan_expires_raw_val = venue.plan_expires_at
+        plan_expires_raw = str(plan_expires_raw_val) if plan_expires_raw_val is not None else None
+        plan_expires = _parse_iso(plan_expires_raw)
+        if plan_expires is not None:
+            expires_str = plan_expires.strftime("%Y-%m-%dT%H:%M:%SZ")
+            if expires_str <= thirty_days_ahead:
+                upcoming_renewals_30d += 1
+            if expires_str <= seven_days_ahead:
+                upcoming_renewals_7d += 1
+
+    return AdminBillingMetricsOut(
+        mrr_cents=mrr_cents,
+        active_subscriptions=active_subscriptions,
+        trialing_venues=trialing_venues,
+        past_due_venues=past_due_venues,
+        churned_last_30_days=churned_last_30_days,
+        upcoming_renewals_7d=upcoming_renewals_7d,
+        upcoming_renewals_30d=upcoming_renewals_30d,
+        revenue_by_tier_cents=revenue_by_tier_cents,
+    )
+
+
 async def _check_email_available(db: AsyncSession, email: str) -> bool:
     existing = await db.execute(
         select(func.count())
@@ -306,6 +398,15 @@ async def get_dashboard(
 ):
     """Platform-wide aggregate analytics for the admin dashboard."""
     return await _get_dashboard(db)
+
+
+@router.get("/billing-metrics", response_model=AdminBillingMetricsOut)
+async def get_billing_metrics(
+    _: dict = Depends(require_platform_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Platform-wide billing metrics for the admin billing dashboard."""
+    return await _get_billing_metrics(db)
 
 
 @router.get("/venues", response_model=PaginatedResponse[AdminVenueListItem])

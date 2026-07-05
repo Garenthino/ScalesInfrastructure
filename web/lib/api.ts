@@ -27,8 +27,11 @@ import {
   AdminVenue,
   AdminVenueDetail,
   AdminDashboard,
+  AdminBillingMetrics,
   AdminAuditLog,
   PaginatedResponse,
+  SubscriptionStatus,
+  CheckoutSessionResponse,
 } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://dancingdragonservices.com/api/v1";
@@ -639,6 +642,12 @@ export async function fetchAdminDashboard(token?: string): Promise<AdminDashboar
   return res.json();
 }
 
+export async function fetchAdminBillingMetrics(token?: string): Promise<AdminBillingMetrics> {
+  const res = await fetch(`${API_BASE}/admin/billing-metrics`, { headers: authHeaders(token) });
+  if (!res.ok) throw new Error("Failed to fetch billing metrics");
+  return res.json();
+}
+
 export async function fetchAdminAuditLogs(
   params?: { page?: number; per_page?: number; venue_id?: string; action?: string },
   token?: string
@@ -713,5 +722,53 @@ export async function provisionVenue(payload: VenueProvisionPayload, token?: str
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error("Failed to provision venue");
+  return res.json();
+}
+
+/* ── Billing ─────────────────────────────────────────────── */
+
+export async function fetchSubscriptionStatus(venue_id: string, token?: string): Promise<SubscriptionStatus> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venue_id)}/billing/status`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to fetch subscription status" }));
+    throw new Error(err.detail || "Failed to fetch subscription status");
+  }
+  return res.json();
+}
+
+export async function createCheckoutSession(
+  venue_id: string,
+  tier: "basic" | "enterprise",
+  returnUrl: string,
+  token?: string
+): Promise<CheckoutSessionResponse> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venue_id)}/billing/checkout-session`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({
+      tier,
+      success_url: `${returnUrl}?success=1`,
+      cancel_url: `${returnUrl}?canceled=1`,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to start checkout" }));
+    throw new Error(err.detail || "Failed to start checkout");
+  }
+  return res.json();
+}
+
+export async function createBillingPortalSession(venue_id: string, returnUrl: string, token?: string): Promise<{ url: string }> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venue_id)}/billing/portal`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ return_url: returnUrl }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to open billing portal" }));
+    throw new Error(err.detail || "Failed to open billing portal");
+  }
   return res.json();
 }

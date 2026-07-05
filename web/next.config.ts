@@ -6,8 +6,8 @@ const nextConfig: NextConfig = {
   images: { unoptimized: true },
   experimental: {
     staleTimes: {
-      dynamic: 0,
-      static: 0,
+      dynamic: 30,
+      static: 30,
     },
   },
   async headers() {

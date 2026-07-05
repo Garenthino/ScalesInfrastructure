@@ -27,9 +27,12 @@ from app.core.stripe_client import get_stripe_client, stripe_enabled
 from app.core.permissions import Role, has_role
 from app.models import Venue, BillingEvent
 from app.schemas import (
+    ScalesModel,
     CheckoutSessionRequest,
     CheckoutSessionOut,
     SubscriptionStatusOut,
+    BillingPortalRequest,
+    BillingPortalOut,
 )
 from app.services.billing_lifecycle import (
     _format_iso,
@@ -188,6 +191,59 @@ async def get_subscription_status(
         in_grace_period=in_grace_period(venue),
         grace_period_ends_at=grace_period_ends_at(venue),
     )
+
+
+# ---------------------------------------------------------------------------
+# Stripe Billing Portal
+# ---------------------------------------------------------------------------
+
+
+
+@router.post("/portal", response_model=BillingPortalOut)
+async def create_billing_portal_session(
+    venue_id: str,
+    body: BillingPortalRequest,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a Stripe Billing Portal session for the venue owner."""
+    venue = await _require_own_venue(current, venue_id, db)
+
+    if not stripe_enabled():
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Stripe billing is not configured",
+        )
+
+    client = get_stripe_client()
+    assert client is not None
+
+    customer_id = getattr(venue, "stripe_customer_id", None)
+    if not customer_id:
+        from app.services.billing_customer import create_stripe_customer_for_venue
+        await create_stripe_customer_for_venue(db, venue)
+        customer_id = getattr(venue, "stripe_customer_id", None)
+        if not customer_id:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                detail="Unable to create Stripe customer for this venue",
+            )
+
+    try:
+        portal_session = client.v1.billing_portal.sessions.create(
+            params={
+                "customer": str(customer_id),
+                "return_url": body.return_url,
+            }
+        )
+    except Exception as exc:
+        logger.exception("Stripe billing portal session creation failed: %s", exc)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail=f"Stripe billing portal error: {exc}",
+        )
+
+    return BillingPortalOut(url=portal_session.url)
 
 
 # ---------------------------------------------------------------------------

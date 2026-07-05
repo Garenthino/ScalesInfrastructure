@@ -26,6 +26,8 @@ from app.schemas.dto import (
     CheckoutSessionOut,
     SubscriptionStatusOut,
     WebhookEventOut,
+    BillingPortalRequest,
+    BillingPortalOut,
     AdminVenueOut,
     AdminVenueListItem,
     AdminVenueStatusUpdate,
@@ -34,6 +36,7 @@ from app.schemas.dto import (
     AdminVenuePurgeResult,
     AdminVenueRestore,
     AdminAuditLogOut,
+    AdminBillingMetricsOut,
     # Songs
     SongBase,
     SongCreate,

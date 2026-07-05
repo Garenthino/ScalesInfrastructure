@@ -42,6 +42,7 @@ import {
   fetchAdminVenues,
   fetchAdminVenue,
   fetchAdminDashboard,
+  fetchAdminBillingMetrics,
   fetchAdminAuditLogs,
   updateAdminVenueStatus,
   deleteAdminVenue,
@@ -54,10 +55,12 @@ import {
   AdminVenue,
   AdminVenueDetail,
   AdminDashboard,
+  AdminBillingMetrics,
   VenueProvisionPayload,
   VenueStatusUpdatePayload,
   AdminAuditLog,
 } from "@/lib/types";
+import { BillingTab } from "./billing-tab";
 import { toast } from "sonner";
 import {
   Search,
@@ -69,6 +72,10 @@ import {
   Trash2,
   AlertTriangle,
   StickyNote,
+  DollarSign,
+  TrendingUp,
+  TrendingDown,
+  Calendar,
 } from "lucide-react";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -111,12 +118,14 @@ export default function AdminPage() {
   const [venueToRestore, setVenueToRestore] = useState<AdminVenue | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
   const [dashboard, setDashboard] = useState<AdminDashboard | null>(null);
-  const [activeTab, setActiveTab] = useState<"venues" | "audit" | "deleted">("venues");
+  const [activeTab, setActiveTab] = useState<"venues" | "billing" | "audit" | "deleted">("venues");
   const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>([]);
   const [auditTotal, setAuditTotal] = useState(0);
   const [auditPage, setAuditPage] = useState(1);
   const [auditPerPage] = useState(20);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [billing, setBilling] = useState<AdminBillingMetrics | null>(null);
+  const [billingLoading, setBillingLoading] = useState(false);
 
   const load = async (p = page, tab = activeTab) => {
     setLoading(true);
@@ -160,6 +169,19 @@ export default function AdminPage() {
     }
   };
 
+  const loadBilling = async () => {
+    setBillingLoading(true);
+    try {
+      const token = getAccessToken() || undefined;
+      const res = await fetchAdminBillingMetrics(token);
+      setBilling(res);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load billing metrics");
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (user?.role === "admin") {
       load(1);
@@ -167,6 +189,9 @@ export default function AdminPage() {
       if (activeTab === "audit") {
         loadAudit(1);
         setAuditPage(1);
+      }
+      if (activeTab === "billing") {
+        loadBilling();
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -334,6 +359,12 @@ export default function AdminPage() {
               onClick={() => setActiveTab("venues")}
             >
               Venues
+            </button>
+            <button
+              className={`inline-flex items-center justify-center rounded-md px-3 py-1 text-sm font-medium transition-all ${activeTab === "billing" ? "bg-background text-foreground shadow" : ""}`}
+              onClick={() => setActiveTab("billing")}
+            >
+              Billing
             </button>
             <button
               className={`inline-flex items-center justify-center rounded-md px-3 py-1 text-sm font-medium transition-all ${activeTab === "deleted" ? "bg-background text-foreground shadow" : ""}`}
@@ -689,6 +720,116 @@ export default function AdminPage() {
             </div>
           )}
         </div>
+      ) : activeTab === "billing" ? (
+        <div className="space-y-6">
+          <div className="flex items-end justify-between">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Billing Overview</h1>
+              <p className="text-muted-foreground">
+                Platform-wide subscription metrics and renewal forecast.
+              </p>
+            </div>
+            <Button variant="outline" onClick={() => loadBilling()} disabled={billingLoading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${billingLoading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <DollarSign className="h-4 w-4 text-emerald-500" /> MRR
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">${billing ? (billing.mrr_cents / 100).toLocaleString() : "—"}</div>
+                <p className="text-xs text-muted-foreground">Estimated monthly recurring revenue</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-blue-500" /> Active Subs
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{billing?.active_subscriptions ?? "—"}</div>
+                <p className="text-xs text-muted-foreground">Paying venues (incl. grace period)</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-amber-500" /> Trialing
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{billing?.trialing_venues ?? "—"}</div>
+                <p className="text-xs text-muted-foreground">Venues still in trial period</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <TrendingDown className="h-4 w-4 text-red-500" /> Past Due
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{billing?.past_due_venues ?? "—"}</div>
+                <p className="text-xs text-muted-foreground">Failed or overdue payments</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Churn (30d)</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{billing?.churned_last_30_days ?? "—"}</div>
+                <p className="text-xs text-muted-foreground">Venues cancelled in last 30 days</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Renewals ≤ 7d</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{billing?.upcoming_renewals_7d ?? "—"}</div>
+                <p className="text-xs text-muted-foreground">Plans expiring this week</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Renewals ≤ 30d</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{billing?.upcoming_renewals_30d ?? "—"}</div>
+                <p className="text-xs text-muted-foreground">Plans expiring this month</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Revenue by Tier</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-sm space-y-1">
+                  {billing?.revenue_by_tier_cents && Object.keys(billing.revenue_by_tier_cents).length > 0 ? (
+                    Object.entries(billing.revenue_by_tier_cents).map(([tier, cents]) => (
+                      <div key={tier} className="flex justify-between">
+                        <span className="capitalize text-muted-foreground">{tier}</span>
+                        <span className="font-medium">${(Number(cents) / 100).toLocaleString()}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      ) : (
+        <BillingTab billing={billing} loading={billingLoading} onRefresh={loadBilling} />
       ) : (
         <div className="space-y-6">
           <div className="flex items-center justify-between">

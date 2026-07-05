@@ -16,6 +16,7 @@ import {
   Building2,
   LayoutDashboard,
   SlidersHorizontal,
+  CreditCard,
 } from "lucide-react";
 
 const navItems = [
@@ -27,6 +28,7 @@ const navItems = [
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
   { label: "Commerce", href: "/commerce", icon: ShoppingCart },
   { label: "Venue", href: "/venue", icon: Building2 },
+  { label: "Billing", href: "/venue/billing", icon: CreditCard },
   { label: "Settings", href: "/settings", icon: SlidersHorizontal },
 ];
 

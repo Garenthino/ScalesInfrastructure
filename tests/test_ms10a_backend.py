@@ -59,6 +59,48 @@ async def test_rate_limit_authed(client, jwt_encode, monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_rate_limit_authed_singers_me(client, jwt_encode, monkeypatch):
+    """Authed /venues/{id}/singers/me/* endpoints are rate limited."""
+    monkeypatch.setattr(settings, "RATE_LIMIT_REQUESTS", 5)
+    monkeypatch.setattr(settings, "RATE_LIMIT_UNAUTHED_REQUESTS", 2)
+    monkeypatch.setattr(settings, "RATE_LIMIT_WINDOW", 60)
+
+    from app.middleware import security as sec_mod
+    sec_mod._buckets.clear()
+
+    token = jwt_encode(str(uuid.uuid4()), role="singer")
+    headers = {"Authorization": f"Bearer {token}"}
+    venue_id = str(uuid.uuid4())
+    for _ in range(5):
+        r = await client.get(f"/v1/venues/{venue_id}/singers/me/stats", headers=headers)
+        assert r.status_code in (200, 401, 403)
+
+    r = await client.get(f"/v1/venues/{venue_id}/singers/me/stats", headers=headers)
+    assert r.status_code == 429
+    assert "Retry-After" in r.headers
+
+
+@pytest.mark.anyio
+async def test_rate_limit_kj_sync_unaffected(client, monkeypatch):
+    """KJ M2M sync traffic using x-api-key is not rate limited."""
+    monkeypatch.setattr(settings, "RATE_LIMIT_REQUESTS", 2)
+    monkeypatch.setattr(settings, "RATE_LIMIT_UNAUTHED_REQUESTS", 2)
+    monkeypatch.setattr(settings, "RATE_LIMIT_WINDOW", 60)
+
+    from app.middleware import security as sec_mod
+    sec_mod._buckets.clear()
+
+    headers = {"x-api-key": "fake-kj-api-key"}
+    for _ in range(5):
+        r = await client.get("/v1/kj/sync/queue/pull", headers=headers)
+        # Should be allowed through; route returns 401 because key is fake
+        assert r.status_code != 429
+
+    r = await client.get("/v1/kj/sync/queue/pull", headers=headers)
+    assert r.status_code != 429
+
+
+@pytest.mark.anyio
 async def test_rate_limit_resets_after_window(client, monkeypatch):
     """Rate limit bucket resets when window passes."""
     monkeypatch.setattr(settings, "RATE_LIMIT_REQUESTS", 5)
