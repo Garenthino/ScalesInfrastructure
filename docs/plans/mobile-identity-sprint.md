@@ -28,7 +28,8 @@ Replace the current per-venue-only singer model with a global mobile account so 
 - KJ linking committed: `5d5d1bf` — POST /kj/sync/singers/{local_singer_id}/link merges history and soft-deletes local singer. QA passed end-to-end with payment merge.
 - Real-time singer broadcast committed: `a88d28a` — SingerEventPublisher emits singer_joined and singer_linked events. QA verified in-memory event bus receives events.
 - Flutter mobile identity committed: `dd128e3` — global auth repository, VenueStorage account + per-venue tokens, onboarding/QR flow, VenueSelectorScreen, profile edit via /accounts/me, Switch Venue button. `flutter analyze` shows only pre-existing warnings/info; `flutter test` all passed (37 tests).
-- Backend and mobile are in sync. Remaining optional: deploy backend to staging/VPS and run end-to-end mobile QA against live server.
+- Production backend deployed 2026-07-06: VPS `scales-api` rebuilt from `0eeffe7`, Alembic at `cebf7fd11692`, `/accounts/register` returns 201, `/accounts/me` returns 401 for invalid token.
+- Hermes API server on this machine: gateway/dashboard running on port 9119, local workspace server on port 4000, Hermes status shows gateway running with 5 active cron jobs.
 - Safe checkpoint: after each task finishes, commit and run `hermes kanban complete <id>`.
 
 ## Quota-Resilience Notes
@@ -42,3 +43,4 @@ Replace the current per-venue-only singer model with a global mobile account so 
 4. 2026-07-06: t_9a14a6c1 KJ linking done and pushed.
 5. 2026-07-06: t_b8a0b192 real-time singer broadcast done and pushed.
 6. 2026-07-06: t_0c418a6e, t_9587421a, t_ce0dc895 Flutter mobile identity done and pushed.
+7. 2026-07-06: t_3e4bece0 production backend deployed and smoke-tested.
