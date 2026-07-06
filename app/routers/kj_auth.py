@@ -93,7 +93,7 @@ class MessageResponse(_Base):
 # ---------------------------------------------------------------------------
 
 async def _require_admin(current: SingerUser) -> None:
-    if not has_role(current.role, Role.ADMIN):
+    if not has_role(current.role, {Role.ADMIN, Role.OWNER}):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required",

@@ -389,7 +389,7 @@ class QueueRequest(Base):
 
     id = Column(String(36), primary_key=True, default=_new_uuid)
     venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
-    singer_id = Column(String(36), ForeignKey("singers.id"), nullable=False)
+    singer_id = Column(String(36), ForeignKey("singers.id"), nullable=True)  # nullable before link
     song_id = Column(String(36), ForeignKey("songs.id"), nullable=False)
     status = Column(Text, nullable=False)  # pending|approved|now_playing|completed|skipped|rejected
     notes = Column(Text)

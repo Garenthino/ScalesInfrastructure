@@ -12,7 +12,7 @@ api_router.include_router(auth.router, prefix="/auth", tags=["Auth"])
 api_router.include_router(accounts.router, prefix="/accounts", tags=["Accounts"])
 api_router.include_router(kj_auth_router, prefix="/kj", tags=["KJ Auth"])
 api_router.include_router(kj_venue_router)
-api_router.include_router(kj_sync.router, prefix="/sync", tags=["Sync"])
+api_router.include_router(kj_sync.router, prefix="/kj/sync", tags=["Sync"])
 
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])
 api_router.include_router(admin_venues.router, prefix="/admin", tags=["Admin Venues"])

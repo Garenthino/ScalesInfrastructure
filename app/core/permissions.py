@@ -31,7 +31,9 @@ ROLE_HIERARCHY: dict[Role, set[Role]] = {
 }
 
 
-def has_role(user_role: Role, required: Role) -> bool:
+def has_role(user_role: Role, required: Role | set[Role]) -> bool:
     """Check if user_role has authority to act as required."""
     permitted = ROLE_HIERARCHY.get(user_role, set())
+    if isinstance(required, set):
+        return bool(permitted & required)
     return required in permitted

@@ -85,6 +85,18 @@ class ProblemDetail(ScalesModel):
     instance: str | None = None
 
 
+class SingerLinkRequest(ScalesModel):
+    target_singer_id: str | None = None
+    target_account_email: str | None = None
+
+
+class SingerLinkMergeOut(ScalesModel):
+    local_singer_id: str
+    target_singer_id: str
+    account_id: str | None = None
+    merged_records: dict[str, int]
+
+
 # ---------------------------------------------------------------------------
 # Venues
 # ---------------------------------------------------------------------------

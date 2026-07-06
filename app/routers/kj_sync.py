@@ -13,6 +13,7 @@ All endpoints require kj_auth() dependency.
 from __future__ import annotations
 
 import uuid
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -23,7 +24,7 @@ from sqlalchemy import select, func, and_, or_, update
 from app.core.auth import kj_auth, KJDeviceUser
 from app.core.db import get_db
 from app.core.queue_service import QueueService, QueueEventPublisher, TERMINAL_STATUSES
-from app.models import QueueRequest, Singer, Song, VenueConfig
+from app.models import QueueRequest, Singer, Song, VenueConfig, Account, Payment, SingerFavorite, SingerAchievement, SingerLinkMergeLog
 from app.schemas import (
     SyncQueuePushPayload,
     SyncQueuePullOut,
@@ -42,6 +43,8 @@ from app.schemas import (
     SyncSettingItem,
     SyncConflictResponse,
     SyncConflictDetail,
+    SingerLinkRequest,
+    SingerLinkMergeOut,
 )
 
 router = APIRouter()
@@ -666,6 +669,179 @@ async def pull_singers(
         items=items,
         deleted_ids=deleted_ids,
         server_modified_at=_now_iso(),
+    )
+
+
+@router.post("/singers/{local_singer_id}/link", response_model=SingerLinkMergeOut)
+async def link_singer_to_mobile(
+    local_singer_id: str,
+    body: SingerLinkRequest,
+    venue_id: str | None = None,
+    current: KJDeviceUser = Depends(kj_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Merge a non-mobile (local) singer into a mobile-linked target singer.
+
+    The local singer keeps its stage history, queue requests, payments,
+    favorites, and achievements. All those records are reassigned to the
+    target singer row, and the local singer is soft-deleted.
+    """
+    venue_id = venue_id or str(current.venue_id)
+    _require_venue_match(venue_id, current)
+
+    if not body.target_singer_id and not body.target_account_email:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Provide target_singer_id or target_account_email",
+        )
+
+    # Resolve local singer
+    local = (
+        await db.execute(
+            select(Singer).where(
+                Singer.id == local_singer_id,
+                Singer.venue_id == venue_id,
+                Singer.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if local is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Local singer not found")
+    if local.account_id is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Local singer is already linked to a mobile account",
+        )
+
+    # Resolve target
+    target: Singer | None = None
+    account: Account | None = None
+    if body.target_singer_id:
+        target = (
+            await db.execute(
+                select(Singer).where(
+                    Singer.id == body.target_singer_id,
+                    Singer.venue_id == venue_id,
+                    Singer.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if target is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Target singer not found")
+        account = (
+            await db.execute(
+                select(Account).where(Account.id == target.account_id)
+            )
+        ).scalar_one_or_none()
+    else:
+        account = (
+            await db.execute(
+                select(Account).where(
+                    Account.email == body.target_account_email,
+                    Account.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if account is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Account not found")
+        target = (
+            await db.execute(
+                select(Singer).where(
+                    Singer.account_id == account.id,
+                    Singer.venue_id == venue_id,
+                    Singer.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if target is None:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                detail="This account has not joined this venue yet",
+            )
+
+    if local.id == target.id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Cannot link a singer to itself",
+        )
+
+    now = _now_iso()
+    merged: dict[str, int] = {}
+
+    # 1. Queue requests
+    queue_res = await db.execute(
+        update(QueueRequest)
+        .where(
+            QueueRequest.singer_id == local.id,
+            QueueRequest.venue_id == venue_id,
+        )
+        .values(singer_id=target.id)
+    )
+    merged["queue_requests"] = queue_res.rowcount
+
+    # 2. Payments
+    payment_res = await db.execute(
+        update(Payment)
+        .where(Payment.singer_id == local.id)
+        .values(singer_id=target.id)
+    )
+    merged["payments"] = payment_res.rowcount
+
+    # 3. Favorites
+    fav_res = await db.execute(
+        update(SingerFavorite)
+        .where(SingerFavorite.singer_id == local.id)
+        .values(singer_id=target.id)
+    )
+    merged["favorites"] = fav_res.rowcount
+
+    # 4. Achievement progress
+    ach_res = await db.execute(
+        update(SingerAchievement)
+        .where(SingerAchievement.singer_id == local.id)
+        .values(singer_id=target.id)
+    )
+    merged["achievements"] = ach_res.rowcount
+
+    # 5. Merge profile fields: prefer mobile (target) values, fall back to local
+    target.stage_name = target.stage_name or local.stage_name
+    target.real_name = target.real_name or local.real_name
+    target.pronouns = target.pronouns or local.pronouns
+    target.phone = target.phone or local.phone
+    target.bio = target.bio or local.bio
+    target.avatar_url = target.avatar_url or local.avatar_url
+    target.social_links = target.social_links or local.social_links
+    target.total_points = (target.total_points or 0) + (local.total_points or 0)
+    target.notes = f"{target.notes or ''}\nMerged local singer {local.id}: {local.notes or ''}".strip()
+    target.updated_at = now
+
+    # Preserve the local identity as a merge log entry and soft-delete local row
+    log = SingerLinkMergeLog(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        source_singer_id=local.id,
+        target_singer_id=target.id,
+        merged_by_account_id=account.id if account else None,
+        merged_by_kj_device_id=current.id,
+        queue_requests_moved=merged.get("queue_requests", 0),
+        payments_moved=merged.get("payments", 0),
+        favorites_moved=merged.get("favorites", 0),
+        achievements_moved=merged.get("achievements", 0),
+        created_at=now,
+    )
+    db.add(log)
+
+    local.linked_singer_id = target.id
+    local.deleted_at = now
+    local.updated_at = now
+
+    await db.commit()
+
+    return SingerLinkMergeOut(
+        local_singer_id=local.id,
+        target_singer_id=target.id,
+        account_id=account.id if account else None,
+        merged_records=merged,
     )
 
 
