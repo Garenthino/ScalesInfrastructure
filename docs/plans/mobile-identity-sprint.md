@@ -26,7 +26,8 @@ Replace the current per-venue-only singer model with a global mobile account so 
 - Global account endpoints committed: `22bc07e` — POST /accounts/register, /accounts/login, /accounts/me, /accounts/refresh. QA passed via ASGI client.
 - Venue join committed: `20342e5` — POST /venues/{venue_id}/join creates per-venue Singer from account token; GET /venues/{venue_id}/singers/me added. QA passed end-to-end.
 - KJ linking committed: `5d5d1bf` — POST /kj/sync/singers/{local_singer_id}/link merges history and soft-deletes local singer. QA passed end-to-end with payment merge.
-- Next task to start: **t_b8a0b192** (real-time singer updates to KJ devices).
+- Real-time singer broadcast committed: `a88d28a` — SingerEventPublisher emits singer_joined and singer_linked events. QA verified in-memory event bus receives events.
+- Next tasks to start: **t_0c418a6e, t_9587421a, t_ce0dc895** (Flutter global auth, onboarding, profile/multi-venue). These can run in parallel; backend endpoints are ready.
 - Safe checkpoint: after each task finishes, commit and run `hermes kanban complete <id>`.
 
 ## Quota-Resilience Notes
@@ -38,3 +39,4 @@ Replace the current per-venue-only singer model with a global mobile account so 
 2. 2026-07-04: t_77d8c3e7 and t_5600569d global account endpoints done and pushed.
 3. 2026-07-04: t_2ad55995 venue join done and pushed.
 4. 2026-07-06: t_9a14a6c1 KJ linking done and pushed.
+5. 2026-07-06: t_b8a0b192 real-time singer broadcast done and pushed.
