@@ -23,7 +23,7 @@ from sqlalchemy import select, func, and_, or_, update
 
 from app.core.auth import kj_auth, KJDeviceUser
 from app.core.db import get_db
-from app.core.queue_service import QueueService, QueueEventPublisher, TERMINAL_STATUSES
+from app.core.queue_service import QueueService, QueueEventPublisher, TERMINAL_STATUSES, SingerEventPublisher
 from app.models import QueueRequest, Singer, Song, VenueConfig, Account, Payment, SingerFavorite, SingerAchievement, SingerLinkMergeLog
 from app.schemas import (
     SyncQueuePushPayload,
@@ -836,6 +836,8 @@ async def link_singer_to_mobile(
     local.updated_at = now
 
     await db.commit()
+    await db.refresh(target)
+    await SingerEventPublisher.publish_singer_changed(venue_id, target, event_type="singer_linked")
 
     return SingerLinkMergeOut(
         local_singer_id=local.id,

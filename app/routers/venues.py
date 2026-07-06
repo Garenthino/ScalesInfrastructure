@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
+from app.core.queue_service import QueueService, QueueEventPublisher, ACTIVE_STATUSES, SingerEventPublisher
 from app.core.security import create_access_token, create_refresh_token
 from app.core.auth import get_current_user, SingerUser, optional_token
 from app.core.permissions import Role, has_role
@@ -356,6 +357,7 @@ async def join_venue(
         "venue_id": singer.venue_id,
         "role": "singer",
     }
+    await SingerEventPublisher.publish_singer_changed(venue_id, singer, event_type="singer_joined")
     return TokenPairOut(
         access_token=create_access_token(str(singer.id), extra_claims=claims),
         token_type="bearer",

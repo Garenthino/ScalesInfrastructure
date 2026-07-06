@@ -119,6 +119,40 @@ class QueueEventPublisher:
 
 
 # ---------------------------------------------------------------------------
+# Singer Event Publisher
+# ---------------------------------------------------------------------------
+
+class SingerEventPublisher:
+    """Publishes singer roster events for KJ real-time sync."""
+
+    @classmethod
+    async def publish_singer_changed(cls, venue_id: str, singer: Singer, event_type: str = "singer_changed") -> None:
+        """Broadcast a single singer update (new, updated, or linked)."""
+        payload = {
+            "singer_id": str(singer.id),
+            "account_id": str(singer.account_id) if singer.account_id else None,
+            "linked_singer_id": str(singer.linked_singer_id) if singer.linked_singer_id else None,
+            "stage_name": str(singer.stage_name) if singer.stage_name else None,
+            "real_name": str(singer.real_name) if singer.real_name else None,
+            "pronouns": str(singer.pronouns) if singer.pronouns else None,
+            "email": str(singer.email) if singer.email else None,
+            "phone": str(singer.phone) if singer.phone else None,
+            "notes": str(singer.notes) if singer.notes else None,
+            "total_points": singer.total_points or 0,
+            "loyalty_tier_id": str(singer.loyalty_tier_id) if singer.loyalty_tier_id else None,
+            "deactivated_at": str(singer.deactivated_at) if singer.deactivated_at else None,
+            "created_at": str(singer.created_at) if singer.created_at else None,
+            "updated_at": str(singer.updated_at) if singer.updated_at else None,
+            "deleted_at": str(singer.deleted_at) if singer.deleted_at else None,
+        }
+        await QueueEventPublisher.publish(venue_id, event_type, payload)
+
+    @classmethod
+    async def publish_singer_deleted(cls, venue_id: str, singer_id: str) -> None:
+        await QueueEventPublisher.publish(venue_id, "singer_deleted", {"singer_id": singer_id})
+
+
+# ---------------------------------------------------------------------------
 # Queue Service
 # ---------------------------------------------------------------------------
 
