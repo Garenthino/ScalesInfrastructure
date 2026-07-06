@@ -44,3 +44,4 @@ Replace the current per-venue-only singer model with a global mobile account so 
 5. 2026-07-06: t_b8a0b192 real-time singer broadcast done and pushed.
 6. 2026-07-06: t_0c418a6e, t_9587421a, t_ce0dc895 Flutter mobile identity done and pushed.
 7. 2026-07-06: t_3e4bece0 production backend deployed and smoke-tested.
+8. 2026-07-06: t_3e4bece0 marked done in scales Kanban DB; Hermes API server on port 8642 started with HermesAPIServerKey; Telegram gateway test message delivered successfully.
