@@ -5,7 +5,9 @@ Organized by domain: venues, songs, singers, queue, loyalty, commerce, analytics
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, ConfigDict, EmailStr
+import json
+
+from pydantic import BaseModel, Field, ConfigDict, EmailStr, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +65,24 @@ class AccountMeOut(ScalesModel):
     is_active: bool = True
     created_at: str | None = None
     updated_at: str | None = None
+
+
+class AccountMeUpdate(ScalesModel):
+    real_name: str | None = None
+    pronouns: str | None = None
+    phone: str | None = None
+    bio: str | None = Field(None, max_length=500)
+    avatar_url: str | None = Field(None, max_length=500)
+    social_links: list[dict[str, Any]] | str | None = None
+
+    @field_validator("social_links", mode="before")
+    @classmethod
+    def _normalize_social_links(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        return json.dumps(value)
 
 
 class TokenPairOut(ScalesModel):
@@ -479,6 +499,7 @@ class SingerOut(SingerBase):
     bio: str | None = None
     avatar_url: str | None = None
     social_links: str | None = None
+    account_id: str | None = None
     deactivated_at: str | None = None
     created_at: str
     updated_at: str

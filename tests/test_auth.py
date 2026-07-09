@@ -249,6 +249,89 @@ async def test_refresh_invalid_token_returns_401(client):
 
 
 # ---------------------------------------------------------------------------
+# Global account identity + venue join regression
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_account_register_login_refresh_me_venue_join_and_singers_me(client, session):
+    """Regression: global account can register, login, refresh, call /me, join a venue,
+    and the resulting per-venue singer profile includes account_id."""
+    # Create a venue with an owner so the venue exists
+    venue = Venue(
+        id=str(uuid.uuid4()),
+        name="Account QA Venue",
+        slug=f"account-qa-{uuid.uuid4().hex[:6]}",
+        is_active=1,
+    )
+    session.add(venue)
+    await session.commit()
+
+    email = f"{uuid.uuid4().hex[:8]}@example.com"
+    password = "securepass123"
+
+    # Register global account
+    reg = await client.post("/v1/accounts/register", json={
+        "email": email,
+        "password": password,
+        "stage_name": "Mobile QA",
+        "real_name": "QA Mobile",
+    })
+    assert reg.status_code == 201
+    reg_data = reg.json()
+    account_id = reg_data["account_id"]
+    access_token = reg_data["access_token"]
+    refresh_token = reg_data["refresh_token"]
+
+    # Login
+    login = await client.post("/v1/accounts/login", json={"email": email, "password": password})
+    assert login.status_code == 200
+
+    # /accounts/me
+    me = await client.get("/v1/accounts/me", headers={"Authorization": f"Bearer {access_token}"})
+    assert me.status_code == 200
+    assert me.json()["email"] == email
+
+    # PUT /accounts/me regression (mobile edit profile 405 fix)
+    put = await client.put(
+        "/v1/accounts/me",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"real_name": "Updated QA", "bio": "Updated bio", "social_links": [{"platform": "x", "url": "https://x.com/qa"}]},
+    )
+    assert put.status_code == 200, put.text
+    put_data = put.json()
+    assert put_data["real_name"] == "Updated QA"
+    assert put_data["bio"] == "Updated bio"
+    assert '"platform": "x"' in put_data["social_links"]
+
+    # POST /accounts/me/avatar regression
+    avatar = await client.post(
+        "/v1/accounts/me/avatar",
+        headers={"Authorization": f"Bearer {access_token}"},
+        files={"file": ("avatar.png", b"\x89PNG\r\n\x1a\n", "image/png")},
+    )
+    assert avatar.status_code == 200, avatar.text
+    assert avatar.json()["avatar_url"].startswith("/uploads/avatars/accounts/")
+
+    # Refresh
+    refresh = await client.post("/v1/accounts/refresh", json={"refresh_token": refresh_token})
+    assert refresh.status_code == 200
+    new_token = refresh.json()["access_token"]
+
+    # Join venue
+    join = await client.post(f"/v1/venues/{venue.id}/join", headers={"Authorization": f"Bearer {new_token}"})
+    assert join.status_code == 200
+    singer_id = join.json()["account_id"]
+    singer_token = join.json()["access_token"]
+
+    # /singers/me must expose account_id for mobile identity continuity
+    sm = await client.get(f"/v1/venues/{venue.id}/singers/me", headers={"Authorization": f"Bearer {singer_token}"})
+    assert sm.status_code == 200
+    sm_data = sm.json()
+    assert sm_data["id"] == singer_id
+    assert sm_data.get("account_id") == account_id, f"expected account_id {account_id}, got {sm_data.get('account_id')}"
+
+
+# ---------------------------------------------------------------------------
 # RBAC middleware tests — using dynamic routes on the real app
 # ---------------------------------------------------------------------------
 

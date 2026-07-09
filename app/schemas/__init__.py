@@ -41,6 +41,7 @@ from app.schemas.dto import (
     AccountRegisterRequest,
     AccountLoginRequest,
     AccountMeOut,
+    AccountMeUpdate,
     TokenPairOut,
     AccountRegisterResponse,
     # Songs
