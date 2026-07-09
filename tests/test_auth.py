@@ -312,13 +312,8 @@ async def test_account_register_login_refresh_me_venue_join_and_singers_me(clien
     assert avatar.status_code == 200, avatar.text
     assert avatar.json()["avatar_url"].startswith("/uploads/avatars/accounts/")
 
-    # Refresh
-    refresh = await client.post("/v1/accounts/refresh", json={"refresh_token": refresh_token})
-    assert refresh.status_code == 200
-    new_token = refresh.json()["access_token"]
-
-    # Join venue
-    join = await client.post(f"/v1/venues/{venue.id}/join", headers={"Authorization": f"Bearer {new_token}"})
+    # Join venue first so there is a linked singer row to propagate updates into
+    join = await client.post(f"/v1/venues/{venue.id}/join", headers={"Authorization": f"Bearer {access_token}"})
     assert join.status_code == 200
     singer_id = join.json()["account_id"]
     singer_token = join.json()["access_token"]
@@ -329,6 +324,51 @@ async def test_account_register_login_refresh_me_venue_join_and_singers_me(clien
     sm_data = sm.json()
     assert sm_data["id"] == singer_id
     assert sm_data.get("account_id") == account_id, f"expected account_id {account_id}, got {sm_data.get('account_id')}"
+
+    # PUT /accounts/me regression (mobile edit profile 405 fix)
+    # This should also propagate to the linked per-venue singer row.
+    put = await client.put(
+        "/v1/accounts/me",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"real_name": "Updated QA", "bio": "Updated bio", "social_links": [{"platform": "x", "url": "https://x.com/qa"}]},
+    )
+    assert put.status_code == 200, put.text
+    put_data = put.json()
+    assert put_data["real_name"] == "Updated QA"
+    assert put_data["bio"] == "Updated bio"
+    assert '"platform": "x"' in put_data["social_links"]
+
+    # Per-venue singer row should reflect the same updates
+    sm2 = await client.get(f"/v1/venues/{venue.id}/singers/me", headers={"Authorization": f"Bearer {singer_token}"})
+    assert sm2.status_code == 200
+    sm2_data = sm2.json()
+    assert sm2_data["real_name"] == "Updated QA"
+    assert sm2_data["bio"] == "Updated bio"
+    assert '"platform": "x"' in sm2_data["social_links"]
+
+    # POST /accounts/me/avatar regression
+    avatar = await client.post(
+        "/v1/accounts/me/avatar",
+        headers={"Authorization": f"Bearer {access_token}"},
+        files={"file": ("avatar.png", b"\x89PNG\r\n\x1a\n", "image/png")},
+    )
+    assert avatar.status_code == 200, avatar.text
+    assert avatar.json()["avatar_url"].startswith("/uploads/avatars/accounts/")
+
+    # Avatar should also propagate to the linked singer row
+    sm3 = await client.get(f"/v1/venues/{venue.id}/singers/me", headers={"Authorization": f"Bearer {singer_token}"})
+    assert sm3.status_code == 200
+    assert sm3.json()["avatar_url"].startswith("/uploads/avatars/accounts/")
+
+    # Refresh
+    refresh = await client.post("/v1/accounts/refresh", json={"refresh_token": refresh_token})
+    assert refresh.status_code == 200
+    new_token = refresh.json()["access_token"]
+
+    # Re-joining the same venue should be idempotent and still return the same singer
+    rejoin = await client.post(f"/v1/venues/{venue.id}/join", headers={"Authorization": f"Bearer {new_token}"})
+    assert rejoin.status_code == 200
+    assert rejoin.json()["account_id"] == singer_id
 
 
 # ---------------------------------------------------------------------------

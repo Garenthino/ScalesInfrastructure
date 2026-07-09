@@ -25,10 +25,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.core.db import async_session_factory
+from app.core.queue_service import SingerEventPublisher
 from app.core.security import hash_password, verify_password
 from app.core.security import create_access_token, create_refresh_token, decode_token
 from app.core.auth import get_current_user, SingerUser
-from app.models import Account
+from app.models import Account, Singer
 from app.schemas import (
     AccountRegisterRequest,
     AccountLoginRequest,
@@ -207,7 +208,11 @@ async def update_account_me(
     body: AccountMeUpdate,
     current: SingerUser = Depends(get_current_user),
 ):
-    """Update the current global account profile."""
+    """Update the current global account profile.
+
+    Also propagates changed fields to every linked per-venue singer row
+    and broadcasts singer_changed events so the portal/KJ host stay in sync.
+    """
     if getattr(current, "role", None) != "account":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -229,6 +234,29 @@ async def update_account_me(
         account.updated_at = _now_iso()
         await session.commit()
         await session.refresh(account)
+
+        # Sync the same profile fields to every per-venue singer linked to this account
+        result = await session.execute(
+            select(Singer).where(
+                Singer.account_id == account.id,
+                Singer.deleted_at.is_(None),
+            )
+        )
+        linked_singers = result.scalars().all()
+        now = _now_iso()
+        for singer in linked_singers:
+            for key, value in update_data.items():
+                if key in allowed and value is not None:
+                    setattr(singer, key, value)
+            singer.updated_at = now
+        await session.commit()
+
+        # Broadcast real-time updates to each venue
+        for singer in linked_singers:
+            await SingerEventPublisher.publish_singer_changed(
+                str(singer.venue_id), singer, event_type="singer_changed"
+            )
+
         return _account_out(account)
 
 
@@ -291,6 +319,27 @@ async def upload_account_avatar(
         account.updated_at = _now_iso()
         await session.commit()
         await session.refresh(account)
+
+        # Sync the new avatar to every linked per-venue singer row
+        result = await session.execute(
+            select(Singer).where(
+                Singer.account_id == account.id,
+                Singer.deleted_at.is_(None),
+            )
+        )
+        linked_singers = result.scalars().all()
+        now = _now_iso()
+        for singer in linked_singers:
+            singer.avatar_url = avatar_url
+            singer.updated_at = now
+        await session.commit()
+
+        # Broadcast real-time updates to each venue
+        for singer in linked_singers:
+            await SingerEventPublisher.publish_singer_changed(
+                str(singer.venue_id), singer, event_type="singer_changed"
+            )
+
         return _account_out(account)
 
 
