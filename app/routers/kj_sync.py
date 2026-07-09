@@ -25,7 +25,6 @@ from app.core.auth import kj_auth, KJDeviceUser
 from app.core.db import get_db
 from app.core.queue_service import QueueService, QueueEventPublisher, TERMINAL_STATUSES
 from app.models import QueueRequest, Singer, Song, VenueConfig
-from app.services.singer_link import merge_local_singer_into_mobile
 from app.schemas import (
     SyncQueuePushPayload,
     SyncQueuePullOut,
@@ -699,18 +698,12 @@ async def link_singer_to_mobile(
 
 
 # ---------------------------------------------------------------------------
-# Songs
-# ---------------------------------------------------------------------------
-
-
-
-# ---------------------------------------------------------------------------
 # Songs (desktop-scan authoritative, cloud read-only except metadata_lock)
 # ---------------------------------------------------------------------------
 
 
 @router.post("/songs", status_code=200)
-async def push_song_scan(
+async def push_song_scan(  # type: ignore[no-redef]
     payload: SyncSongsScanPayload,
     current: KJDeviceUser = Depends(kj_auth),
     db: AsyncSession = Depends(get_db),
