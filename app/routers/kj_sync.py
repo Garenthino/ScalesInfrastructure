@@ -47,7 +47,6 @@ from app.schemas import (
     SingerLinkRequest,
     SingerLinkMergeOut,
 )
-from app.services.singer_link import merge_local_singer_into_mobile
 
 router = APIRouter()
 
