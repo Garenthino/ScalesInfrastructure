@@ -23,8 +23,9 @@ from sqlalchemy import select, func, and_, or_, update
 
 from app.core.auth import kj_auth, KJDeviceUser
 from app.core.db import get_db
-from app.core.queue_service import QueueService, QueueEventPublisher, TERMINAL_STATUSES, SingerEventPublisher
-from app.models import QueueRequest, Singer, Song, VenueConfig, Account, Payment, SingerFavorite, SingerAchievement, SingerLinkMergeLog
+from app.core.queue_service import QueueService, QueueEventPublisher, TERMINAL_STATUSES
+from app.models import QueueRequest, Singer, Song, VenueConfig
+from app.services.singer_link import merge_local_singer_into_mobile
 from app.schemas import (
     SyncQueuePushPayload,
     SyncQueuePullOut,
@@ -46,17 +47,13 @@ from app.schemas import (
     SingerLinkRequest,
     SingerLinkMergeOut,
 )
+from app.services.singer_link import merge_local_singer_into_mobile
 
 router = APIRouter()
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _require_venue_match(venue_id: str, current: KJDeviceUser) -> None:
     if str(current.venue_id) != str(venue_id):
@@ -390,7 +387,7 @@ async def push_now_playing(
             "is_dj_track": is_dj_track,
         }
         await QueueEventPublisher.publish(venue_id, "now_playing", now_playing_out)
-        # Only broadcast queue state for karaoke singers (queue changed:
+        # Broadcast queue state for karaoke singers (queue changed:
         # previous now_playing cleared, new now_playing set).
         # Skip for DJ tracks — queue is unchanged.
         if not is_dj_track:
@@ -689,162 +686,17 @@ async def link_singer_to_mobile(
     venue_id = venue_id or str(current.venue_id)
     _require_venue_match(venue_id, current)
 
-    if not body.target_singer_id and not body.target_account_email:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail="Provide target_singer_id or target_account_email",
-        )
-
-    # Resolve local singer
-    local = (
-        await db.execute(
-            select(Singer).where(
-                Singer.id == local_singer_id,
-                Singer.venue_id == venue_id,
-                Singer.deleted_at.is_(None),
-            )
-        )
-    ).scalar_one_or_none()
-    if local is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Local singer not found")
-    if local.account_id is not None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail="Local singer is already linked to a mobile account",
-        )
-
-    # Resolve target
-    target: Singer | None = None
-    account: Account | None = None
-    if body.target_singer_id:
-        target = (
-            await db.execute(
-                select(Singer).where(
-                    Singer.id == body.target_singer_id,
-                    Singer.venue_id == venue_id,
-                    Singer.deleted_at.is_(None),
-                )
-            )
-        ).scalar_one_or_none()
-        if target is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Target singer not found")
-        account = (
-            await db.execute(
-                select(Account).where(Account.id == target.account_id)
-            )
-        ).scalar_one_or_none()
-    else:
-        account = (
-            await db.execute(
-                select(Account).where(
-                    Account.email == body.target_account_email,
-                    Account.deleted_at.is_(None),
-                )
-            )
-        ).scalar_one_or_none()
-        if account is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Account not found")
-        target = (
-            await db.execute(
-                select(Singer).where(
-                    Singer.account_id == account.id,
-                    Singer.venue_id == venue_id,
-                    Singer.deleted_at.is_(None),
-                )
-            )
-        ).scalar_one_or_none()
-        if target is None:
-            raise HTTPException(
-                status.HTTP_404_NOT_FOUND,
-                detail="This account has not joined this venue yet",
-            )
-
-    if local.id == target.id:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail="Cannot link a singer to itself",
-        )
-
-    now = _now_iso()
-    merged: dict[str, int] = {}
-
-    # 1. Queue requests
-    queue_res = await db.execute(
-        update(QueueRequest)
-        .where(
-            QueueRequest.singer_id == local.id,
-            QueueRequest.venue_id == venue_id,
-        )
-        .values(singer_id=target.id)
-    )
-    merged["queue_requests"] = queue_res.rowcount
-
-    # 2. Payments
-    payment_res = await db.execute(
-        update(Payment)
-        .where(Payment.singer_id == local.id)
-        .values(singer_id=target.id)
-    )
-    merged["payments"] = payment_res.rowcount
-
-    # 3. Favorites
-    fav_res = await db.execute(
-        update(SingerFavorite)
-        .where(SingerFavorite.singer_id == local.id)
-        .values(singer_id=target.id)
-    )
-    merged["favorites"] = fav_res.rowcount
-
-    # 4. Achievement progress
-    ach_res = await db.execute(
-        update(SingerAchievement)
-        .where(SingerAchievement.singer_id == local.id)
-        .values(singer_id=target.id)
-    )
-    merged["achievements"] = ach_res.rowcount
-
-    # 5. Merge profile fields: prefer mobile (target) values, fall back to local
-    target.stage_name = target.stage_name or local.stage_name
-    target.real_name = target.real_name or local.real_name
-    target.pronouns = target.pronouns or local.pronouns
-    target.phone = target.phone or local.phone
-    target.bio = target.bio or local.bio
-    target.avatar_url = target.avatar_url or local.avatar_url
-    target.social_links = target.social_links or local.social_links
-    target.total_points = (target.total_points or 0) + (local.total_points or 0)
-    target.notes = f"{target.notes or ''}\nMerged local singer {local.id}: {local.notes or ''}".strip()
-    target.updated_at = now
-
-    # Preserve the local identity as a merge log entry and soft-delete local row
-    log = SingerLinkMergeLog(
-        id=str(uuid.uuid4()),
+    result = await merge_local_singer_into_mobile(
+        db=db,
         venue_id=venue_id,
-        source_singer_id=local.id,
-        target_singer_id=target.id,
-        merged_by_account_id=account.id if account else None,
+        local_singer_id=local_singer_id,
+        target_singer_id=body.target_singer_id,
+        target_account_email=body.target_account_email,
+        merged_by_account_id=None,
         merged_by_kj_device_id=current.id,
-        queue_requests_moved=merged.get("queue_requests", 0),
-        payments_moved=merged.get("payments", 0),
-        favorites_moved=merged.get("favorites", 0),
-        achievements_moved=merged.get("achievements", 0),
-        created_at=now,
     )
-    db.add(log)
-
-    local.linked_singer_id = target.id
-    local.deleted_at = now
-    local.updated_at = now
-
     await db.commit()
-    await db.refresh(target)
-    await SingerEventPublisher.publish_singer_changed(venue_id, target, event_type="singer_linked")
-
-    return SingerLinkMergeOut(
-        local_singer_id=local.id,
-        target_singer_id=target.id,
-        account_id=account.id if account else None,
-        merged_records=merged,
-    )
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1022,6 +874,114 @@ async def pull_song_metadata_corrections(
         for s in songs
     ]
     return SyncSongsPullOut(sync_timestamp=_now_iso(), updated_songs=items)
+
+
+# ---------------------------------------------------------------------------
+# Settings
+# ---------------------------------------------------------------------------
+
+@router.get("/settings/pull", response_model=SyncSettingsPullOut)
+async def pull_settings(
+    venue_id: str | None = None,
+    since: str | None = None,
+    current: KJDeviceUser = Depends(kj_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch venue config settings for KJ desktop."""
+    venue_id = venue_id or str(current.venue_id)
+    _require_venue_match(venue_id, current)
+
+    query = select(VenueConfig).where(VenueConfig.venue_id == venue_id)
+    if since:
+        query = query.where(
+            or_(
+                VenueConfig.updated_at > since,
+                VenueConfig.updated_at.is_(None),
+            )
+        )
+    result = await db.execute(query)
+    rows = result.scalars().all()
+    items = [
+        SyncSettingItem(
+            key=str(r.config_key),
+            value=str(r.config_value) if r.config_value is not None else None,
+            updated_at=str(r.updated_at) if r.updated_at is not None else _now_iso(),
+        )
+        for r in rows
+    ]
+    return SyncSettingsPullOut(items=items, server_modified_at=_now_iso())
+
+
+@router.post("/settings/push", status_code=200)
+async def push_settings(
+    body: SyncSettingsPushPayload,
+    venue_id: str | None = None,
+    current: KJDeviceUser = Depends(kj_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Push venue config settings from KJ desktop with last-write-wins conflict resolution."""
+    venue_id = venue_id or str(current.venue_id)
+    _require_venue_match(venue_id, current)
+
+    conflicts: list[SyncConflictDetail] = []
+    synced = 0
+
+    for item in body.items:
+        existing = (
+            await db.execute(
+                select(VenueConfig).where(
+                    VenueConfig.venue_id == venue_id,
+                    VenueConfig.config_key == item.key,
+                )
+            )
+        ).scalar_one_or_none()
+
+        if existing:
+            if (
+                body.last_modified_at
+                and existing.updated_at
+                and str(existing.updated_at) > str(body.last_modified_at)
+            ):
+                conflicts.append(
+                    SyncConflictDetail(
+                        entity_type="settings",
+                        entity_id=item.key,
+                        server_state={
+                            "key": str(existing.config_key),
+                            "value": str(existing.config_value) if existing.config_value is not None else None,
+                            "updated_at": str(existing.updated_at),
+                        },
+                        client_state={"key": item.key, "value": item.value, "updated_at": item.updated_at},
+                        resolution="server_wins",
+                    )
+                )
+                continue
+            existing.config_value = item.value
+            existing.updated_at = item.updated_at
+        else:
+            db.add(
+                VenueConfig(
+                    id=str(uuid.uuid4()),
+                    venue_id=venue_id,
+                    config_key=item.key,
+                    config_value=item.value,
+                    updated_at=item.updated_at,
+                )
+            )
+        synced += 1
+
+    await db.commit()
+
+    if conflicts:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=SyncConflictResponse(
+                detail=f"{len(conflicts)} setting conflict(s) detected — server state preserved",
+                conflicts=conflicts,
+            ).model_dump(),
+        )
+
+    return {"synced": synced, "conflicts": 0}
 
 
 
