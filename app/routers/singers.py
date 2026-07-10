@@ -77,20 +77,75 @@ def _now_iso() -> str:
 
 def _singer_out(singer: Singer) -> SingerOut:
     """Map ORM Singer to Pydantic SingerOut with frontend-compatible aliases."""
+    account_id_str = None
+    if singer.account_id:
+        account_id_str = str(singer.account_id)
     data = {
-        k: getattr(singer, k, None)
-        for k in Singer.__table__.columns.keys()
-        if k != "password_hash"
+        "id": str(singer.id),
+        "singer_id": str(singer.id),
+        "venue_id": str(singer.venue_id),
+        "stage_name": str(singer.stage_name),
+        "name": str(singer.stage_name),
+        "display_name": str(singer.stage_name),
+        "first_name": singer.first_name,
+        "last_name": singer.last_name,
+        "display_real_name": None,
+        "real_name": singer.real_name,
+        "pronouns": singer.pronouns,
+        "email": singer.email,
+        "phone": singer.phone,
+        "notes": singer.notes,
+        "total_points": singer.total_points or 0,
+        "loyalty_tier_id": str(singer.loyalty_tier_id) if singer.loyalty_tier_id else None,
+        "tier": str(singer.loyalty_tier_id) if singer.loyalty_tier_id else "none",
+        "total_visits": 0,
+        "last_visit_date": str(singer.last_seen) if singer.last_seen else None,
+        "last_seen": str(singer.last_seen) if singer.last_seen else None,
+        "is_checked_in": False,
+        "checked_in_at": None,
+        "status": "active" if singer.deactivated_at is None else "banned",
+        "bio": singer.bio,
+        "avatar_url": singer.avatar_url,
+        "social_links": singer.social_links,
+        "account_id": account_id_str,
+        "deactivated_at": str(singer.deactivated_at) if singer.deactivated_at else None,
+        "created_at": str(singer.created_at),
+        "updated_at": str(singer.updated_at) if singer.updated_at else None,
     }
-    # Frontend-compatible aliases
-    data["singer_id"] = data["id"]
-    data["name"] = data.get("stage_name", "")
-    data["display_name"] = data.get("stage_name", "")
-    data["tier"] = data.get("loyalty_tier_id", "none") or "none"
-    data["total_visits"] = 0  # TODO: compute from check-in sessions
-    data["last_visit_date"] = data.get("last_seen", None)
-    data["status"] = "banned" if data.get("deactivated_at") else "active"
     return SingerOut(**data)
+
+
+async def _sync_singer_profile_to_account(db: AsyncSession, singer: Singer) -> None:
+    """Push singer profile edits up to the linked global account.
+
+    Keeps the account record in sync so other venues see consistent first/last
+    name, pronouns, phone, bio, avatar, and social_links.
+    """
+    if not singer.account_id:
+        return
+
+    from app.models import Account
+
+    account = (
+        await db.execute(
+            select(Account).where(
+                Account.id == singer.account_id,
+                Account.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if account is None:
+        return
+
+    # Only copy fields that are part of the public profile; never copy venue-scoped notes.
+    fields = ["first_name", "last_name", "real_name", "pronouns", "phone", "bio", "avatar_url", "social_links"]
+    for field in fields:
+        singer_value = getattr(singer, field, None)
+        if singer_value is not None:
+            setattr(account, field, singer_value)
+    account.updated_at = _now_iso()
+    db.add(account)
+    await db.commit()
 
 
 def _require_venue(venue_id: str, current: SingerUser) -> None:
@@ -367,6 +422,36 @@ async def update_profile(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
 
     update_data = body.model_dump(exclude_unset=True)
+
+    # Normalize stage_name before uniqueness check
+    new_stage_name = update_data.get("stage_name")
+    if new_stage_name is not None:
+        new_stage_name = new_stage_name.strip()
+        if not new_stage_name:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="stage_name cannot be empty",
+            )
+        update_data["stage_name"] = new_stage_name
+
+    # If stage_name is changing, ensure no other singer at this venue already uses it.
+    if new_stage_name is not None and new_stage_name != singer.stage_name:
+        existing = (
+            await db.execute(
+                select(Singer.id).where(
+                    Singer.venue_id == venue_id,
+                    Singer.stage_name == new_stage_name,
+                    Singer.id != singer.id,
+                    Singer.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail=f"Stage name '{new_stage_name}' is already taken at this venue",
+            )
+
     for key, value in update_data.items():
         if value is not None:
             setattr(singer, key, value)
@@ -374,6 +459,11 @@ async def update_profile(
     singer.updated_at = _now_iso()
     await db.commit()
     await db.refresh(singer)
+
+    # If this singer is linked to a global account, propagate profile changes upward
+    if singer.account_id:
+        await _sync_singer_profile_to_account(db, singer)
+
     return _singer_out(singer)
 
 

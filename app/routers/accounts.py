@@ -83,6 +83,8 @@ def _account_out(account: Account) -> AccountMeOut:
     return AccountMeOut(
         id=account.id,
         email=account.email,
+        first_name=account.first_name,
+        last_name=account.last_name,
         real_name=account.real_name,
         pronouns=account.pronouns,
         phone=account.phone,
@@ -122,6 +124,8 @@ async def register_account(body: AccountRegisterRequest):
             id=str(uuid.uuid4()),
             email=body.email,
             password_hash=hash_password(body.password),
+            first_name=body.first_name,
+            last_name=body.last_name,
             real_name=body.real_name,
             pronouns=body.pronouns,
             phone=body.phone,
@@ -220,12 +224,59 @@ async def update_account_me(
         )
 
     update_data = body.model_dump(exclude_unset=True)
-    allowed = {"real_name", "pronouns", "phone", "bio", "avatar_url", "social_links"}
+    allowed = {
+        "stage_name",
+        "first_name",
+        "last_name",
+        "real_name",
+        "pronouns",
+        "phone",
+        "bio",
+        "avatar_url",
+        "social_links",
+    }
 
     async with async_session_factory() as session:
         account = await _get_account_by_id(session, current.id)
         if not account:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Account not found")
+
+        # Normalize stage_name before uniqueness check
+        new_stage_name = update_data.get("stage_name")
+        if new_stage_name is not None:
+            new_stage_name = new_stage_name.strip()
+            if not new_stage_name:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="stage_name cannot be empty",
+                )
+            update_data["stage_name"] = new_stage_name
+
+        # If stage_name is changing, ensure no other singer at each linked venue already uses it.
+        if new_stage_name is not None and new_stage_name != getattr(account, "stage_name", None):
+            result = await session.execute(
+                select(Singer).where(
+                    Singer.account_id == account.id,
+                    Singer.deleted_at.is_(None),
+                )
+            )
+            linked_singers = result.scalars().all()
+            for singer in linked_singers:
+                existing = (
+                    await session.execute(
+                        select(Singer.id).where(
+                            Singer.venue_id == singer.venue_id,
+                            Singer.stage_name == new_stage_name,
+                            Singer.id != singer.id,
+                            Singer.deleted_at.is_(None),
+                        )
+                    )
+                ).scalar_one_or_none()
+                if existing:
+                    raise HTTPException(
+                        status.HTTP_409_CONFLICT,
+                        detail=f"Stage name '{new_stage_name}' is already taken at this venue",
+                    )
 
         for key, value in update_data.items():
             if key in allowed and value is not None:

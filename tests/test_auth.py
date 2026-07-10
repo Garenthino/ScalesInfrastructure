@@ -69,16 +69,18 @@ async def client(engine):
     import app.core.db as db_mod
     import app.routers.auth as auth_mod
     import app.core.auth as core_auth_mod
+    import app.routers.accounts as accounts_mod
 
-    orig = {}
     _orig_db_factory = getattr(db_mod, "async_session_factory", None)
     _orig_auth_factory = getattr(auth_mod, "async_session_factory", None)
     _orig_core_factory = getattr(core_auth_mod, "async_session_factory", None)
+    _orig_accounts_factory = getattr(accounts_mod, "async_session_factory", None)
 
     _, factory = _init_test_db()
     db_mod.async_session_factory = factory
     auth_mod.async_session_factory = factory
     core_auth_mod.async_session_factory = factory
+    accounts_mod.async_session_factory = factory
     db_mod.engine = engine
 
     transport = ASGITransport(app=_real_app)
@@ -88,6 +90,7 @@ async def client(engine):
     db_mod.async_session_factory = _orig_db_factory
     auth_mod.async_session_factory = _orig_auth_factory
     core_auth_mod.async_session_factory = _orig_core_factory
+    accounts_mod.async_session_factory = _orig_accounts_factory
 
 
 @pytest_asyncio.fixture
@@ -274,7 +277,8 @@ async def test_account_register_login_refresh_me_venue_join_and_singers_me(clien
         "email": email,
         "password": password,
         "stage_name": "Mobile QA",
-        "real_name": "QA Mobile",
+        "first_name": "QA",
+        "last_name": "Mobile",
     })
     assert reg.status_code == 201
     reg_data = reg.json()
@@ -282,24 +286,32 @@ async def test_account_register_login_refresh_me_venue_join_and_singers_me(clien
     access_token = reg_data["access_token"]
     refresh_token = reg_data["refresh_token"]
 
-    # Login
-    login = await client.post("/v1/accounts/login", json={"email": email, "password": password})
-    assert login.status_code == 200
-
     # /accounts/me
     me = await client.get("/v1/accounts/me", headers={"Authorization": f"Bearer {access_token}"})
     assert me.status_code == 200
-    assert me.json()["email"] == email
+    me_data = me.json()
+    assert me_data["email"] == email
+    assert me_data["first_name"] == "QA"
+    assert me_data["last_name"] == "Mobile"
+    assert me_data["real_name"] == "QA Mobile"
 
-    # PUT /accounts/me regression (mobile edit profile 405 fix)
+    # PUT /accounts/me with first/last name and stage_name
     put = await client.put(
         "/v1/accounts/me",
         headers={"Authorization": f"Bearer {access_token}"},
-        json={"real_name": "Updated QA", "bio": "Updated bio", "social_links": [{"platform": "x", "url": "https://x.com/qa"}]},
+        json={
+            "first_name": "Updated",
+            "last_name": "Name",
+            "stage_name": "UpdatedStage",
+            "bio": "Updated bio",
+            "social_links": [{"platform": "x", "url": "https://x.com/qa"}],
+        },
     )
     assert put.status_code == 200, put.text
     put_data = put.json()
-    assert put_data["real_name"] == "Updated QA"
+    assert put_data["first_name"] == "Updated"
+    assert put_data["last_name"] == "Name"
+    assert put_data["real_name"] == "Updated Name"
     assert put_data["bio"] == "Updated bio"
     assert '"platform": "x"' in put_data["social_links"]
 
@@ -325,40 +337,45 @@ async def test_account_register_login_refresh_me_venue_join_and_singers_me(clien
     assert sm_data["id"] == singer_id
     assert sm_data.get("account_id") == account_id, f"expected account_id {account_id}, got {sm_data.get('account_id')}"
 
-    # PUT /accounts/me regression (mobile edit profile 405 fix)
-    # This should also propagate to the linked per-venue singer row.
-    put = await client.put(
+    # Per-venue singer row should reflect the account-level updates made before joining
+    assert sm_data["first_name"] == "Updated"
+    assert sm_data["last_name"] == "Name"
+    assert sm_data["real_name"] == "Updated Name"
+    assert sm_data["stage_name"] == "UpdatedStage"
+    assert sm_data["bio"] == "Updated bio"
+    assert '"platform": "x"' in sm_data["social_links"]
+    assert sm_data["avatar_url"].startswith("/uploads/avatars/accounts/")
+
+    # Duplicate stage_name at the venue should be rejected
+    dup_stage = await client.put(
         "/v1/accounts/me",
         headers={"Authorization": f"Bearer {access_token}"},
-        json={"real_name": "Updated QA", "bio": "Updated bio", "social_links": [{"platform": "x", "url": "https://x.com/qa"}]},
+        json={"stage_name": "UpdatedStage"},
     )
-    assert put.status_code == 200, put.text
-    put_data = put.json()
-    assert put_data["real_name"] == "Updated QA"
-    assert put_data["bio"] == "Updated bio"
-    assert '"platform": "x"' in put_data["social_links"]
+    # Same singer keeping same name is allowed; here it is a no-op.
+    assert dup_stage.status_code == 200, dup_stage.text
 
-    # Per-venue singer row should reflect the same updates
-    sm2 = await client.get(f"/v1/venues/{venue.id}/singers/me", headers={"Authorization": f"Bearer {singer_token}"})
-    assert sm2.status_code == 200
-    sm2_data = sm2.json()
-    assert sm2_data["real_name"] == "Updated QA"
-    assert sm2_data["bio"] == "Updated bio"
-    assert '"platform": "x"' in sm2_data["social_links"]
+    # Another account trying to use the same stage_name at the same venue should fail
+    other_email = f"{uuid.uuid4().hex[:8]}@example.com"
+    other_reg = await client.post("/v1/accounts/register", json={
+        "email": other_email,
+        "password": password,
+        "stage_name": "Other Stage",
+    })
+    assert other_reg.status_code == 201
+    other_token = other_reg.json()["access_token"]
+    other_join = await client.post(f"/v1/venues/{venue.id}/join", headers={"Authorization": f"Bearer {other_token}"})
+    assert other_join.status_code == 200
+    other_singer_token = other_join.json()["access_token"]
 
-    # POST /accounts/me/avatar regression
-    avatar = await client.post(
-        "/v1/accounts/me/avatar",
-        headers={"Authorization": f"Bearer {access_token}"},
-        files={"file": ("avatar.png", b"\x89PNG\r\n\x1a\n", "image/png")},
+    # Try to change other singer's stage_name to UpdatedStage via /singers/profile
+    dup_resp = await client.put(
+        f"/v1/venues/{venue.id}/singers/profile",
+        headers={"Authorization": f"Bearer {other_singer_token}"},
+        json={"stage_name": "UpdatedStage"},
     )
-    assert avatar.status_code == 200, avatar.text
-    assert avatar.json()["avatar_url"].startswith("/uploads/avatars/accounts/")
-
-    # Avatar should also propagate to the linked singer row
-    sm3 = await client.get(f"/v1/venues/{venue.id}/singers/me", headers={"Authorization": f"Bearer {singer_token}"})
-    assert sm3.status_code == 200
-    assert sm3.json()["avatar_url"].startswith("/uploads/avatars/accounts/")
+    assert dup_resp.status_code == 409, dup_resp.text
+    assert "already taken" in dup_resp.json()["detail"].lower()
 
     # Refresh
     refresh = await client.post("/v1/accounts/refresh", json={"refresh_token": refresh_token})

@@ -143,6 +143,14 @@ export interface Singer {
   singer_id: string;
   name: string;
   display_name?: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  real_name?: string | null;
+  display_real_name?: string | null;
+  pronouns?: string | null;
+  bio?: string | null;
+  avatar_url?: string | null;
+  social_links?: string | null;
   tier: SingerLoyaltyTier;
   total_visits: number;
   last_visit_date: string | null;

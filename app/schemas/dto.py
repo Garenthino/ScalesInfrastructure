@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 import json
 
-from pydantic import BaseModel, Field, ConfigDict, EmailStr, field_validator
+from pydantic import BaseModel, Field, ConfigDict, EmailStr, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -40,12 +40,31 @@ class AccountRegisterRequest(ScalesModel):
     email: EmailStr
     password: str = Field(..., min_length=6, max_length=128)
     stage_name: str = Field(..., min_length=1, max_length=50)
-    real_name: str | None = None
+    first_name: str | None = Field(None, max_length=50)
+    last_name: str | None = Field(None, max_length=50)
+    real_name: str | None = Field(None, max_length=100)  # legacy full name; derived from first/last if absent
     pronouns: str | None = None
     phone: str | None = None
     bio: str | None = Field(None, max_length=500)
     avatar_url: str | None = Field(None, max_length=500)
     social_links: str | None = Field(None, max_length=1000)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_and_strip_names(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for key in ("first_name", "last_name"):
+                value = data.get(key)
+                if isinstance(value, str):
+                    stripped = value.strip()
+                    data[key] = stripped if stripped else None
+            if not data.get("real_name"):
+                first = data.get("first_name")
+                last = data.get("last_name")
+                parts = [p for p in (first, last) if p]
+                if parts:
+                    data["real_name"] = " ".join(parts)
+        return data
 
 
 class AccountLoginRequest(ScalesModel):
@@ -56,6 +75,8 @@ class AccountLoginRequest(ScalesModel):
 class AccountMeOut(ScalesModel):
     id: str
     email: str
+    first_name: str | None = None
+    last_name: str | None = None
     real_name: str | None = None
     pronouns: str | None = None
     phone: str | None = None
@@ -68,7 +89,10 @@ class AccountMeOut(ScalesModel):
 
 
 class AccountMeUpdate(ScalesModel):
-    real_name: str | None = None
+    stage_name: str | None = Field(None, min_length=1, max_length=50)
+    first_name: str | None = Field(None, max_length=50)
+    last_name: str | None = Field(None, max_length=50)
+    real_name: str | None = Field(None, max_length=100)
     pronouns: str | None = None
     phone: str | None = None
     bio: str | None = Field(None, max_length=500)
@@ -83,6 +107,23 @@ class AccountMeUpdate(ScalesModel):
         if isinstance(value, str):
             return value
         return json.dumps(value)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_and_strip_names(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for key in ("first_name", "last_name"):
+                value = data.get(key)
+                if isinstance(value, str):
+                    stripped = value.strip()
+                    data[key] = stripped if stripped else None
+            if "real_name" not in data or not data.get("real_name"):
+                first = data.get("first_name")
+                last = data.get("last_name")
+                parts = [p for p in (first, last) if p]
+                if parts:
+                    data["real_name"] = " ".join(parts)
+        return data
 
 
 class TokenPairOut(ScalesModel):
@@ -457,6 +498,8 @@ class SongListParams(ScalesModel):
 
 class SingerBase(ScalesModel):
     stage_name: str = Field(..., min_length=1, max_length=50)
+    first_name: str | None = Field(None, max_length=50)
+    last_name: str | None = Field(None, max_length=50)
     real_name: str | None = None
     pronouns: str | None = None
     email: str | None = None
@@ -470,6 +513,8 @@ class SingerCreate(SingerBase):
 
 class SingerUpdate(ScalesModel):
     stage_name: str | None = Field(None, min_length=1, max_length=50)
+    first_name: str | None = Field(None, max_length=50)
+    last_name: str | None = Field(None, max_length=50)
     real_name: str | None = None
     pronouns: str | None = None
     email: str | None = None
@@ -487,6 +532,7 @@ class SingerOut(SingerBase):
     venue_id: str
     name: str       # alias for stage_name (frontend compat)
     display_name: str | None = None  # alias for stage_name
+    display_real_name: str | None = None  # derived from first/last/real_name
     tier: str = "none"  # alias for loyalty_tier_id
     total_visits: int = 0
     last_visit_date: str | None = None  # alias for last_seen
@@ -503,6 +549,24 @@ class SingerOut(SingerBase):
     deactivated_at: str | None = None
     created_at: str
     updated_at: str
+
+    @field_validator("name", "display_name", mode="before")
+    @classmethod
+    def _derive_stage_name(cls, value: str | None, info) -> str | None:
+        if value:
+            return value
+        return info.data.get("stage_name")
+
+    @field_validator("display_real_name", mode="before")
+    @classmethod
+    def _derive_display_real_name(cls, value: str | None, info) -> str | None:
+        if value:
+            return value
+        data = info.data
+        parts = [p for p in (data.get("first_name"), data.get("last_name")) if p]
+        if parts:
+            return " ".join(parts)
+        return data.get("real_name")
 
 
 class CheckInSessionOut(ScalesModel):
@@ -1046,11 +1110,30 @@ class SingerProfileStats(ScalesModel):
 class SingerMeUpdate(ScalesModel):
     """Self-service profile update body (singer can update only their own profile)."""
     stage_name: str | None = Field(None, min_length=1, max_length=50)
+    first_name: str | None = Field(None, max_length=50)
+    last_name: str | None = Field(None, max_length=50)
     real_name: str | None = None
     pronouns: str | None = None
     phone: str | None = None
     bio: str | None = Field(None, max_length=500)
     social_links: str | None = Field(None, max_length=1000)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_and_strip_names(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for key in ("first_name", "last_name"):
+                value = data.get(key)
+                if isinstance(value, str):
+                    stripped = value.strip()
+                    data[key] = stripped if stripped else None
+            if "real_name" not in data or not data.get("real_name"):
+                first = data.get("first_name")
+                last = data.get("last_name")
+                parts = [p for p in (first, last) if p]
+                if parts:
+                    data["real_name"] = " ".join(parts)
+        return data
 
 
 # ---------------------------------------------------------------------------
@@ -1087,6 +1170,8 @@ class SyncQueuePullOut(ScalesModel):
 class SyncSingerItem(ScalesModel):
     id: str
     stage_name: str
+    first_name: str | None = None
+    last_name: str | None = None
     real_name: str | None = None
     pronouns: str | None = None
     email: str | None = None
@@ -1160,10 +1245,17 @@ class SyncSongsScanPayload(ScalesModel):
     corrupted: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class SyncSongAvailabilityUpdate(ScalesModel):
+    song_id: str | None = None
+    file_path: str | None = None
+    available: bool = True
+    reason: str | None = None
+
+
 class SyncSongsAvailabilityBatch(ScalesModel):
     venue_id: str | None = None
     device_id: str | None = None
-    updates: list[dict[str, Any]] = Field(default_factory=list)
+    updates: list[SyncSongAvailabilityUpdate] = Field(default_factory=list)
 
 
 class SyncSongsPullOut(ScalesModel):

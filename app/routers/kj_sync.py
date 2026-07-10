@@ -177,10 +177,16 @@ async def push_queue(
             )
         ).scalar_one_or_none()
         if not existing_singer:
+            # Auto-create a stub singer for an unknown singer_id. Use the
+            # request notes only as a fallback display name; do not store them
+            # in singer.notes (that column is for internal venue notes only).
+            fallback_stage = (item.notes or "Unknown").strip()
+            if not fallback_stage:
+                fallback_stage = "Unknown"
             db.add(Singer(
                 id=item.singer_id,
                 venue_id=venue_id,
-                stage_name=item.notes or "Unknown",
+                stage_name=fallback_stage,
                 created_at=_now_iso(),
                 updated_at=_now_iso(),
             ))
@@ -208,11 +214,23 @@ async def push_queue(
 
         if existing:
             # Conflict detection: if server updated_at > client last_modified_at
-            if body.last_modified_at and existing.updated_at and str(existing.updated_at) > str(body.last_modified_at):
-                # KJ desktop is authoritative while it is online. Skip server-wins
-                # conflict resolution for queue state — the client drives the
-                # rotation.
-                pass
+            is_conflict = (
+                body.last_modified_at
+                and existing.updated_at
+                and str(existing.updated_at) > str(body.last_modified_at)
+            )
+            if is_conflict:
+                conflicts.append(
+                    SyncConflictDetail(
+                        entity_type="queue",
+                        entity_id=str(existing.id),
+                        server_state=_queue_item_to_dict(existing),
+                        client_state=item.model_dump(),
+                        resolution="server_wins",
+                    )
+                )
+                # KJ desktop is authoritative while it is online, so still apply
+                # the incoming queue state. The conflict record is informational.
             # Always trust the KJ desktop's incoming status unless the server
             # has already moved this item to a terminal state.
             existing.singer_id = item.singer_id
@@ -519,13 +537,16 @@ async def push_singers(
                 )
                 continue
 
-            # Client wins on editable fields; preserve server loyalty/tier
+            # Client wins on editable fields; preserve server loyalty/tier.
+            # KJ desktop "notes" stay in QueueRequest.notes and are never
+            # written to Singer.notes, which is reserved for internal venue notes.
             existing.stage_name = item.stage_name
             existing.real_name = item.real_name
+            existing.first_name = item.first_name
+            existing.last_name = item.last_name
             existing.pronouns = item.pronouns
             existing.email = item.email
             existing.phone = item.phone
-            existing.notes = item.notes
             existing.last_seen = item.last_seen or existing.last_seen
             existing.deactivated_at = item.deactivated_at
             existing.updated_at = _now_iso()
@@ -535,10 +556,11 @@ async def push_singers(
                 venue_id=venue_id,
                 stage_name=item.stage_name,
                 real_name=item.real_name,
+                first_name=item.first_name,
+                last_name=item.last_name,
                 pronouns=item.pronouns,
                 email=item.email,
                 phone=item.phone,
-                notes=item.notes,
                 total_points=item.total_points,
                 loyalty_tier_id=item.loyalty_tier_id,
                 last_seen=item.last_seen,
@@ -591,6 +613,8 @@ def _singer_item_to_dict(singer: Singer) -> dict[str, Any]:
     return {
         "id": str(singer.id),
         "stage_name": str(singer.stage_name),
+        "first_name": str(singer.first_name) if singer.first_name is not None else None,
+        "last_name": str(singer.last_name) if singer.last_name is not None else None,
         "real_name": str(singer.real_name) if singer.real_name is not None else None,
         "pronouns": str(singer.pronouns) if singer.pronouns is not None else None,
         "email": str(singer.email) if singer.email is not None else None,
@@ -609,6 +633,8 @@ def _singer_item_to_sync(singer: Singer) -> SyncSingerItem:
     return SyncSingerItem(
         id=str(singer.id),
         stage_name=str(singer.stage_name),
+        first_name=str(singer.first_name) if singer.first_name is not None else None,
+        last_name=str(singer.last_name) if singer.last_name is not None else None,
         real_name=str(singer.real_name) if singer.real_name is not None else None,
         pronouns=str(singer.pronouns) if singer.pronouns is not None else None,
         email=str(singer.email) if singer.email is not None else None,
@@ -815,10 +841,10 @@ async def push_song_availability(
                 )
             )
             song = result.scalar_one_or_none()
-        elif item.get("file_path"):
+        elif item.file_path:
             result = await db.execute(
                 select(Song).where(
-                    and_(Song.venue_id == payload.venue_id, Song.file_path == item.get("file_path"))
+                    and_(Song.venue_id == payload.venue_id, Song.file_path == item.file_path)
                 )
             )
             song = result.scalar_one_or_none()

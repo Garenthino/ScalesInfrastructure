@@ -14,6 +14,7 @@ Endpoints under test:
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 from fastapi import status
@@ -63,6 +64,19 @@ async def kj_venue(db: AsyncSession):
 async def populated_queue(db: AsyncSession, kj_venue):
     """Seed 4 queue requests (2 pending, 2 approved) — no now_playing."""
     venue_id, kj_id, singer_id, songs = kj_venue
+
+    # Mark the KJ as recently seen so queue/list considers the show online.
+    from app.models import KJDevice
+    from app.core.security import hash_password
+    device = KJDevice(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        name="Test KJ",
+        api_key_hash=hash_password("test-key"),
+        last_seen=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    db.add(device)
+
     items = [
         QueueRequest(
             id=str(uuid.uuid4()),

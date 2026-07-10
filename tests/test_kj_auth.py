@@ -215,8 +215,8 @@ async def test_kj_list_devices_admin(client, db, jwt_encode):
     resp = await client.get("/v1/kj/devices", headers=AUTHORIZATION(token))
     assert resp.status_code == status.HTTP_200_OK
     data = resp.json()
-    assert len(data["devices"]) == 2
-    names = {d["name"] for d in data["devices"]}
+    assert len(data["items"]) == 2
+    names = {d["name"] for d in data["items"]}
     assert names == {"Device A", "Device B"}
 
 

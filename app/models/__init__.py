@@ -230,7 +230,10 @@ class Account(Base):
     password_hash = Column(Text)
     auth_provider = Column(Text)
     auth_provider_id = Column(Text)
-    real_name = Column(Text)
+    stage_name = Column(Text)  # preferred stage name for new venue joins
+    first_name = Column(Text)
+    last_name = Column(Text)
+    real_name = Column(Text)  # legacy full display name; derived from first/last when absent
     pronouns = Column(Text)
     phone = Column(Text)
     bio = Column(Text)
@@ -257,7 +260,9 @@ class Singer(Base):
     auth_provider = Column(Text)
     auth_provider_id = Column(Text)
     stage_name = Column(Text, nullable=False)
-    real_name = Column(Text)
+    first_name = Column(Text)
+    last_name = Column(Text)
+    real_name = Column(Text)  # legacy full display name; derived from first/last when absent
     pronouns = Column(Text)
     email = Column(Text)
     phone = Column(Text)
@@ -282,6 +287,7 @@ class Singer(Base):
         Index("singer_venue_idx", "venue_id", "deactivated_at"),
         Index("ix_singers_gdpr_erased", "venue_id", "gdpr_erased_at"),
         UniqueConstraint("account_id", "venue_id", name="uq_singer_account_venue"),
+        UniqueConstraint("venue_id", "stage_name", name="uq_singer_venue_stage_name"),
     )
 
     account = relationship("Account", back_populates="singers")

@@ -21,6 +21,8 @@ from sqlalchemy import select
 from app.models import Venue, Song, Singer, QueueRequest, VenueConfig, AnalyticsEvent, KJDevice
 from app.core.security import hash_password
 
+SYNC_BASE = "/v1/kj/sync"
+
 
 def _kj_headers(api_key: str) -> dict[str, str]:
     return {"x-api-key": api_key}
@@ -110,7 +112,7 @@ async def sync_queue(db: AsyncSession, sync_venue):
 @pytest.mark.anyio
 async def test_sync_no_auth(client, sync_venue):
     venue_id, *_ = sync_venue
-    resp = await client.get(f"/v1/sync/queue/pull?venue_id={venue_id}")
+    resp = await client.get(f"/v1/kj/sync/queue/pull?venue_id={venue_id}")
     assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
 
@@ -119,7 +121,7 @@ async def test_sync_wrong_venue(client, sync_venue):
     venue_id, _, _, _, raw_key = sync_venue
     other = str(uuid.uuid4())
     resp = await client.get(
-        f"/v1/sync/queue/pull?venue_id={other}",
+        f"/v1/kj/sync/queue/pull?venue_id={other}",
         headers=_kj_headers(raw_key),
     )
     assert resp.status_code == status.HTTP_403_FORBIDDEN
@@ -130,7 +132,7 @@ async def test_sync_singer_forbidden(client, jwt_encode, sync_venue):
     venue_id, _, singer_id, _, _ = sync_venue
     token = jwt_encode(venue_id, role="singer", user_id=singer_id)
     resp = await client.get(
-        f"/v1/sync/queue/pull?venue_id={venue_id}",
+        f"/v1/kj/sync/queue/pull?venue_id={venue_id}",
         headers={"Authorization": f"Bearer {token}"},
     )
     # Singer token is not a valid KJ Bearer (no kj_device_id claim) → 401
@@ -145,7 +147,7 @@ async def test_sync_singer_forbidden(client, jwt_encode, sync_venue):
 async def test_queue_pull(client, sync_queue):
     venue_id, _, _, _, raw_key, _ = sync_queue
     resp = await client.get(
-        f"/v1/sync/queue/pull?venue_id={venue_id}",
+        f"/v1/kj/sync/queue/pull?venue_id={venue_id}",
         headers=_kj_headers(raw_key),
     )
     assert resp.status_code == status.HTTP_200_OK
@@ -158,7 +160,7 @@ async def test_queue_pull(client, sync_queue):
 async def test_queue_pull_since(client, sync_queue):
     venue_id, _, _, _, raw_key, _ = sync_queue
     resp = await client.get(
-        f"/v1/sync/queue/pull?venue_id={venue_id}&since=2099-01-01T00:00:00Z",
+        f"/v1/kj/sync/queue/pull?venue_id={venue_id}&since=2099-01-01T00:00:00Z",
         headers=_kj_headers(raw_key),
     )
     assert resp.status_code == status.HTTP_200_OK
@@ -201,7 +203,7 @@ async def test_queue_push_upsert(client, sync_queue, db):
     }
 
     resp = await client.post(
-        f"/v1/sync/queue/push?venue_id={venue_id}",
+        f"/v1/kj/sync/queue/push?venue_id={venue_id}",
         json=payload,
         headers=_kj_headers(raw_key),
     )
@@ -235,7 +237,7 @@ async def test_queue_push_delete(client, sync_queue, db):
         "deleted_ids": [items[0].id],
     }
     resp = await client.post(
-        f"/v1/sync/queue/push?venue_id={venue_id}",
+        f"/v1/kj/sync/queue/push?venue_id={venue_id}",
         json=payload,
         headers=_kj_headers(raw_key),
     )
@@ -255,6 +257,7 @@ async def test_queue_push_conflict_server_wins(client, sync_queue, db):
     # Server updates item after client's last_modified
     items[0].updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     await db.commit()
+    await db.refresh(items[0])
 
     payload = {
         "items": [
@@ -272,7 +275,7 @@ async def test_queue_push_conflict_server_wins(client, sync_queue, db):
         "last_modified_at": "2026-01-01T00:00:00Z",
     }
     resp = await client.post(
-        f"/v1/sync/queue/push?venue_id={venue_id}",
+        f"/v1/kj/sync/queue/push?venue_id={venue_id}",
         json=payload,
         headers=_kj_headers(raw_key),
     )
@@ -290,7 +293,7 @@ async def test_queue_push_conflict_server_wins(client, sync_queue, db):
 async def test_singers_pull(client, sync_venue):
     venue_id, _, _, _, raw_key = sync_venue
     resp = await client.get(
-        f"/v1/sync/singers/pull?venue_id={venue_id}",
+        f"/v1/kj/sync/singers/pull?venue_id={venue_id}",
         headers=_kj_headers(raw_key),
     )
     assert resp.status_code == status.HTTP_200_OK
@@ -344,7 +347,7 @@ async def test_singers_push_upsert(client, sync_venue, db):
     }
 
     resp = await client.post(
-        f"/v1/sync/singers/push?venue_id={venue_id}",
+        f"/v1/kj/sync/singers/push?venue_id={venue_id}",
         json=payload,
         headers=_kj_headers(raw_key),
     )
@@ -355,7 +358,9 @@ async def test_singers_push_upsert(client, sync_venue, db):
     result = await db.execute(select(Singer).where(Singer.id == singer_id))
     row = result.scalar_one()
     assert row.stage_name == "Stagey Updated"
-    assert row.notes == "VIP"
+    # KJ desktop "notes" stay in QueueRequest.notes and are never written to
+    # Singer.notes, which is reserved for internal venue notes.
+    assert row.notes is None or row.notes == "", f"expected no singer notes, got {row.notes!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -366,17 +371,13 @@ async def test_singers_push_upsert(client, sync_venue, db):
 async def test_songs_pull(client, sync_venue):
     venue_id, _, _, _, raw_key = sync_venue
     resp = await client.get(
-        f"/v1/sync/songs/pull?venue_id={venue_id}",
+        f"/v1/kj/sync/songs?venue_id={venue_id}",
         headers=_kj_headers(raw_key),
     )
     assert resp.status_code == status.HTTP_200_OK
     data = resp.json()
-    assert len(data["items"]) == 2
+    assert "updated_songs" in data
 
-
-# ---------------------------------------------------------------------------
-# Songs Push
-# ---------------------------------------------------------------------------
 
 @pytest.mark.anyio
 async def test_songs_push_availability(client, sync_venue, db):
@@ -384,53 +385,37 @@ async def test_songs_push_availability(client, sync_venue, db):
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     payload = {
-        "items": [
+        "venue_id": venue_id,
+        "updates": [
             {
-                "id": songs[0].id,
-                "catalog_id": None,
-                "title": songs[0].title,
-                "artist": songs[0].artist,
-                "album": None,
-                "genre": None,
-                "category": None,
-                "language": None,
-                "duration_ms": None,
-                "year": None,
-                "is_available": False,
-                "is_active": True,
-                "created_at": "2026-01-01T00:00:00Z",
-                "updated_at": now,
+                "song_id": songs[0].id,
+                "available": False,
+                "reason": "Not found",
             }
-        ],
-        "deleted_ids": [],
-        "plays": [
-            {"song_id": songs[0].id, "singer_id": kj_id, "played_at": now, "session_id": "sess-1"}
         ],
     }
 
     resp = await client.post(
-        f"/v1/sync/songs/push?venue_id={venue_id}",
+        f"/v1/kj/sync/songs/availability?venue_id={venue_id}",
         json=payload,
         headers=_kj_headers(raw_key),
     )
     assert resp.status_code == status.HTTP_200_OK
     data = resp.json()
-    assert data["synced"] == 1
-    assert data["plays_recorded"] == 1
+    assert data["changed"] == 1
 
     result = await db.execute(select(Song).where(Song.id == songs[0].id))
     row = result.scalar_one()
     assert row.is_available == 0
 
-    # Verify analytics event
+    # No analytics events for availability-only push
     evt_result = await db.execute(
         select(AnalyticsEvent).where(
             AnalyticsEvent.venue_id == venue_id,
-            AnalyticsEvent.event_type == "song_played",
         )
     )
     events = evt_result.scalars().all()
-    assert len(events) == 1
+    assert len(events) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -453,7 +438,7 @@ async def test_settings_pull(client, sync_venue, db):
     await db.commit()
 
     resp = await client.get(
-        f"/v1/sync/settings/pull?venue_id={venue_id}",
+        f"/v1/kj/sync/settings/pull?venue_id={venue_id}",
         headers=_kj_headers(raw_key),
     )
     assert resp.status_code == status.HTTP_200_OK
@@ -481,7 +466,7 @@ async def test_settings_push_lww(client, sync_venue, db):
     }
 
     resp = await client.post(
-        f"/v1/sync/settings/push?venue_id={venue_id}",
+        f"/v1/kj/sync/settings/push?venue_id={venue_id}",
         json=payload,
         headers=_kj_headers(raw_key),
     )
@@ -533,7 +518,7 @@ async def test_settings_push_conflict_lww(client, sync_venue, db):
     }
 
     resp = await client.post(
-        f"/v1/sync/settings/push?venue_id={venue_id}",
+        f"/v1/kj/sync/settings/push?venue_id={venue_id}",
         json=payload,
         headers=_kj_headers(raw_key),
     )
@@ -562,13 +547,13 @@ async def test_all_pull_endpoints_return_modified_at(client, sync_venue):
     venue_id, _, _, _, raw_key = sync_venue
 
     endpoints = [
-        f"/v1/sync/queue/pull?venue_id={venue_id}",
-        f"/v1/sync/singers/pull?venue_id={venue_id}",
-        f"/v1/sync/songs/pull?venue_id={venue_id}",
-        f"/v1/sync/settings/pull?venue_id={venue_id}",
+        (f"/v1/kj/sync/queue/pull?venue_id={venue_id}", "server_modified_at"),
+        (f"/v1/kj/sync/singers/pull?venue_id={venue_id}", "server_modified_at"),
+        (f"/v1/kj/sync/songs?venue_id={venue_id}", "sync_timestamp"),
+        (f"/v1/kj/sync/settings/pull?venue_id={venue_id}", "server_modified_at"),
     ]
-    for url in endpoints:
+    for url, key in endpoints:
         resp = await client.get(url, headers=_kj_headers(raw_key))
         assert resp.status_code == status.HTTP_200_OK, f"Failed: {url}"
         data = resp.json()
-        assert "server_modified_at" in data, f"Missing server_modified_at: {url}"
+        assert key in data, f"Missing {key}: {url}"
