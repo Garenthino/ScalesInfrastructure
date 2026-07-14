@@ -541,9 +541,9 @@ async def push_singers(
             # KJ desktop "notes" stay in QueueRequest.notes and are never
             # written to Singer.notes, which is reserved for internal venue notes.
             existing.stage_name = item.stage_name
-            existing.real_name = item.real_name
             existing.first_name = item.first_name
             existing.last_name = item.last_name
+            existing.real_name = item.real_name
             existing.pronouns = item.pronouns
             existing.email = item.email
             existing.phone = item.phone

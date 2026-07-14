@@ -75,6 +75,7 @@ class AccountLoginRequest(ScalesModel):
 class AccountMeOut(ScalesModel):
     id: str
     email: str
+    stage_name: str | None = None
     first_name: str | None = None
     last_name: str | None = None
     real_name: str | None = None

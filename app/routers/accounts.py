@@ -83,6 +83,7 @@ def _account_out(account: Account) -> AccountMeOut:
     return AccountMeOut(
         id=account.id,
         email=account.email,
+        stage_name=account.stage_name,
         first_name=account.first_name,
         last_name=account.last_name,
         real_name=account.real_name,
@@ -124,6 +125,7 @@ async def register_account(body: AccountRegisterRequest):
             id=str(uuid.uuid4()),
             email=body.email,
             password_hash=hash_password(body.password),
+            stage_name=body.stage_name,
             first_name=body.first_name,
             last_name=body.last_name,
             real_name=body.real_name,
