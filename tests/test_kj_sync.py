@@ -642,7 +642,7 @@ async def test_kj_merge_local_singer_by_details(client, db):
 
     # No source singer exists yet in the cloud.
     resp = await client.post(
-        f"/v1/kj/sync/singers/merge",
+        "/v1/kj/sync/singers/merge",
         json={
             "local_name": "Local Newbie",
             "local_email": "newbie@example.com",
@@ -660,4 +660,42 @@ async def test_kj_merge_local_singer_by_details(client, db):
     source = source_result.scalar_one_or_none()
     assert source is not None
     assert source.deleted_at is not None
+
+async def test_kj_merge_by_details_creates_stub_when_registered_name_matches(client, db):
+    """A local-only name matching a registered singer must not use that registered row as source."""
+    venue = Venue(name="Merge Stub Venue", slug="merge-stub-venue")
+    db.add(venue)
+    await db.commit()
+    await db.refresh(venue)
+    kj = KJDevice(venue_id=venue.id, name="KJ", api_key_hash=hash_password("kj-merge-3"))
+    db.add(kj)
+    await db.commit()
+    await db.refresh(kj)
+
+    acc = Account(email="existing@example.com", password_hash="x", stage_name="Same Name", first_name="S", last_name="N")
+    db.add(acc)
+    await db.commit()
+    await db.refresh(acc)
+    target = Singer(venue_id=venue.id, account_id=acc.id, stage_name="Same Name", email="existing@example.com")
+    db.add(target)
+    await db.commit()
+    await db.refresh(target)
+
+    resp = await client.post(
+        "/v1/kj/sync/singers/merge",
+        json={
+            "local_name": "Same Name",
+            "local_email": "existing@example.com",
+            "target_singer_id": str(target.id),
+        },
+        headers={"x-api-key": "kj-merge-3"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["target_singer_id"] == str(target.id)
+    source_result = await db.execute(select(Singer).where(Singer.id == data["local_singer_id"]))
+    source = source_result.scalar_one_or_none()
+    assert source is not None
+    assert source.deleted_at is not None
+    assert source.account_id is None or source.account_id == ""
 

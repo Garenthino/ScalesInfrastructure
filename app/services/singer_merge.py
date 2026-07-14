@@ -78,13 +78,15 @@ async def merge_local_singer_into_mobile(
         local = local_result.scalar_one_or_none()
 
     # Fall back to email/name match for KJ desktop merges where the local row
-    # has no cloud id yet.
+    # has no cloud id yet. Only local-only singers (no account_id) are valid
+    # sources; never reuse a registered/mobile-linked singer as the source.
     if local is None and (local_email or "").strip():
         email_result = await db.execute(
             select(Singer).where(
                 and_(
                     Singer.venue_id == venue_id,
                     Singer.deleted_at.is_(None),
+                    or_(Singer.account_id.is_(None), Singer.account_id == ""),
                     Singer.email.ilike(local_email.strip()),
                 )
             )
@@ -97,6 +99,7 @@ async def merge_local_singer_into_mobile(
                 and_(
                     Singer.venue_id == venue_id,
                     Singer.deleted_at.is_(None),
+                    or_(Singer.account_id.is_(None), Singer.account_id == ""),
                     Singer.stage_name.ilike(local_name.strip()),
                 )
             )
@@ -106,7 +109,7 @@ async def merge_local_singer_into_mobile(
     if local is None and create_stub_if_missing:
         local = Singer(
             venue_id=venue_id,
-            stage_name=(local_name or "Merged Local Singer").strip(),
+            stage_name=f"{(local_name or "Merged Local Singer").strip()} (merged local)",
             first_name=local_first_name.strip() if local_first_name else None,
             last_name=local_last_name.strip() if local_last_name else None,
             email=local_email.strip() if local_email else None,
