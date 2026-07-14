@@ -614,8 +614,11 @@ async def push_singers(
 def _singer_item_to_dict(singer: Singer) -> dict[str, Any]:
     # Send empty strings instead of null for optional text fields. The KJ
     # desktop client calls .strip() on several of these and crashes on None.
+    account_id_str = str(singer.account_id) if singer.account_id is not None else ""
     return {
         "id": str(singer.id),
+        "singer_id": str(singer.id),
+        "account_id": account_id_str,
         "stage_name": str(singer.stage_name or ""),
         "first_name": str(singer.first_name or ""),
         "last_name": str(singer.last_name or ""),
@@ -636,8 +639,11 @@ def _singer_item_to_dict(singer: Singer) -> dict[str, Any]:
 def _singer_item_to_sync(singer: Singer) -> SyncSingerItem:
     # Send empty strings instead of null for optional text fields so the KJ
     # desktop client's .strip() calls do not crash on None.
+    account_id_str = str(singer.account_id) if singer.account_id is not None else ""
     return SyncSingerItem(
         id=str(singer.id),
+        singer_id=str(singer.id),
+        account_id=account_id_str,
         stage_name=str(singer.stage_name or ""),
         first_name=str(singer.first_name or ""),
         last_name=str(singer.last_name or ""),

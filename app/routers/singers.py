@@ -14,6 +14,7 @@ from app.core.db import get_db
 from app.models import Singer, QueueRequest, Song, CheckInSession, PointsLedger, SingerFavorite, SingerFollow, Payment, LeaderboardEntry, Consent, ShareEvent, SingerAchievement, Notification
 from pydantic import BaseModel, Field
 from app.core.points_service import add_points, get_points_leaderboard, get_achievements_for_singer
+from app.core.queue_service import SingerEventPublisher
 from app.schemas import (
     SingerCreate,
     SingerUpdate,
@@ -138,7 +139,7 @@ async def _sync_singer_profile_to_account(db: AsyncSession, singer: Singer) -> N
         return
 
     # Only copy fields that are part of the public profile; never copy venue-scoped notes.
-    fields = ["first_name", "last_name", "real_name", "pronouns", "phone", "bio", "avatar_url", "social_links"]
+    fields = ["stage_name", "first_name", "last_name", "real_name", "pronouns", "phone", "bio", "avatar_url", "social_links"]
     for field in fields:
         singer_value = getattr(singer, field, None)
         if singer_value is not None:
@@ -463,6 +464,10 @@ async def update_profile(
     # If this singer is linked to a global account, propagate profile changes upward
     if singer.account_id:
         await _sync_singer_profile_to_account(db, singer)
+
+    await SingerEventPublisher.publish_singer_changed(
+        str(singer.venue_id), singer, event_type="singer_changed"
+    )
 
     return _singer_out(singer)
 

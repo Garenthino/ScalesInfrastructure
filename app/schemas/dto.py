@@ -1170,6 +1170,8 @@ class SyncQueuePullOut(ScalesModel):
 
 class SyncSingerItem(ScalesModel):
     id: str
+    singer_id: str | None = None  # alias for id; some KJ clients key on this
+    account_id: str | None = None
     stage_name: str
     first_name: str | None = None
     last_name: str | None = None
