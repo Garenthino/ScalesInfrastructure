@@ -38,29 +38,84 @@ def _now_iso() -> str:
 async def merge_local_singer_into_mobile(
     db: AsyncSession,
     venue_id: str,
-    local_singer_id: str,
+    local_singer_id: str | None = None,
+    local_name: str | None = None,
+    local_first_name: str | None = None,
+    local_last_name: str | None = None,
+    local_email: str | None = None,
+    local_phone: str | None = None,
     target_singer_id: str | None = None,
     target_account_email: str | None = None,
     merged_by_account_id: str | None = None,
     merged_by_kj_device_id: str | None = None,
+    create_stub_if_missing: bool = False,
 ) -> SingerLinkMergeOut:
     """Reassign all of a local singer's records to a mobile-linked target singer.
 
-    The local singer is soft-deleted. The target singer's `linked_singer_id`
+    The source singer is soft-deleted. The target singer's `linked_singer_id`
     may be set to the local singer's id for audit/traceability if it was not
     already linked.
+
+    If ``local_singer_id`` is not provided, the source is located by
+    ``local_email`` and then ``local_name`` within the venue. If no source exists
+    and ``create_stub_if_missing`` is True, a stub local-only singer is created
+    so the merge can proceed (useful when the KJ desktop has a row that has not
+    yet been pushed to the cloud).
     """
-    # Resolve local singer
-    local_result = await db.execute(
-        select(Singer).where(
-            and_(
-                Singer.id == local_singer_id,
-                Singer.venue_id == venue_id,
-                Singer.deleted_at.is_(None),
+    local: Singer | None = None
+
+    # Resolve source singer by id first.
+    if local_singer_id:
+        local_result = await db.execute(
+            select(Singer).where(
+                and_(
+                    Singer.id == local_singer_id,
+                    Singer.venue_id == venue_id,
+                    Singer.deleted_at.is_(None),
+                )
             )
         )
-    )
-    local = local_result.scalar_one_or_none()
+        local = local_result.scalar_one_or_none()
+
+    # Fall back to email/name match for KJ desktop merges where the local row
+    # has no cloud id yet.
+    if local is None and (local_email or "").strip():
+        email_result = await db.execute(
+            select(Singer).where(
+                and_(
+                    Singer.venue_id == venue_id,
+                    Singer.deleted_at.is_(None),
+                    Singer.email.ilike(local_email.strip()),
+                )
+            )
+        )
+        local = email_result.scalar_one_or_none()
+
+    if local is None and (local_name or "").strip():
+        name_result = await db.execute(
+            select(Singer).where(
+                and_(
+                    Singer.venue_id == venue_id,
+                    Singer.deleted_at.is_(None),
+                    Singer.stage_name.ilike(local_name.strip()),
+                )
+            )
+        )
+        local = name_result.scalar_one_or_none()
+
+    if local is None and create_stub_if_missing:
+        local = Singer(
+            venue_id=venue_id,
+            stage_name=(local_name or "Merged Local Singer").strip(),
+            first_name=local_first_name.strip() if local_first_name else None,
+            last_name=local_last_name.strip() if local_last_name else None,
+            email=local_email.strip() if local_email else None,
+            phone=local_phone.strip() if local_phone else None,
+        )
+        db.add(local)
+        await db.flush()
+        await db.refresh(local)
+
     if local is None:
         raise ValueError("Local singer not found")
     if (local.account_id or "").strip():

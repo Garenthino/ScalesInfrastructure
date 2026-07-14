@@ -46,6 +46,7 @@ from app.schemas import (
     SyncConflictDetail,
     SingerLinkRequest,
     SingerLinkMergeOut,
+    SingerMergeRequest,
 )
 
 router = APIRouter()
@@ -739,6 +740,49 @@ async def link_singer_to_mobile(
     )
     await db.commit()
     # Refresh target after commit so the broadcast has updated totals.
+    target_result = await db.execute(select(Singer).where(Singer.id == result.target_singer_id))
+    target = target_result.scalar_one_or_none()
+    if target:
+        from app.core.queue_service import SingerEventPublisher
+        await SingerEventPublisher.publish_singer_changed(
+            venue_id, target, event_type="singer_changed"
+        )
+    return result
+
+
+@router.post("/singers/merge", response_model=SingerLinkMergeOut)
+async def merge_local_singer_by_details(
+    body: SingerMergeRequest,
+    venue_id: str | None = None,
+    current: KJDeviceUser = Depends(kj_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """Merge a local-only singer into a mobile-linked target using details.
+
+    If the local row has not been pushed to the cloud yet (no cloud_singer_id),
+    the KJ desktop can call this endpoint with the local display name/email and
+    the target singer id. The server finds or creates a stub source singer,
+    then performs the merge and soft-deletes the source.
+    """
+    venue_id = venue_id or str(current.venue_id)
+    _require_venue_match(venue_id, current)
+
+    result = await merge_local_singer_into_mobile(
+        db=db,
+        venue_id=venue_id,
+        local_singer_id=body.local_singer_id,
+        local_name=body.local_name,
+        local_first_name=body.local_first_name,
+        local_last_name=body.local_last_name,
+        local_email=body.local_email,
+        local_phone=body.local_phone,
+        target_singer_id=body.target_singer_id,
+        target_account_email=body.target_account_email,
+        merged_by_account_id=None,
+        merged_by_kj_device_id=current.id,
+        create_stub_if_missing=True,
+    )
+    await db.commit()
     target_result = await db.execute(select(Singer).where(Singer.id == result.target_singer_id))
     target = target_result.scalar_one_or_none()
     if target:

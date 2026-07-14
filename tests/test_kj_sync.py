@@ -619,3 +619,45 @@ async def test_all_pull_endpoints_return_modified_at(client, sync_venue):
         assert resp.status_code == status.HTTP_200_OK, f"Failed: {url}"
         data = resp.json()
         assert key in data, f"Missing {key}: {url}"
+
+async def test_kj_merge_local_singer_by_details(client, db):
+    """Merging a local-only singer that has not been pushed to cloud yet."""
+    venue = Venue(name="Merge By Details", slug="merge-by-details")
+    db.add(venue)
+    await db.commit()
+    await db.refresh(venue)
+    kj = KJDevice(venue_id=venue.id, name="KJ", api_key_hash=hash_password("kj-merge-2"))
+    db.add(kj)
+    await db.commit()
+    await db.refresh(kj)
+
+    acc = Account(email="target2@example.com", password_hash="x", stage_name="Target Star", first_name="T", last_name="S")
+    db.add(acc)
+    await db.commit()
+    await db.refresh(acc)
+    target = Singer(venue_id=venue.id, account_id=acc.id, stage_name="Target Star", email="target2@example.com")
+    db.add(target)
+    await db.commit()
+    await db.refresh(target)
+
+    # No source singer exists yet in the cloud.
+    resp = await client.post(
+        f"/v1/kj/sync/singers/merge",
+        json={
+            "local_name": "Local Newbie",
+            "local_email": "newbie@example.com",
+            "target_singer_id": str(target.id),
+        },
+        headers={"x-api-key": "kj-merge-2"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["target_singer_id"] == str(target.id)
+    assert data["merged_records"]["queue_requests"] == 0
+
+    # Source was created and soft-deleted.
+    source_result = await db.execute(select(Singer).where(Singer.id == data["local_singer_id"]))
+    source = source_result.scalar_one_or_none()
+    assert source is not None
+    assert source.deleted_at is not None
+

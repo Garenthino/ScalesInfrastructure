@@ -152,6 +152,23 @@ class SingerLinkRequest(ScalesModel):
     target_account_email: str | None = None
 
 
+class SingerMergeRequest(ScalesModel):
+    """Merge a local-only singer into a registered mobile-linked target.
+
+    When local_singer_id is omitted/empty, the server looks for a source singer
+    matching the provided local details (venue-scoped). If none exists, a stub
+    source singer is created so the merge can proceed.
+    """
+    local_singer_id: str | None = None
+    local_name: str | None = None
+    local_first_name: str | None = None
+    local_last_name: str | None = None
+    local_email: str | None = None
+    local_phone: str | None = None
+    target_singer_id: str | None = None
+    target_account_email: str | None = None
+
+
 class SingerLinkMergeOut(ScalesModel):
     local_singer_id: str
     target_singer_id: str

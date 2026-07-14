@@ -152,6 +152,7 @@ from app.schemas.dto import (
     SyncConflictDetail,
     SingerLinkRequest,
     SingerLinkMergeOut,
+    SingerMergeRequest,
     # Notifications
     DeviceTokenBase,
     DeviceTokenCreate,
