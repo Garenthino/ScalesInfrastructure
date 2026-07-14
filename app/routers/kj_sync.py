@@ -380,7 +380,7 @@ async def push_now_playing(
                 singer_id=singer_id,
                 status="now_playing",
                 rotation_position=0,
-                notes=singer_name or body.get("notes", ""),
+                notes=singer_name or body.get("notes") or "",
                 requested_at=_now_iso(),
                 updated_at=_now_iso(),
             ))
@@ -419,17 +419,19 @@ async def push_now_playing(
 def _queue_item_to_dict(item: QueueRequest) -> dict[str, Any]:
     # Avoid accessing lazy-loaded relationships (item.singer, item.song) in
     # async context — that triggers MissingGreenlet.  Use only scalar columns.
+    # Send empty strings for optional text fields so the KJ desktop client can
+    # safely call .strip() without crashing on None.
     return {
         "request_id": str(item.id),
         "singer_id": str(item.singer_id),
         "song_id": str(item.song_id) if item.song_id is not None else None,
         "status": str(item.status),
         "position": (item.rotation_position or 0) + 1,
-        "notes": str(item.notes) if item.notes is not None else None,
+        "notes": str(item.notes or ""),
         "requested_at": str(item.requested_at),
         "updated_at": str(item.updated_at) if item.updated_at is not None else None,
         "played_at": str(item.played_at) if item.played_at is not None else None,
-        "reject_reason": str(item.reject_reason) if item.reject_reason is not None else None,
+        "reject_reason": str(item.reject_reason or ""),
     }
 
 
@@ -445,11 +447,11 @@ def _queue_item_to_sync(item: QueueRequest) -> SyncQueueItem:
         song_artist=None,
         status=str(item.status),  # type: ignore[arg-type]
         position=item.rotation_position,
-        notes=str(item.notes) if item.notes is not None else None,
+        notes=str(item.notes or ""),
         requested_at=str(item.requested_at),
         updated_at=str(item.updated_at) if item.updated_at is not None else None,
         played_at=str(item.played_at) if item.played_at is not None else None,
-        reject_reason=str(item.reject_reason) if item.reject_reason is not None else None,
+        reject_reason=str(item.reject_reason or ""),
     )
 
 
@@ -610,16 +612,18 @@ async def push_singers(
 
 
 def _singer_item_to_dict(singer: Singer) -> dict[str, Any]:
+    # Send empty strings instead of null for optional text fields. The KJ
+    # desktop client calls .strip() on several of these and crashes on None.
     return {
         "id": str(singer.id),
-        "stage_name": str(singer.stage_name),
-        "first_name": str(singer.first_name) if singer.first_name is not None else None,
-        "last_name": str(singer.last_name) if singer.last_name is not None else None,
-        "real_name": str(singer.real_name) if singer.real_name is not None else None,
-        "pronouns": str(singer.pronouns) if singer.pronouns is not None else None,
-        "email": str(singer.email) if singer.email is not None else None,
-        "phone": str(singer.phone) if singer.phone is not None else None,
-        "notes": str(singer.notes) if singer.notes is not None else None,
+        "stage_name": str(singer.stage_name or ""),
+        "first_name": str(singer.first_name or ""),
+        "last_name": str(singer.last_name or ""),
+        "real_name": str(singer.real_name or ""),
+        "pronouns": str(singer.pronouns or ""),
+        "email": str(singer.email or ""),
+        "phone": str(singer.phone or ""),
+        "notes": str(singer.notes or ""),
         "total_points": singer.total_points or 0,
         "loyalty_tier_id": str(singer.loyalty_tier_id) if singer.loyalty_tier_id is not None else None,
         "last_seen": str(singer.last_seen) if singer.last_seen is not None else None,
@@ -630,16 +634,18 @@ def _singer_item_to_dict(singer: Singer) -> dict[str, Any]:
 
 
 def _singer_item_to_sync(singer: Singer) -> SyncSingerItem:
+    # Send empty strings instead of null for optional text fields so the KJ
+    # desktop client's .strip() calls do not crash on None.
     return SyncSingerItem(
         id=str(singer.id),
-        stage_name=str(singer.stage_name),
-        first_name=str(singer.first_name) if singer.first_name is not None else None,
-        last_name=str(singer.last_name) if singer.last_name is not None else None,
-        real_name=str(singer.real_name) if singer.real_name is not None else None,
-        pronouns=str(singer.pronouns) if singer.pronouns is not None else None,
-        email=str(singer.email) if singer.email is not None else None,
-        phone=str(singer.phone) if singer.phone is not None else None,
-        notes=str(singer.notes) if singer.notes is not None else None,
+        stage_name=str(singer.stage_name or ""),
+        first_name=str(singer.first_name or ""),
+        last_name=str(singer.last_name or ""),
+        real_name=str(singer.real_name or ""),
+        pronouns=str(singer.pronouns or ""),
+        email=str(singer.email or ""),
+        phone=str(singer.phone or ""),
+        notes=str(singer.notes or ""),
         total_points=singer.total_points or 0,
         loyalty_tier_id=str(singer.loyalty_tier_id) if singer.loyalty_tier_id is not None else None,
         last_seen=str(singer.last_seen) if singer.last_seen is not None else None,
