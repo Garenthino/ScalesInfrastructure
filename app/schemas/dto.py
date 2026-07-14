@@ -548,6 +548,7 @@ class SingerOut(SingerBase):
     social_links: str | None = None
     account_id: str | None = None
     deactivated_at: str | None = None
+    deleted_at: str | None = None
     created_at: str
     updated_at: str
 
@@ -1184,6 +1185,7 @@ class SyncSingerItem(ScalesModel):
     loyalty_tier_id: str | None = None
     last_seen: str | None = None
     deactivated_at: str | None = None
+    deleted_at: str | None = None
     created_at: str
     updated_at: str
 

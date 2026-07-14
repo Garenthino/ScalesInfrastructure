@@ -15,9 +15,11 @@ from app.models import Singer, QueueRequest, Song, CheckInSession, PointsLedger,
 from pydantic import BaseModel, Field
 from app.core.points_service import add_points, get_points_leaderboard, get_achievements_for_singer
 from app.core.queue_service import SingerEventPublisher
+from app.services.singer_merge import merge_local_singer_into_mobile
 from app.schemas import (
     SingerCreate,
     SingerUpdate,
+    SingerLinkMergeOut,
     SingerOut,
     PaginatedResponse,
     CheckInRequest,
@@ -1688,3 +1690,73 @@ async def tip_singer(
         body.message or "Tip received", "tip", str(current.id),
     )
     return None
+
+
+# ---------------------------------------------------------------------------
+# Merge (KJ / admin can merge a local-only singer into a registered mobile singer)
+# ---------------------------------------------------------------------------
+
+class SingerMergeRequest(BaseModel):
+    target_singer_id: str
+
+
+@router.post("/me/merge/{source_singer_id}", response_model=SingerLinkMergeOut)
+async def merge_singer_me(
+    venue_id: str,
+    source_singer_id: str,
+    body: SingerMergeRequest,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Merge a local-only source singer into the current singer's account.
+
+    The source singer's queue history, payments, favorites, and achievements
+    are reassigned to the current (registered) singer and the source is
+    soft-deleted.
+    """
+    _require_venue(venue_id, current)
+    result = await merge_local_singer_into_mobile(
+        db=db,
+        venue_id=venue_id,
+        local_singer_id=source_singer_id,
+        target_singer_id=current.id,
+        merged_by_account_id=current.id,
+    )
+    await db.commit()
+    await db.refresh(current)
+    await SingerEventPublisher.publish_singer_changed(
+        venue_id, current, event_type="singer_changed"
+    )
+    return result
+
+
+@router.post("/merge/{source_singer_id}", response_model=SingerLinkMergeOut)
+async def merge_singer_admin(
+    venue_id: str,
+    source_singer_id: str,
+    body: SingerMergeRequest,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """KJ/admin merge a local-only source singer into any registered target singer.\\n\\n    Requires KJ or admin role.\\n    """
+    _require_venue(venue_id, current)
+    if not has_role(current.role, Role.KJ):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Only KJ or admin can merge singers on the portal",
+        )
+    result = await merge_local_singer_into_mobile(
+        db=db,
+        venue_id=venue_id,
+        local_singer_id=source_singer_id,
+        target_singer_id=body.target_singer_id,
+        merged_by_account_id=current.id,
+    )
+    await db.commit()
+    target_result = await db.execute(select(Singer).where(Singer.id == body.target_singer_id))
+    target = target_result.scalar_one_or_none()
+    if target:
+        await SingerEventPublisher.publish_singer_changed(
+            venue_id, target, event_type="singer_changed"
+        )
+    return result

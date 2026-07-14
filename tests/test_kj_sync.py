@@ -18,7 +18,7 @@ from fastapi import status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.models import Venue, Song, Singer, QueueRequest, VenueConfig, AnalyticsEvent, KJDevice
+from app.models import Venue, Song, Singer, QueueRequest, VenueConfig, AnalyticsEvent, KJDevice, Account
 from app.core.security import hash_password
 
 SYNC_BASE = "/v1/kj/sync"
@@ -536,6 +536,68 @@ async def test_settings_push_conflict_lww(client, sync_venue, db):
     )
     row = result.scalar_one()
     assert row.config_value == "fifo"
+
+
+# ---------------------------------------------------------------------------
+# Singer merge
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_kj_merge_local_singer_into_mobile(client, sync_venue, db):
+    venue_id, _, _, _, raw_key = sync_venue
+
+    # Create mobile-linked account + singer
+    account = Account(
+        id=str(uuid.uuid4()),
+        email="merge-mobile@example.com",
+        password_hash=hash_password("x"),
+        stage_name="Mobile Star",
+    )
+    mobile = Singer(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        account_id=account.id,
+        stage_name="Mobile Star",
+    )
+    local = Singer(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        stage_name="Old Local",
+    )
+    song = Song(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        title="Merge Song",
+        artist="Artist",
+        file_path="/merge.mp3",
+    )
+    db.add_all([account, mobile, local, song])
+    await db.commit()
+
+    qr = QueueRequest(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=local.id,
+        song_id=song.id,
+        status="completed",
+        requested_at="2026-07-14T10:00:00Z",
+    )
+    db.add(qr)
+    await db.commit()
+
+    resp = await client.post(
+        f"{SYNC_BASE}/singers/{local.id}/link?venue_id={venue_id}",
+        json={"target_singer_id": mobile.id},
+        headers=_kj_headers(raw_key),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert data["local_singer_id"] == local.id
+    assert data["target_singer_id"] == mobile.id
+    assert data["merged_records"]["queue_requests"] == 1
+
+    row = await db.get(QueueRequest, qr.id)
+    assert row.singer_id == mobile.id
 
 
 # ---------------------------------------------------------------------------

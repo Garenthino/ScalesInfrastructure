@@ -25,6 +25,7 @@ from app.core.auth import kj_auth, KJDeviceUser
 from app.core.db import get_db
 from app.core.queue_service import QueueService, QueueEventPublisher, TERMINAL_STATUSES
 from app.models import QueueRequest, Singer, Song, VenueConfig
+from app.services.singer_merge import merge_local_singer_into_mobile
 from app.schemas import (
     SyncQueuePushPayload,
     SyncQueuePullOut,
@@ -672,10 +673,10 @@ async def pull_singers(
     venue_id = venue_id or str(current.venue_id)
     _require_venue_match(venue_id, current)
 
-    filters = [
-        Singer.venue_id == venue_id,
-        Singer.deleted_at.is_(None),
-    ]
+    # Return both active and recently soft-deleted singers. The desktop needs to
+    # see merged/deleted rows so it can clean up its local duplicate instead of
+    # recreating it on the next pull.
+    filters = [Singer.venue_id == venue_id]
     if since:
         filters.append(or_(
             Singer.updated_at > since,
@@ -685,7 +686,12 @@ async def pull_singers(
     result = await db.execute(
         select(Singer).where(and_(*filters)).order_by(Singer.stage_name)
     )
-    items = [_singer_item_to_sync(row) for row in result.scalars().all()]
+    items = []
+    for row in result.scalars().all():
+        item = _singer_item_to_sync(row)
+        if row.deleted_at is not None:
+            item = item.model_copy(update={"deleted_at": str(row.deleted_at)})
+        items.append(item)
 
     deleted_ids: list[str] = []
     if since:
@@ -732,6 +738,14 @@ async def link_singer_to_mobile(
         merged_by_kj_device_id=current.id,
     )
     await db.commit()
+    # Refresh target after commit so the broadcast has updated totals.
+    target_result = await db.execute(select(Singer).where(Singer.id == result.target_singer_id))
+    target = target_result.scalar_one_or_none()
+    if target:
+        from app.core.queue_service import SingerEventPublisher
+        await SingerEventPublisher.publish_singer_changed(
+            venue_id, target, event_type="singer_changed"
+        )
     return result
 
 
