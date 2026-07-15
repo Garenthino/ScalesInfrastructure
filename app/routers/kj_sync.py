@@ -13,13 +13,12 @@ All endpoints require kj_auth() dependency.
 from __future__ import annotations
 
 import uuid
-import json
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_, update
+from sqlalchemy import select, and_, or_, update
 
 from app.core.auth import kj_auth, KJDeviceUser
 from app.core.db import get_db
@@ -33,9 +32,7 @@ from app.schemas import (
     SyncSingersPushPayload,
     SyncSingersPullOut,
     SyncSingerItem,
-    SyncSongsPushPayload,
     SyncSongsPullOut,
-    SyncSongItem,
     SyncSongPullItem,
     SyncSongsScanPayload,
     SyncSongsAvailabilityBatch,
@@ -185,6 +182,24 @@ async def push_queue(
             fallback_stage = (item.notes or "Unknown").strip()
             if not fallback_stage:
                 fallback_stage = "Unknown"
+
+            # The venue enforces a unique (venue_id, stage_name) constraint.
+            # If the desired stage name is already taken, append a numeric
+            # suffix until we find a free name so the KJ desktop's queue push
+            # does not fail with a 500.
+            base_stage = fallback_stage
+            counter = 1
+            while (
+                await db.execute(
+                    select(Singer.id).where(
+                        Singer.venue_id == venue_id,
+                        Singer.stage_name == fallback_stage,
+                    )
+                )
+            ).scalar_one_or_none():
+                counter += 1
+                fallback_stage = f"{base_stage} ({counter})"
+
             db.add(Singer(
                 id=item.singer_id,
                 venue_id=venue_id,

@@ -620,6 +620,45 @@ async def test_all_pull_endpoints_return_modified_at(client, sync_venue):
         data = resp.json()
         assert key in data, f"Missing {key}: {url}"
 
+async def test_push_queue_stub_singer_avoids_duplicate_stage_name(client, sync_venue, db):
+    """Auto-created stub singers must not collide on (venue_id, stage_name)."""
+    venue_id, _, _, _, raw_key = sync_venue
+    # Pre-seed a singer with the colliding stage name
+    existing = Singer(
+        id="existing-singer",
+        venue_id=venue_id,
+        stage_name="Test User 6",
+        created_at="2026-07-15T00:00:00Z",
+        updated_at="2026-07-15T00:00:00Z",
+    )
+    db.add(existing)
+    await db.commit()
+
+    payload = {
+        "items": [
+            {
+                "request_id": "req-10",
+                "singer_id": "10",
+                "song_id": None,
+                "song_title": "Song",
+                "song_artist": "Artist",
+                "status": "pending",
+                "position": 1,
+                "notes": "Test User 6",
+                "requested_at": "2026-07-15T00:35:21Z",
+            }
+        ],
+        "deleted_ids": [],
+    }
+    resp = await client.post("/v1/kj/sync/queue/push", json=payload, headers={"x-api-key": raw_key})
+    assert resp.status_code == 200, resp.text
+
+    # The new stub should have a suffix, preserving its ID
+    stub = await db.get(Singer, "10")
+    assert stub is not None
+    assert stub.stage_name == "Test User 6 (2)"
+
+
 async def test_kj_merge_local_singer_by_details(client, db):
     """Merging a local-only singer that has not been pushed to cloud yet."""
     venue = Venue(name="Merge By Details", slug="merge-by-details")
