@@ -11,7 +11,7 @@ Covers:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import status
@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models import Venue, Song, Singer, QueueRequest, VenueConfig, AnalyticsEvent, KJDevice, Account
-from app.core.security import hash_password
+from app.core.security import hash_password, create_access_token
 
 SYNC_BASE = "/v1/kj/sync"
 
@@ -619,6 +619,49 @@ async def test_all_pull_endpoints_return_modified_at(client, sync_venue):
         assert resp.status_code == status.HTTP_200_OK, f"Failed: {url}"
         data = resp.json()
         assert key in data, f"Missing {key}: {url}"
+
+async def test_account_me_history_resolves_to_venue_singer(client, sync_venue, db):
+    venue_id, kj_id, _, songs, raw_key = sync_venue
+
+    account = Account(
+        id="account-1",
+        email="mobile@example.com",
+        password_hash=hash_password("x"),
+        stage_name="Mobile Star",
+    )
+    singer = Singer(
+        id="venue-singer-1",
+        venue_id=venue_id,
+        account_id=account.id,
+        stage_name="Mobile Star",
+    )
+    qr = QueueRequest(
+        id="qr-account-1",
+        venue_id=venue_id,
+        singer_id=singer.id,
+        song_id=songs[0].id,
+        status="completed",
+        requested_at="2026-07-14T14:00:00Z",
+        played_at="2026-07-14T14:06:00Z",
+    )
+    db.add_all([account, singer, qr])
+    await db.commit()
+
+    token = create_access_token(
+        subject=account.id,
+        extra_claims={"role": "account"},
+        expires_delta=timedelta(hours=1),
+    )
+
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/singers/me/queue/history",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 1
+    assert data["items"][0]["song_title"] == "Song A"
+
 
 async def test_admin_get_singer_history(client, sync_venue, db):
     venue_id, kj_id, _, songs, raw_key = sync_venue

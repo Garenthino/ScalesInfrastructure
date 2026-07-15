@@ -10,13 +10,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from fastapi import Request, HTTPException, status
+from fastapi import Request, HTTPException, status, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import update
 from sqlalchemy.orm import undefer
 
-from app.core.db import async_session_factory
+from app.core.db import async_session_factory, get_db
 from app.core.security import decode_token, verify_password
 from app.core.permissions import Role
 from app.models import Singer, KJDevice, _now_iso, Account
@@ -36,7 +36,10 @@ class SingerUser:
     token_claims: dict[str, object]
 
 
-async def get_current_user(request: Request) -> SingerUser:
+async def get_current_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> SingerUser:
     """Dependency: resolve current singer or account from the Authorization header."""
 
     auth = request.headers.get("Authorization")
@@ -66,17 +69,26 @@ async def get_current_user(request: Request) -> SingerUser:
 
     # Account-scoped token (mobile global identity)
     if claims.get("role") == "account":
-        async with async_session_factory() as session:
-            try:
-                await session.rollback()
-            except Exception:
-                pass
-            account = await _load_account(session, sub)
-            if not account or account.deleted_at is not None:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Account not found or deactivated",
-                    headers={"WWW-Authenticate": "Bearer"},
+        account = await _load_account(db, sub)
+        if not account or account.deleted_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Account not found or deactivated",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        # If the request is venue-scoped, resolve to the account's Singer row
+        # so that /me endpoints (history, queue, stats) work for mobile users.
+        path_venue_id = request.path_params.get("venue_id")
+        if path_venue_id:
+            venue_singer = await _load_account_singer(db, account.id, path_venue_id)
+            if venue_singer:
+                return SingerUser(
+                    id=str(venue_singer.id),
+                    venue_id=path_venue_id,
+                    stage_name=venue_singer.stage_name or account.stage_name or account.email,
+                    email=account.email,
+                    role=Role.SINGER,
+                    token_claims=claims,
                 )
         return SingerUser(
             id=account.id,
@@ -88,14 +100,7 @@ async def get_current_user(request: Request) -> SingerUser:
         )
 
     # Singer-scoped token (legacy venue identity)
-    async with async_session_factory() as session:
-        from app.core.rls import set_session_venue_id
-        try:
-            await session.rollback()
-        except Exception:
-            pass
-        await set_session_venue_id(session, claims.get("venue_id"))
-        singer = await _load_singer(session, sub)
+    singer = await _load_singer(db, sub)
 
     if not singer or singer.deleted_at is not None or singer.deactivated_at is not None:
         raise HTTPException(
@@ -124,6 +129,27 @@ async def get_current_user(request: Request) -> SingerUser:
     )
 
 
+async def get_current_user_or_kj(request: Request, db: AsyncSession = Depends(get_db)):
+    """Allow either a singer Bearer token or a KJ device x-api-key/Bearer."""
+    api_key = request.headers.get("x-api-key")
+    auth = request.headers.get("Authorization", "")
+    if api_key or (auth.lower().startswith("bearer ") and not _looks_like_singer_token(auth)):
+        return await kj_auth(request)
+    return await get_current_user(request, db)
+
+
+def _looks_like_singer_token(auth_header: str) -> bool:
+    """Heuristic: singer tokens have a singer_id sub, not kj_device_id."""
+    try:
+        token = auth_header[7:]
+        claims = decode_token(token)
+        if not claims:
+            return False
+        return "kj_device_id" not in claims and "account" not in claims.get("role", "")
+    except Exception:
+        return False
+
+
 async def _load_account(session: AsyncSession, account_id: str) -> Account | None:
     result = await session.execute(
         select(Account).options(undefer(Account.password_hash)).where(Account.id == account_id)
@@ -134,6 +160,20 @@ async def _load_account(session: AsyncSession, account_id: str) -> Account | Non
 async def _load_singer(session: AsyncSession, singer_id: str) -> Singer | None:
     result = await session.execute(
         select(Singer).options(undefer(Singer.password_hash)).where(Singer.id == singer_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _load_account_singer(
+    session: AsyncSession, account_id: str, venue_id: str
+) -> Singer | None:
+    """Resolve an account-scoped login to the venue-specific Singer row."""
+    result = await session.execute(
+        select(Singer).where(
+            Singer.account_id == account_id,
+            Singer.venue_id == venue_id,
+            Singer.deleted_at.is_(None),
+        )
     )
     return result.scalar_one_or_none()
 
@@ -334,30 +374,14 @@ def venue_match(venue_id_param: str, token_payload: dict) -> bool:
     return str(token_venue) == str(venue_id_param)
 
 
-async def get_current_user_or_kj(request: Request) -> SingerUser | KJDeviceUser:
-    """Allow either a singer Bearer token or a KJ device x-api-key/Bearer."""
-    api_key = request.headers.get("x-api-key")
-    auth = request.headers.get("Authorization", "")
-    if api_key or (auth.lower().startswith("bearer ") and not _looks_like_singer_token(auth)):
-        return await kj_auth(request)
-    return await get_current_user(request)
-
-
-def _looks_like_singer_token(auth_header: str) -> bool:
-    """Heuristic: singer tokens have a singer_id sub, not kj_device_id."""
-    try:
-        token = auth_header[7:]
-        claims = decode_token(token)
-        if not claims:
-            return False
-        return "kj_device_id" not in claims and "account" not in claims.get("role", "")
-    except Exception:
-        return False
-
-
 def venue_match_or_admin(venue_id_param: str, token_payload: dict) -> bool:
     """Return True for matching venue, admin, or KJ tokens."""
-    if venue_match(venue_id_param, token_payload):
+    token_venue = token_payload.get("venue_id")
+    role = token_payload.get("role", "").lower()
+    if role in ("admin", "kj"):
         return True
-    role = (token_payload.get("role") or "").lower()
-    return role in ("admin", "kj")
+    if token_venue is None:
+        return True
+    return str(token_venue) == str(venue_id_param)
+
+

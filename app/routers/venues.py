@@ -13,15 +13,14 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from app.core.queue_service import QueueService, QueueEventPublisher, ACTIVE_STATUSES, SingerEventPublisher
+from app.core.queue_service import SingerEventPublisher
 from app.core.security import create_access_token, create_refresh_token
-from app.core.auth import get_current_user, SingerUser, optional_token
+from app.core.auth import get_current_user, SingerUser
 from app.core.permissions import Role, has_role
 from app.core.db import get_db
 from app.models import Venue, Song, Singer, QueueRequest, Account
@@ -288,7 +287,27 @@ async def join_venue(
     Returns a venue-scoped token pair for subsequent singer endpoints.
     Idempotent: returns existing membership if already present.
     """
-    if current.role != Role.ACCOUNT:
+    # Account-scoped token (first join) or singer-scoped token for an existing
+    # membership (rejoin / refreshed token). Resolve to the canonical account.
+    if current.role == Role.ACCOUNT:
+        account_id = current.id
+    elif current.role == Role.SINGER:
+        existing_singer = (
+            await db.execute(
+                select(Singer).where(
+                    Singer.id == current.id,
+                    Singer.venue_id == venue_id,
+                    Singer.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_singer is None or existing_singer.account_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account-scoped token required",
+            )
+        account_id = existing_singer.account_id
+    else:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account-scoped token required",
@@ -309,7 +328,7 @@ async def join_venue(
     account = (
         await db.execute(
             select(Account).where(
-                Account.id == current.id,
+                Account.id == account_id,
                 Account.deleted_at.is_(None),
             )
         )
@@ -321,7 +340,7 @@ async def join_venue(
     existing = (
         await db.execute(
             select(Singer).where(
-                Singer.account_id == account.id,
+                Singer.account_id == account_id,
                 Singer.venue_id == venue_id,
                 Singer.deleted_at.is_(None),
             )
