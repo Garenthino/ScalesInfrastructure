@@ -620,6 +620,39 @@ async def test_all_pull_endpoints_return_modified_at(client, sync_venue):
         data = resp.json()
         assert key in data, f"Missing {key}: {url}"
 
+async def test_admin_get_singer_history(client, sync_venue, db):
+    venue_id, kj_id, _, songs, raw_key = sync_venue
+
+    # Create a regular singer with completed queue requests
+    singer = Singer(
+        id="target-singer-1",
+        venue_id=venue_id,
+        stage_name="Target",
+        role="singer",
+    )
+    qr = QueueRequest(
+        id="qr-1",
+        venue_id=venue_id,
+        singer_id="target-singer-1",
+        song_id=songs[0].id,
+        status="completed",
+        requested_at="2026-07-14T14:00:00Z",
+        played_at="2026-07-14T14:06:00Z",
+    )
+    db.add_all([singer, qr])
+    await db.commit()
+
+    # KJ fetches history for the singer
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/singers/target-singer-1/history",
+        headers={"x-api-key": raw_key},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 1
+    assert data["items"][0]["song_title"] == "Song A"
+
+
 async def test_push_queue_stub_singer_avoids_duplicate_stage_name(client, sync_venue, db):
     """Auto-created stub singers must not collide on (venue_id, stage_name)."""
     venue_id, _, _, _, raw_key = sync_venue

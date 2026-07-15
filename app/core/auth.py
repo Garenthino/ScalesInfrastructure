@@ -17,7 +17,7 @@ from sqlalchemy import update
 from sqlalchemy.orm import undefer
 
 from app.core.db import async_session_factory
-from app.core.security import decode_token, verify_password, hash_password
+from app.core.security import decode_token, verify_password
 from app.core.permissions import Role
 from app.models import Singer, KJDevice, _now_iso, Account
 
@@ -38,7 +38,6 @@ class SingerUser:
 
 async def get_current_user(request: Request) -> SingerUser:
     """Dependency: resolve current singer or account from the Authorization header."""
-    from app.models import Account
 
     auth = request.headers.get("Authorization")
     if not auth or not auth.lower().startswith("bearer "):
@@ -333,6 +332,27 @@ def venue_match(venue_id_param: str, token_payload: dict) -> bool:
     if token_venue is None:
         return True
     return str(token_venue) == str(venue_id_param)
+
+
+async def get_current_user_or_kj(request: Request) -> SingerUser | KJDeviceUser:
+    """Allow either a singer Bearer token or a KJ device x-api-key/Bearer."""
+    api_key = request.headers.get("x-api-key")
+    auth = request.headers.get("Authorization", "")
+    if api_key or (auth.lower().startswith("bearer ") and not _looks_like_singer_token(auth)):
+        return await kj_auth(request)
+    return await get_current_user(request)
+
+
+def _looks_like_singer_token(auth_header: str) -> bool:
+    """Heuristic: singer tokens have a singer_id sub, not kj_device_id."""
+    try:
+        token = auth_header[7:]
+        claims = decode_token(token)
+        if not claims:
+            return False
+        return "kj_device_id" not in claims and "account" not in claims.get("role", "")
+    except Exception:
+        return False
 
 
 def venue_match_or_admin(venue_id_param: str, token_payload: dict) -> bool:

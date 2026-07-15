@@ -267,7 +267,8 @@ export async function fetchSingerHistory(venueId="", id: string, token?: string)
     headers: authHeaders(token),
   });
   if (!res.ok) throw new Error("Failed to fetch singer history");
-  return res.json();
+  const data = await res.json();
+  return data.items || [];
 }
 
 /* ── Queue ──────────────────────────────────────────────── */

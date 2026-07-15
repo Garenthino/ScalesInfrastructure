@@ -8,12 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, cast, DateTime
 
-from app.core.auth import get_current_user, SingerUser
+from app.core.auth import get_current_user, get_current_user_or_kj, SingerUser, KJDeviceUser
 from app.core.permissions import Role, has_role
 from app.core.db import get_db
-from app.models import Singer, QueueRequest, Song, CheckInSession, PointsLedger, SingerFavorite, SingerFollow, Payment, LeaderboardEntry, Consent, ShareEvent, SingerAchievement, Notification
+from app.models import Singer, QueueRequest, Song, CheckInSession, PointsLedger, SingerFavorite, SingerFollow, Payment, LeaderboardEntry, Consent, ShareEvent, SingerAchievement
 from pydantic import BaseModel, Field
-from app.core.points_service import add_points, get_points_leaderboard, get_achievements_for_singer
+from app.core.points_service import add_points, get_achievements_for_singer
 from app.core.queue_service import SingerEventPublisher
 from app.services.singer_merge import merge_local_singer_into_mobile
 from app.schemas import (
@@ -23,7 +23,6 @@ from app.schemas import (
     SingerOut,
     PaginatedResponse,
     CheckInRequest,
-    CheckInResponse,
     SingerHistoryOut,
     SingerHistoryItem,
     SingerPortalStats,
@@ -151,11 +150,11 @@ async def _sync_singer_profile_to_account(db: AsyncSession, singer: Singer) -> N
     await db.commit()
 
 
-def _require_venue(venue_id: str, current: SingerUser) -> None:
+def _require_venue(venue_id: str, current: SingerUser | KJDeviceUser) -> None:
     """Enforce that the current user's venue matches the URL venue, or admin/KJ."""
-    if str(current.venue_id) == str(venue_id):
+    if str(getattr(current, "venue_id", "")) == str(venue_id):
         return
-    if current.role.lower() in ("admin", "kj"):
+    if getattr(current, "role", "").lower() in ("admin", "kj"):
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -499,6 +498,7 @@ async def get_history(
             QueueRequest.venue_id == venue_id,
             QueueRequest.singer_id == current.id,
             QueueRequest.deleted_at.is_(None),
+            QueueRequest.status.in_(("completed", "skipped", "rejected")),
         )
         .order_by(QueueRequest.requested_at.desc())
     )
@@ -685,6 +685,65 @@ async def get_my_queue_history(
     return SingerQueueHistoryOut(items=items, total=total, page=page, per_page=per_page)
 
 
+@router.get("/{singer_id}/history", response_model=SingerQueueHistoryOut)
+async def get_singer_history_admin(
+    venue_id: str,
+    singer_id: str,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    current: SingerUser | KJDeviceUser = Depends(get_current_user_or_kj),
+    db: AsyncSession = Depends(get_db),
+):
+    """KJ/admin: fetch queue history for any singer at this venue."""
+    role = getattr(current, "role", "").lower()
+    is_kj_device = isinstance(current, KJDeviceUser)
+    if role not in ("admin", "kj") and not is_kj_device:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only KJ or admin can view another singer's history",
+        )
+    _require_venue(venue_id, current)
+
+    filters = [
+        QueueRequest.venue_id == venue_id,
+        QueueRequest.singer_id == singer_id,
+        QueueRequest.deleted_at.is_(None),
+        QueueRequest.status.in_(("completed", "skipped", "rejected")),
+    ]
+    total = (
+        await db.execute(
+            select(func.count()).select_from(QueueRequest).where(*filters)
+        )
+    ).scalar_one()
+
+    offset = (page - 1) * per_page
+    stmt = (
+        select(QueueRequest, Song.title, Song.artist, Song.genre)
+        .join(Song, Song.id == QueueRequest.song_id)
+        .where(*filters)
+        .order_by(QueueRequest.requested_at.desc())
+        .offset(offset)
+        .limit(per_page)
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+    items = [
+        SingerQueueHistoryItem(
+            request_id=str(r.QueueRequest.id),
+            song_title=r.title or "Unknown",
+            song_artist=r.artist or "Unknown",
+            genre=str(r.genre) if r.genre else None,
+            status=str(r.QueueRequest.status),
+            requested_at=str(r.QueueRequest.requested_at),
+            played_at=str(r.QueueRequest.played_at) if r.QueueRequest.played_at else None,
+            notes=str(r.QueueRequest.notes) if r.QueueRequest.notes else None,
+        )
+        for r in rows
+    ]
+
+    return SingerQueueHistoryOut(items=items, total=total, page=page, per_page=per_page)
+
+
 @router.get("/me/queue/status", response_model=SingerQueueStatus)
 async def get_my_queue_status(
     venue_id: str,
@@ -712,7 +771,7 @@ async def get_my_queue_status(
 
     if item is None:
         # Check if there are any completed/skipped requests today
-        from datetime import datetime, timezone, timedelta
+        from datetime import datetime, timezone
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         result2 = await db.execute(
             select(func.count())
@@ -1542,7 +1601,7 @@ async def ban_singer(
     db: AsyncSession = Depends(get_db),
 ):
     """Ban a singer at this venue (admin or kj only). Sets deactivated_at."""
-    from app.schemas import BanRequest, BanResponse
+    from app.schemas import BanResponse
     _require_venue(venue_id, current)
     if not has_role(current.role, Role.KJ):
         raise HTTPException(
