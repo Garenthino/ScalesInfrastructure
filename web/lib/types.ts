@@ -173,6 +173,17 @@ export interface SingerHistoryEntry {
   created_at: string;
 }
 
+export interface SingerQueueHistoryItem {
+  request_id: string;
+  song_title: string;
+  song_artist: string;
+  genre?: string | null;
+  status: string;
+  requested_at: string;
+  played_at?: string | null;
+  notes?: string | null;
+}
+
 export interface SingersListResponse {
   items: Singer[];
   total: number;

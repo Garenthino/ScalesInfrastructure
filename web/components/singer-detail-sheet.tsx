@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Singer, SingerHistoryEntry } from "@/lib/types";
+import { Singer, SingerQueueHistoryItem } from "@/lib/types";
 import {
   Sheet,
   SheetContent,
@@ -263,7 +263,7 @@ export function SingerDetailSheet({ singer, venueId, open, onOpenChange, onCheck
             )}
             <div className="space-y-2">
               {history?.map((entry) => (
-                <HistoryItem key={entry.history_id} entry={entry} />
+                <HistoryItem key={entry.request_id} entry={entry} />
               ))}
             </div>
           </div>
@@ -291,28 +291,25 @@ export function SingerDetailSheet({ singer, venueId, open, onOpenChange, onCheck
   );
 }
 
-function HistoryItem({ entry }: { entry: SingerHistoryEntry }) {
-  const iconMap: Record<SingerHistoryEntry["event_type"], string> = {
-    checkin: "Checked in",
-    performance: "Performed",
-    queue_add: "Added to queue",
-    queue_remove: "Removed from queue",
-    ban: "Banned",
-    unban: "Unbanned",
-    note_update: "Notes updated",
-  };
-
+function HistoryItem({ entry }: { entry: SingerQueueHistoryItem }) {
   return (
     <div className="flex items-start gap-2 rounded-md border p-2">
       <span className="mt-0.5 inline-flex h-2 w-2 rounded-full bg-primary" />
-      <div className="flex-1">
-        <p className="text-xs font-medium">{iconMap[entry.event_type] ?? entry.event_type}</p>
-        {entry.event_data && Object.keys(entry.event_data).length > 0 && (
-          <pre className="mt-1 text-[10px] text-muted-foreground overflow-x-auto">
-            {JSON.stringify(entry.event_data, null, 2)}
-          </pre>
-        )}
-        <p className="text-[10px] text-muted-foreground">{formatDateTime(entry.created_at)}</p>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{entry.song_title}</p>
+        <p className="text-xs text-muted-foreground">{entry.song_artist}</p>
+        <div className="mt-1 flex items-center gap-2">
+          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+            entry.status === "completed"
+              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
+              : entry.status === "skipped"
+              ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+              : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
+          }`}>
+            {entry.status}
+          </span>
+          <span className="text-[10px] text-muted-foreground">{entry.played_at ? formatDateTime(entry.played_at) : formatDateTime(entry.requested_at)}</span>
+        </div>
       </div>
     </div>
   );

@@ -13,6 +13,7 @@ import {
   SingerLeaderboardEntry,
   RevenueBreakdown,
   SingerHistoryEntry,
+  SingerQueueHistoryItem,
   SingerGlobalStats,
   SingerStats,
   SingersListResponse,
@@ -262,7 +263,7 @@ export async function fetchCheckedInSingers(
   return res.json();
 }
 
-export async function fetchSingerHistory(venueId="", id: string, token?: string): Promise<SingerHistoryEntry[]> {
+export async function fetchSingerHistory(venueId="", id: string, token?: string): Promise<SingerQueueHistoryItem[]> {
   const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/singers/${encodeURIComponent(id)}/history`, {
     headers: authHeaders(token),
   });
