@@ -151,10 +151,10 @@ async def _sync_singer_profile_to_account(db: AsyncSession, singer: Singer) -> N
 
 
 def _require_venue(venue_id: str, current: SingerUser | KJDeviceUser) -> None:
-    """Enforce that the current user's venue matches the URL venue, or admin/KJ."""
+    """Enforce that the current user's venue matches the URL venue, or owner/admin/KJ."""
     if str(getattr(current, "venue_id", "")) == str(venue_id):
         return
-    if getattr(current, "role", "").lower() in ("admin", "kj"):
+    if getattr(current, "role", "").lower() in ("owner", "admin", "kj"):
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -697,10 +697,10 @@ async def get_singer_history_admin(
     """KJ/admin: fetch queue history for any singer at this venue."""
     role = getattr(current, "role", "").lower()
     is_kj_device = isinstance(current, KJDeviceUser)
-    if role not in ("admin", "kj") and not is_kj_device:
+    if role not in ("admin", "owner", "kj") and not is_kj_device:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only KJ or admin can view another singer's history",
+            detail="Only owner, admin, or KJ can view another singer's history",
         )
     _require_venue(venue_id, current)
 
