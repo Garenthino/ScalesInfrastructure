@@ -261,7 +261,7 @@ export function SingerDetailSheet({ singer, venueId, open, onOpenChange, onCheck
             {!historyLoading && (!history || history.length === 0) && (
               <p className="text-sm text-muted-foreground">No history yet.</p>
             )}
-            <div className="space-y-2">
+            <div className="max-h-[320px] overflow-y-auto space-y-2 pr-1">
               {history?.map((entry) => (
                 <HistoryItem key={entry.request_id} entry={entry} />
               ))}
