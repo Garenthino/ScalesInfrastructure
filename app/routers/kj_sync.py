@@ -492,12 +492,13 @@ async def pull_queue(
         ))
 
     result = await db.execute(
-        select(QueueRequest, Song)
+        select(QueueRequest, Song, Singer.stage_name)
         .outerjoin(Song, QueueRequest.song_id == Song.id)
+        .outerjoin(Singer, QueueRequest.singer_id == Singer.id)
         .where(and_(*filters))
         .order_by(QueueRequest.rotation_position)
     )
-    items = [_queue_item_to_sync(row[0], row[1]) for row in result.all()]
+    items = [_queue_item_to_sync(row[0], row[1], row[2]) for row in result.all()]
 
     # Also return soft-deleted IDs if since is provided
     deleted_ids: list[str] = []
