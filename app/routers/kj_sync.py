@@ -452,16 +452,15 @@ def _queue_item_to_dict(item: QueueRequest) -> dict[str, Any]:
     }
 
 
-def _queue_item_to_sync(item: QueueRequest) -> SyncQueueItem:
-    # Avoid accessing lazy-loaded relationships (item.song) in async context.
-    # song_title/song_artist will be None on pull; the client can enrich
-    # from its own local DB if needed.
+def _queue_item_to_sync(item: QueueRequest, song: Song | None = None) -> SyncQueueItem:
+    # song_title/song_artist are populated from the eagerly-loaded Song row so
+    # the KJ desktop can match requests against its local catalog.
     return SyncQueueItem(
         request_id=str(item.id),
         singer_id=str(item.singer_id),
         song_id=str(item.song_id) if item.song_id is not None else None,
-        song_title=None,
-        song_artist=None,
+        song_title=song.title if song else None,
+        song_artist=song.artist if song else None,
         status=str(item.status),  # type: ignore[arg-type]
         position=item.rotation_position,
         notes=str(item.notes or ""),
@@ -493,9 +492,12 @@ async def pull_queue(
         ))
 
     result = await db.execute(
-        select(QueueRequest).where(and_(*filters)).order_by(QueueRequest.rotation_position)
+        select(QueueRequest, Song)
+        .outerjoin(Song, QueueRequest.song_id == Song.id)
+        .where(and_(*filters))
+        .order_by(QueueRequest.rotation_position)
     )
-    items = [_queue_item_to_sync(row) for row in result.scalars().all()]
+    items = [_queue_item_to_sync(row[0], row[1]) for row in result.all()]
 
     # Also return soft-deleted IDs if since is provided
     deleted_ids: list[str] = []

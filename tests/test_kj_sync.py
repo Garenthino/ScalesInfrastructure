@@ -814,3 +814,32 @@ async def test_kj_merge_by_details_creates_stub_when_registered_name_matches(cli
     assert source.deleted_at is not None
     assert source.account_id is None or source.account_id == ""
 
+@pytest.mark.asyncio
+async def test_pull_queue_includes_song_title_artist(client, db, kj_device, venue, song):
+    """Regression: GET /kj/sync/queue/pull should include song title/artist."""
+    from datetime import datetime, timezone
+    q = QueueRequest(
+        id=str(uuid.uuid4()),
+        venue_id=str(venue.id),
+        singer_id=str(venue.owner_id) if venue.owner_id else str(uuid.uuid4()),
+        song_id=str(song.id),
+        status="pending",
+        rotation_position=1,
+        requested_at=datetime.now(timezone.utc).isoformat(),
+        updated_at=datetime.now(timezone.utc).isoformat(),
+    )
+    db.add(q)
+    await db.commit()
+
+    resp = await client.get(
+        f"/api/v1/kj/sync/queue/pull?venue_id={venue.id}",
+        headers={"x-api-key": kj_device.api_key},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["items"]) == 1
+    item = data["items"][0]
+    assert item["song_id"] == str(song.id)
+    assert item["song_title"] == song.title
+    assert item["song_artist"] == song.artist
+
