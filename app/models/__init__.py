@@ -419,6 +419,23 @@ class QueueRequest(Base):
     song = relationship("Song")
 
 
+class SingerRemoval(Base):
+    __tablename__ = "singer_removals"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
+    singer_id = Column(String(36), ForeignKey("singers.id"), nullable=False)
+    removed_by_device_id = Column(String(36), ForeignKey("kj_devices.id"), nullable=True)
+    removed_by_account_id = Column(String(36), ForeignKey("accounts.id"), nullable=True)
+    removed_at = Column(Text, default=_now_iso)
+    acknowledged_at = Column(Text)
+
+    __table_args__ = (
+        Index("ix_singer_removals_venue_singer", "venue_id", "singer_id"),
+        Index("ix_singer_removals_venue_ack", "venue_id", "acknowledged_at"),
+    )
+
+
 class RotationSession(Base):
     __tablename__ = "rotation_sessions"
 

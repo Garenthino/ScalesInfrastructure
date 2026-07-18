@@ -815,13 +815,96 @@ async def test_kj_merge_by_details_creates_stub_when_registered_name_matches(cli
     assert source.account_id is None or source.account_id == ""
 
 @pytest.mark.asyncio
-async def test_pull_queue_includes_song_title_artist(client, db, kj_device, venue, song):
-    """Regression: GET /kj/sync/queue/pull should include song title/artist."""
+async def test_remove_singer_from_rotation_creates_removal_record(client, db, sync_venue, venue_with_songs):
+    """POST /v1/kj/sync/queue/singers/{id}/remove cancels requests and records removal."""
     from datetime import datetime, timezone
+    from app.models import SingerRemoval
+    venue_id, songs = venue_with_songs
+    from app.models import KJDevice
+    from app.core.security import hash_password
+    device = KJDevice(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        name="Test KJ",
+        api_key_hash=hash_password("kj-remove-test"),
+    )
+    db.add(device)
+    from app.models import Singer
+    singer = Singer(venue_id=venue_id, stage_name="Remove Me", email="remove@example.com")
+    db.add(singer)
+    await db.commit()
+    await db.refresh(singer)
+    song = songs[0]
     q = QueueRequest(
         id=str(uuid.uuid4()),
-        venue_id=str(venue.id),
-        singer_id=str(venue.owner_id) if venue.owner_id else str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=str(singer.id),
+        song_id=str(song.id),
+        status="pending",
+        rotation_position=1,
+        requested_at=datetime.now(timezone.utc).isoformat(),
+        updated_at=datetime.now(timezone.utc).isoformat(),
+    )
+    db.add(q)
+    await db.commit()
+
+    # Venue admin token
+    from jose import jwt
+    from app.core.config import settings
+    token = jwt.encode(
+        {"sub": str(uuid.uuid4()), "venue_id": venue_id, "role": "admin", "iat": datetime.now(timezone.utc), "exp": datetime.now(timezone.utc).replace(year=datetime.now(timezone.utc).year + 1)},
+        settings.JWT_SECRET_KEY,
+        algorithm="HS256",
+    )
+    resp = await client.post(
+        f"/v1/kj/sync/queue/singers/{singer.id}/remove?venue_id={venue_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 204, resp.text
+
+    # Request should be rejected
+    await db.refresh(q)
+    assert q.status == "rejected"
+
+    # Removal record should exist and appear in pull
+    removal = await db.execute(select(SingerRemoval).where(SingerRemoval.singer_id == str(singer.id)))
+    assert removal.scalar_one_or_none() is not None
+
+    pull = await client.get(
+        f"/v1/kj/sync/queue/pull?venue_id={venue_id}",
+        headers={"x-api-key": "kj-remove-test"},
+    )
+    assert pull.status_code == 200
+    data = pull.json()
+    assert str(singer.id) in data.get("removed_singer_ids", [])
+
+
+@pytest.mark.asyncio
+async def test_pull_queue_includes_song_title_artist(client, db, sync_venue, venue_with_songs):
+    """Regression: GET /v1/kj/sync/queue/pull should include song title/artist and singer_name."""
+    from datetime import datetime, timezone
+    venue_id, songs = venue_with_songs
+    raw_key = "kj-pull-test"
+    from app.models import KJDevice
+    from app.core.security import hash_password
+    device = KJDevice(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        name="Test KJ",
+        api_key_hash=hash_password(raw_key),
+    )
+    db.add(device)
+    # Create a singer for this venue
+    from app.models import Singer
+    singer = Singer(venue_id=venue_id, stage_name="Test Stage", email="test@example.com")
+    db.add(singer)
+    await db.commit()
+    await db.refresh(singer)
+    song = songs[0]
+    q = QueueRequest(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=str(singer.id),
         song_id=str(song.id),
         status="pending",
         rotation_position=1,
@@ -832,8 +915,8 @@ async def test_pull_queue_includes_song_title_artist(client, db, kj_device, venu
     await db.commit()
 
     resp = await client.get(
-        f"/api/v1/kj/sync/queue/pull?venue_id={venue.id}",
-        headers={"x-api-key": kj_device.api_key},
+        f"/v1/kj/sync/queue/pull?venue_id={venue_id}",
+        headers={"x-api-key": raw_key},
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -842,4 +925,5 @@ async def test_pull_queue_includes_song_title_artist(client, db, kj_device, venu
     assert item["song_id"] == str(song.id)
     assert item["song_title"] == song.title
     assert item["song_artist"] == song.artist
+    assert item["singer_name"] == singer.stage_name
 

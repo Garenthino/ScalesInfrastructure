@@ -406,6 +406,14 @@ export async function removeSingerFromQueue(venueId: string, id: string, token?:
   if (!res.ok) throw new Error("Failed to remove from queue");
 }
 
+export async function removeSingerFromRotation(venueId: string, singerId: string, token?: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/kj/sync/queue/singers/${encodeURIComponent(singerId)}/remove`, {
+    method: "POST",
+    headers: authHeaders(token),
+  });
+  if (!res.ok) throw new Error("Failed to remove singer from rotation");
+}
+
 /* ── Commerce ───────────────────────────────────────────── */
 
 export async function fetchAdminProducts(token?: string): Promise<Product[]> {

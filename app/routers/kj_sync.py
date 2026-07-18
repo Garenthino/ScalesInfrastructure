@@ -20,10 +20,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, update
 
-from app.core.auth import kj_auth, KJDeviceUser
+from app.core.auth import kj_auth, KJDeviceUser, require_admin, venue_match_or_admin
 from app.core.db import get_db
 from app.core.queue_service import QueueService, QueueEventPublisher, TERMINAL_STATUSES
-from app.models import QueueRequest, Singer, Song, VenueConfig
+from app.models import QueueRequest, Singer, Song, VenueConfig, SingerRemoval
 from app.services.singer_merge import merge_local_singer_into_mobile
 from app.schemas import (
     SyncQueuePushPayload,
@@ -452,12 +452,15 @@ def _queue_item_to_dict(item: QueueRequest) -> dict[str, Any]:
     }
 
 
-def _queue_item_to_sync(item: QueueRequest, song: Song | None = None) -> SyncQueueItem:
+def _queue_item_to_sync(item: QueueRequest, song: Song | None = None, singer_name: str | None = None) -> SyncQueueItem:
     # song_title/song_artist are populated from the eagerly-loaded Song row so
     # the KJ desktop can match requests against its local catalog.
+    # singer_name is included so the KJ can display the requester without an
+    # extra round-trip.
     return SyncQueueItem(
         request_id=str(item.id),
         singer_id=str(item.singer_id),
+        singer_name=singer_name or "",
         song_id=str(item.song_id) if item.song_id is not None else None,
         song_title=song.title if song else None,
         song_artist=song.artist if song else None,
@@ -512,11 +515,100 @@ async def pull_queue(
         )
         deleted_ids = [str(r[0]) for r in del_result.all()]
 
+    # Unacknowledged singer removals for this venue
+    removal_result = await db.execute(
+        select(SingerRemoval.singer_id).where(
+            SingerRemoval.venue_id == venue_id,
+            SingerRemoval.acknowledged_at.is_(None),
+        )
+    )
+    removed_singer_ids = [str(r[0]) for r in removal_result.all()]
+
     return SyncQueuePullOut(
         items=items,
         deleted_ids=deleted_ids,
+        removed_singer_ids=removed_singer_ids,
         server_modified_at=_now_iso(),
     )
+
+
+# ---------------------------------------------------------------------------
+# Singer removals (venue portal removes singer from rotation)
+# ---------------------------------------------------------------------------
+
+@router.post("/queue/singers/{singer_id}/remove", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_singer_from_rotation(
+    venue_id: str,
+    singer_id: str,
+    current: dict = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Venue admin/KJ removes a singer from the current rotation.
+
+    Cancels all active queue requests for the singer and records a removal
+    so the hosting program can pull it and remove the singer locally.
+    """
+    if not venue_match_or_admin(venue_id, current):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
+
+    # Cancel all active requests for this singer at this venue
+    result = await db.execute(
+        select(QueueRequest).where(
+            QueueRequest.venue_id == venue_id,
+            QueueRequest.singer_id == singer_id,
+            QueueRequest.status.in_(["pending", "approved", "up_next", "now_playing"]),
+            QueueRequest.deleted_at.is_(None),
+        )
+    )
+    for item in result.scalars().all():
+        item.status = "rejected"
+        item.reject_reason = "Removed from rotation by venue"
+        item.updated_at = _now_iso()
+
+    # Record the removal
+    removal = SingerRemoval(
+        venue_id=venue_id,
+        singer_id=singer_id,
+        removed_by_account_id=current.get("account_id") or current.get("id"),
+        removed_at=_now_iso(),
+    )
+    db.add(removal)
+    await db.commit()
+
+    await QueueEventPublisher.publish(
+        venue_id, "singer_removed", {"singer_id": singer_id, "reason": "venue_removed"}
+    )
+    svc = QueueService(db)
+    await svc.broadcast_queue_state(venue_id)
+    return None
+
+
+@router.post("/queue/removals/ack", response_model=dict)
+async def ack_singer_removals(
+    venue_id: str,
+    body: dict,
+    current: KJDeviceUser = Depends(kj_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """KJ desktop acknowledges singer removals so they are not re-sent."""
+    venue_id = venue_id or str(current.venue_id)
+    _require_venue_match(venue_id, current)
+
+    singer_ids = body.get("singer_ids", [])
+    if not singer_ids:
+        return {"acknowledged": []}
+
+    await db.execute(
+        update(SingerRemoval)
+        .where(
+            SingerRemoval.venue_id == venue_id,
+            SingerRemoval.singer_id.in_(singer_ids),
+            SingerRemoval.acknowledged_at.is_(None),
+        )
+        .values(acknowledged_at=_now_iso())
+    )
+    await db.commit()
+    return {"acknowledged": singer_ids}
 
 
 # ---------------------------------------------------------------------------

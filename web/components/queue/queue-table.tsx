@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { QueueRequest, QueueStatus, Singer } from "@/lib/types";
+import { QueueRequest, QueueStatus } from "@/lib/types";
 import {
   Table,
   TableBody,
@@ -14,21 +14,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
-  CheckCircle,
-  XCircle,
   SkipForward,
   Trash2,
   AlertTriangle,
-  Ban,
-  ArrowDownToLine,
 } from "lucide-react";
 import {
-  approveRequest,
-  rejectRequest,
-  completeRequest,
-  removeRequest,
-  skipToEnd,
-  banSinger,
+  removeSingerFromRotation,
 } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -71,13 +62,7 @@ function QueueRow({
   isUrgent,
   isNextUp,
   nextSong,
-  venueId,
-  onApprove,
-  onReject,
-  onComplete,
-  onSkipEnd,
   onRemove,
-  onBan,
 }: {
   item: QueueRequest;
   idx: number;
@@ -85,27 +70,9 @@ function QueueRow({
   isUrgent: boolean;
   isNextUp: boolean;
   nextSong: { title: string; artist: string } | null;
-  venueId: string;
-  onApprove: (id: string) => void;
-  onReject: (id: string) => void;
-  onComplete: (id: string) => void;
-  onSkipEnd: (id: string) => void;
-  onRemove: (id: string) => void;
-  onBan: (singer: Singer) => void;
+  onRemove: (singerId: string) => void;
 }) {
   const statusStyle = statusConfig[item.status];
-  const singerObj: Singer | undefined = item.singer_id
-    ? {
-        singer_id: item.singer_id,
-        name: item.singer_name,
-        display_name: item.singer_name,
-        tier: "none",
-        total_visits: 0,
-        last_visit_date: null,
-        status: "active",
-        notes: "",
-      }
-    : undefined;
 
   return (
     <TableRow
@@ -156,66 +123,14 @@ function QueueRow({
       </TableCell>
       <TableCell>
         <div className="flex flex-wrap items-center gap-1.5">
-          {item.status === "pending" && (
-            <>
-              <ActionButton
-                tooltip="Approve"
-                onClick={() => onApprove(item.request_id)}
-                disabled={rowDisabled}
-                variant="outline"
-              >
-                <CheckCircle className="h-3.5 w-3.5" />
-              </ActionButton>
-              <ActionButton
-                tooltip="Reject"
-                onClick={() => onReject(item.request_id)}
-                disabled={rowDisabled}
-                variant="destructive"
-              >
-                <XCircle className="h-3.5 w-3.5" />
-              </ActionButton>
-            </>
-          )}
-          {(item.status === "approved" || item.status === "now_playing" || item.status === "playing") && (
-            <>
-              <ActionButton
-                tooltip="Complete"
-                onClick={() => onComplete(item.request_id)}
-                disabled={rowDisabled}
-                variant="default"
-              >
-                <CheckCircle className="h-3.5 w-3.5" />
-              </ActionButton>
-            </>
-          )}
-          {(item.status === "pending" || item.status === "approved" || item.status === "now_playing" || item.status === "playing") && (
-            <ActionButton
-              tooltip="Skip to End"
-              onClick={() => onSkipEnd(item.request_id)}
-              disabled={rowDisabled}
-              variant="secondary"
-            >
-              <ArrowDownToLine className="h-3.5 w-3.5" />
-            </ActionButton>
-          )}
           <ActionButton
-            tooltip="Remove"
-            onClick={() => onRemove(item.request_id)}
-            disabled={rowDisabled}
+            tooltip="Remove singer from rotation"
+            onClick={() => item.singer_id && onRemove(item.singer_id)}
+            disabled={rowDisabled || !item.singer_id}
             variant="ghost"
           >
             <Trash2 className="h-3.5 w-3.5 text-destructive" />
           </ActionButton>
-          {singerObj && (
-            <ActionButton
-              tooltip="Ban Singer"
-              onClick={() => onBan(singerObj)}
-              disabled={rowDisabled}
-              variant="ghost"
-            >
-              <Ban className="h-3.5 w-3.5 text-destructive" />
-            </ActionButton>
-          )}
         </div>
       </TableCell>
     </TableRow>
@@ -229,8 +144,6 @@ export function QueueTable({ queue, venueId, onUpdate }: QueueTableProps) {
   const { user, getAccessToken } = useAuth();
   const token = getAccessToken() || undefined;
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "position", dir: "asc" });
-  const [banDialog, setBanDialog] = useState<{ open: boolean; singer?: Singer }>({ open: false });
-  const [banReason, setBanReason] = useState("");
 
   const toggleSort = (key: SortKey) => {
     setSort((prev) => ({
@@ -329,65 +242,15 @@ export function QueueTable({ queue, venueId, onUpdate }: QueueTableProps) {
     return arr;
   }, [queue, sort]);
 
-  const approveMutation = useMutation({
-    mutationFn: (id: string) => approveRequest(venueId, id, token),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["queue-admin"] });
-      onUpdate?.();
-    },
-  });
-
-  const rejectMutation = useMutation({
-    mutationFn: (id: string) => rejectRequest(venueId, id, token),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["queue-admin"] });
-      onUpdate?.();
-    },
-  });
-
-  const completeMutation = useMutation({
-    mutationFn: (id: string) => completeRequest(venueId, id, token),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["queue-admin"] });
-      onUpdate?.();
-    },
-  });
-
-  const skipEndMutation = useMutation({
-    mutationFn: (id: string) => skipToEnd(venueId, id, token),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["queue-admin"] });
-      onUpdate?.();
-    },
-  });
-
   const removeMutation = useMutation({
-    mutationFn: (id: string) => removeRequest(venueId, id, token),
+    mutationFn: (singerId: string) => removeSingerFromRotation(venueId, singerId, token),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["queue-admin"] });
       onUpdate?.();
     },
   });
 
-  const banMutation = useMutation({
-    mutationFn: ({ singerId, reason }: { singerId: string; reason?: string }) =>
-      banSinger(venueId, singerId, reason, token),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["queue-admin"] });
-      queryClient.invalidateQueries({ queryKey: ["singers"] });
-      setBanDialog({ open: false });
-      setBanReason("");
-      onUpdate?.();
-    },
-  });
-
-  const isPending = (id: string) =>
-    approveMutation.variables === id ||
-    rejectMutation.variables === id ||
-    completeMutation.variables === id ||
-    skipEndMutation.variables === id ||
-    removeMutation.variables === id ||
-    banMutation.isPending;
+  const isPending = (id: string) => removeMutation.isPending;
 
   if (queue.length === 0) {
     return (
@@ -439,13 +302,7 @@ export function QueueTable({ queue, venueId, onUpdate }: QueueTableProps) {
                     isUrgent={isUrgent}
                     isNextUp={isNextUp}
                     nextSong={nextSong}
-                    venueId={venueId}
-                    onApprove={(id) => approveMutation.mutate(id)}
-                    onReject={(id) => rejectMutation.mutate(id)}
-                    onComplete={(id) => completeMutation.mutate(id)}
-                    onSkipEnd={(id) => skipEndMutation.mutate(id)}
-                    onRemove={(id) => removeMutation.mutate(id)}
-                    onBan={(singer) => setBanDialog({ open: true, singer })}
+                    onRemove={(singerId) => removeMutation.mutate(singerId)}
                   />
                 );
               })}
@@ -454,44 +311,6 @@ export function QueueTable({ queue, venueId, onUpdate }: QueueTableProps) {
         </div>
       </div>
 
-      {/* Ban Dialog */}
-      {banDialog.open && banDialog.singer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-lg border bg-background p-6 shadow-lg">
-            <h2 className="text-lg font-semibold">Ban Singer</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              You are about to ban <strong>{banDialog.singer.name}</strong>. This will deactivate their account at this venue.
-            </p>
-            <div className="mt-4 space-y-2">
-              <label className="text-sm font-medium">Reason (optional)</label>
-              <input
-                type="text"
-                value={banReason}
-                onChange={(e) => setBanReason(e.target.value)}
-                placeholder="e.g. Disruptive behavior"
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
-              />
-            </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setBanDialog({ open: false })}>
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() =>
-                  banMutation.mutate({
-                    singerId: banDialog.singer!.singer_id,
-                    reason: banReason,
-                  })
-                }
-                disabled={banMutation.isPending}
-              >
-                {banMutation.isPending ? "Banning..." : "Ban Singer"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -1162,6 +1162,7 @@ class SingerMeUpdate(ScalesModel):
 class SyncQueueItem(ScalesModel):
     request_id: str
     singer_id: str
+    singer_name: str | None = None
     song_id: str | None = None
     song_title: str | None = None
     song_artist: str | None = None
@@ -1183,6 +1184,7 @@ class SyncQueuePushPayload(ScalesModel):
 class SyncQueuePullOut(ScalesModel):
     items: list[SyncQueueItem]
     deleted_ids: list[str] = Field(default_factory=list)
+    removed_singer_ids: list[str] = Field(default_factory=list)
     server_modified_at: str
 
 
