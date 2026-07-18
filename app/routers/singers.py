@@ -678,6 +678,7 @@ async def get_my_queue_history(
             requested_at=str(r.QueueRequest.requested_at),
             played_at=str(r.QueueRequest.played_at) if r.QueueRequest.played_at else None,
             notes=str(r.QueueRequest.notes) if r.QueueRequest.notes else None,
+            reject_reason=str(r.QueueRequest.reject_reason) if r.QueueRequest.reject_reason else None,
         )
         for r in rows
     ]
@@ -737,6 +738,7 @@ async def get_singer_history_admin(
             requested_at=str(r.QueueRequest.requested_at),
             played_at=str(r.QueueRequest.played_at) if r.QueueRequest.played_at else None,
             notes=str(r.QueueRequest.notes) if r.QueueRequest.notes else None,
+            reject_reason=str(r.QueueRequest.reject_reason) if r.QueueRequest.reject_reason else None,
         )
         for r in rows
     ]
