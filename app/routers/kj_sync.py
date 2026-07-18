@@ -253,7 +253,11 @@ async def push_queue(
             existing.singer_id = item.singer_id
             if resolved_song_id is not None:
                 existing.song_id = resolved_song_id
-            elif item.status != "now_playing" and str(existing.status) not in TERMINAL_STATUSES:
+            # Only clear song_id when the KJ desktop explicitly removes a song
+            # from a non-terminal request. Do NOT clear it on rejection/skip,
+            # because queue_requests.song_id is NOT NULL and the rejection reason
+            # refers to the song that was originally requested.
+            elif item.status not in ("rejected", "skipped") and str(existing.status) not in TERMINAL_STATUSES:
                 existing.song_id = None
             existing.status = item.status
             existing.rotation_position = item.position

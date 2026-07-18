@@ -1100,6 +1100,7 @@ class SingerQueueHistoryItem(ScalesModel):
     requested_at: str
     played_at: str | None = None
     notes: str | None = None
+    reject_reason: str | None = None
 
 
 class SingerQueueHistoryOut(ScalesModel):

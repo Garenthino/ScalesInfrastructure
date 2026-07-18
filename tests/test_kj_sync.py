@@ -815,6 +815,61 @@ async def test_kj_merge_by_details_creates_stub_when_registered_name_matches(cli
     assert source.account_id is None or source.account_id == ""
 
 @pytest.mark.asyncio
+async def test_queue_push_rejected_sets_reason_and_status(client, db, sync_venue, venue_with_songs):
+    """KJ desktop can push a rejection for an existing queue request."""
+    from datetime import datetime, timezone
+    venue_id, songs = venue_with_songs
+    from app.models import KJDevice
+    from app.core.security import hash_password
+    device = KJDevice(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        name="Test KJ",
+        api_key_hash=hash_password("kj-reject-test"),
+    )
+    db.add(device)
+    from app.models import Singer
+    singer = Singer(venue_id=venue_id, stage_name="Reject Me", email="reject@example.com")
+    db.add(singer)
+    await db.commit()
+    await db.refresh(singer)
+    song = songs[0]
+    req_id = str(uuid.uuid4())
+    q = QueueRequest(
+        id=req_id,
+        venue_id=venue_id,
+        singer_id=str(singer.id),
+        song_id=str(song.id),
+        status="pending",
+        rotation_position=1,
+        requested_at=datetime.now(timezone.utc).isoformat(),
+        updated_at=datetime.now(timezone.utc).isoformat(),
+    )
+    db.add(q)
+    await db.commit()
+
+    resp = await client.post(
+        "/v1/kj/sync/queue/push",
+        json={
+            "items": [
+                {
+                    "request_id": req_id,
+                    "singer_id": str(singer.id),
+                    "status": "rejected",
+                    "reject_reason": "This song is already in the queue for this singer",
+                }
+            ],
+            "deleted_ids": [],
+        },
+        headers={"x-api-key": "kj-reject-test"},
+    )
+    assert resp.status_code == 200, resp.text
+    await db.refresh(q)
+    assert q.status == "rejected"
+    assert q.reject_reason == "This song is already in the queue for this singer"
+
+
+@pytest.mark.asyncio
 async def test_remove_singer_from_rotation_creates_removal_record(client, db, sync_venue, venue_with_songs):
     """POST /v1/kj/sync/queue/singers/{id}/remove cancels requests and records removal."""
     from datetime import datetime, timezone
