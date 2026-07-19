@@ -207,6 +207,7 @@ class VenueSettings(ScalesModel):
     require_approval: bool = False
     allow_duplicates: bool = True
     rotation_mode: Literal["fifo", "weighted", "vip_priority"] = "fifo"
+    allow_priority_bump: bool = False
 
 
 class VenueOperatingHours(ScalesModel):
@@ -262,6 +263,7 @@ class VenueOut(ScalesModel):
     settings: VenueSettings | None = None
     operating_hours: VenueOperatingHours | None = None
     is_active: bool
+    allow_priority_bump: bool = False
     created_at: str
     updated_at: str
     deleted_at: str | None = None
@@ -275,6 +277,7 @@ class VenueCompactOut(ScalesModel):
     venue_code: str
     timezone: str
     is_active: bool
+    allow_priority_bump: bool = False
 
 
 # ---------------------------------------------------------------------------

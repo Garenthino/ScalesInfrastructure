@@ -261,7 +261,8 @@ The core karaoke request system.
 | 🔓 | GET | `/venues/{venue_id}/queue` | View current queue (public) |
 | 🔒 singer | POST | `/venues/{venue_id}/queue` | Submit song request |
 | 🔒 singer | GET | `/venues/{venue_id}/queue/my` | Get singer's active requests |
-| 🔒 singer | DELETE | `/venues/{venue_id}/queue/{request_id}` | Cancel own request |
+| 🔒 singer | DELETE | `/venues/{venue_id}/queue/me/{request_id}` | Cancel own pending request |
+| 🔒 singer | DELETE | `/venues/{venue_id}/queue/{request_id}` | Cancel own request (legacy) |
 | 🔒 kj | PATCH | `/venues/{venue_id}/queue/{request_id}` | Approve/reject/prioritize request |
 | 🔒 kj | POST | `/venues/{venue_id}/queue/{request_id}/start` | Mark as "now playing" |
 | 🔒 kj | POST | `/venues/{venue_id}/queue/{request_id}/complete` | Mark as completed |

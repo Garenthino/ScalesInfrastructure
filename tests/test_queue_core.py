@@ -214,6 +214,73 @@ async def test_submit_venue_mismatch(client, jwt_encode, kj_venue):
 
 
 # ---------------------------------------------------------------------------
+# CANCEL OWN REQUEST (/queue/me/{request_id})
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_cancel_my_request_success(client, jwt_encode, populated_queue):
+    venue_id, _, singer_id, _, items = populated_queue
+    pending = [i for i in items if i.status == "pending" and str(i.singer_id) == singer_id][0]
+    token = jwt_encode(venue_id, role="singer", user_id=singer_id)
+    resp = await client.delete(
+        f"/v1/venues/{venue_id}/queue/me/{pending.id}",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert data["request_id"] == str(pending.id)
+    assert data["status"] == "cancelled"
+
+
+@pytest.mark.anyio
+async def test_cancel_my_request_not_owner(client, jwt_encode, populated_queue):
+    venue_id, kj_id, singer_id, _, items = populated_queue
+    kj_pending = [i for i in items if i.status == "pending" and str(i.singer_id) == kj_id][0]
+    token = jwt_encode(venue_id, role="singer", user_id=singer_id)
+    resp = await client.delete(
+        f"/v1/venues/{venue_id}/queue/me/{kj_pending.id}",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.anyio
+async def test_cancel_my_request_not_pending(client, jwt_encode, populated_queue):
+    venue_id, _, singer_id, _, items = populated_queue
+    approved = [i for i in items if i.status == "approved" and str(i.singer_id) == singer_id][0]
+    token = jwt_encode(venue_id, role="singer", user_id=singer_id)
+    resp = await client.delete(
+        f"/v1/venues/{venue_id}/queue/me/{approved.id}",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.anyio
+async def test_cancel_my_request_nonexistent(client, jwt_encode, populated_queue):
+    venue_id, _, singer_id, _, _ = populated_queue
+    token = jwt_encode(venue_id, role="singer", user_id=singer_id)
+    resp = await client.delete(
+        f"/v1/venues/{venue_id}/queue/me/{str(uuid.uuid4())}",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_cancel_my_request_wrong_venue(client, jwt_encode, populated_queue):
+    venue_id, _, singer_id, _, items = populated_queue
+    pending = [i for i in items if i.status == "pending" and str(i.singer_id) == singer_id][0]
+    wrong_venue_id = str(uuid.uuid4())
+    token = jwt_encode(venue_id, role="singer", user_id=singer_id)
+    resp = await client.delete(
+        f"/v1/venues/{wrong_venue_id}/queue/me/{pending.id}",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+
+# ---------------------------------------------------------------------------
 # CANCEL
 # ---------------------------------------------------------------------------
 

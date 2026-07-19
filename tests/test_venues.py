@@ -31,6 +31,7 @@ async def _seed_venue(session, name: str = "Test Venue", **kwargs) -> Venue:
         timezone=kwargs.get("timezone", "UTC"),
         branding_json=kwargs.get("branding_json"),
         is_active=kwargs.get("is_active", 1),
+        allow_priority_bump=kwargs.get("allow_priority_bump", 0),
     )
     session.add(venue)
     await session.commit()

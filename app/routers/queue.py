@@ -31,8 +31,10 @@ from app.core.permissions import Role
 from app.core.dependencies import require_role
 from app.models import QueueRequest, Song, Venue, KJDevice
 from app.schemas import QueueRequestCreate, QueueRequestUpdate, QueueReorder, QueueAdminListOut
+from app.schemas.queue import QueueCancelResponse
 
 from app.core.loyalty_service import award_performance_points
+from app.core.queue_service import QueueEventPublisher
 
 from datetime import datetime, timezone
 
@@ -224,6 +226,76 @@ async def get_queue_list(
             est_wait = positions_after * AVG_SONG_SECONDS
         out.append(_queue_request_out(item, position=abs_idx + 1, est_wait=est_wait))
     return {"items": out, "total": total, "page": page, "per_page": per_page}
+
+
+# ---------------------------------------------------------------------------
+# CANCEL OWN REQUEST
+# ---------------------------------------------------------------------------
+
+@router.delete("/me/{request_id}", response_model=QueueCancelResponse, status_code=status.HTTP_200_OK)
+async def cancel_my_request(
+    venue_id: str,
+    request_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """An authenticated singer cancels their own pending request.
+
+    Only `pending` requests can be cancelled by the singer. Requests that have
+    already been approved, started, completed, skipped, rejected, or removed
+    by the KJ return a 400 or 404 as appropriate.
+    """
+    if str(current.venue_id) != str(venue_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
+
+    item = (
+        await db.execute(
+            select(QueueRequest).where(
+                QueueRequest.id == request_id,
+                QueueRequest.venue_id == venue_id,
+                QueueRequest.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Request not found")
+
+    if str(current.id) != str(item.singer_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Not your request")
+
+    if str(item.status) not in {"pending"}:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot cancel a request with status '{item.status}'",
+        )
+
+    item.status = "rejected"
+    item.reject_reason = "Cancelled by singer"
+    item.updated_at = _now_iso()
+    await db.commit()
+
+    svc = QueueService(db)
+    await svc.broadcast_queue_state(venue_id)
+    await QueueEventPublisher.publish(
+        venue_id, "request_cancelled", {"request_id": request_id, "singer_id": str(current.id)}
+    )
+    return QueueCancelResponse(request_id=request_id, status="cancelled")
+
+
+# ---------------------------------------------------------------------------
+# CANCEL OWN REQUEST (legacy path kept for compatibility)
+# ---------------------------------------------------------------------------
+
+@router.delete("/me/queue/{request_id}", status_code=status.HTTP_200_OK)
+async def cancel_my_queue_request_legacy(
+    venue_id: str,
+    request_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Legacy path. Delegates to the canonical /queue/me/{request_id} behaviour."""
+    return await cancel_my_request(venue_id, request_id, current, db)
 
 
 # ---------------------------------------------------------------------------

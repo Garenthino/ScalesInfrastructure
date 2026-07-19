@@ -107,6 +107,9 @@ class Venue(Base):
     plan_features_json = Column(Text)
     admin_notes = Column(Text)
 
+    # Priority-bump feature flag (Android singer queue)
+    allow_priority_bump = Column(Integer, default=0, nullable=False)
+
     created_at = Column(Text, default=_now_iso)
     updated_at = Column(Text, default=_now_iso, onupdate=_now_iso)
     deleted_at = Column(Text)

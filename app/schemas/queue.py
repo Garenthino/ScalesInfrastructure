@@ -38,6 +38,11 @@ class QueueLeaveAllResponse(_ScalesModel):
     removed: int
 
 
+class QueueCancelResponse(_ScalesModel):
+    request_id: str
+    status: Literal["cancelled"]
+
+
 class PublicQueueItem(_ScalesModel):
     position: int
     status: Literal["pending", "approved", "now_playing", "completed", "skipped"]

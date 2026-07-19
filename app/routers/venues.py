@@ -98,6 +98,7 @@ def _venue_out(venue: Venue, stats: VenueStats | None = None) -> VenueOut:
         settings=None,  # stored in venue_configs table; out of scope for now
         operating_hours=None,  # stored in venue_configs table; out of scope for now
         is_active=bool(venue.is_active),
+        allow_priority_bump=bool(venue.allow_priority_bump),
         created_at=venue.created_at,
         updated_at=venue.updated_at,
         deleted_at=venue.deleted_at,
@@ -113,6 +114,7 @@ def _venue_compact(venue: Venue) -> VenueCompactOut:
         venue_code=venue.venue_code,
         timezone=venue.timezone or "UTC",
         is_active=bool(venue.is_active),
+        allow_priority_bump=bool(venue.allow_priority_bump),
     )
 
 
