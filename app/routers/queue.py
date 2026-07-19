@@ -195,21 +195,22 @@ async def get_queue_list(
 
     svc = QueueService(db)
     items = await svc.get_active_queue(venue_id, mode="fifo", include_details=True)
-    # Re-sort by rotation_position to match KJ desktop order
-    items.sort(key=lambda i: i.rotation_position or 0)
+    # Collapse to one row per singer in rotation; exclude un-positioned
+    # mobile requests that the KJ has not yet accepted into the rotation.
+    rotation_items = svc._rotation_view(items)
 
     # Calculate estimated wait starting from now_playing, wrapping around
     AVG_SONG_SECONDS = 280
     now_playing_idx = -1
-    for i, item in enumerate(items):
+    for i, item in enumerate(rotation_items):
         if str(item.status) == "now_playing":
             now_playing_idx = i
             break
 
-    total = len(items)
+    total = len(rotation_items)
     start = (page - 1) * per_page
     end = start + per_page
-    paginated = items[start:end]
+    paginated = rotation_items[start:end]
 
     out = []
     for i, item in enumerate(paginated):

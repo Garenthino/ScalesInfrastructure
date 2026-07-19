@@ -833,8 +833,35 @@ class QueueService:
         )
         return result.scalar_one() > 0
 
+    @staticmethod
+    def _rotation_view(items: list[QueueRequest]) -> list[QueueRequest]:
+        """Collapse active queue items to one row per singer in rotation.
+
+        Only items that have been assigned a rotation_position by the KJ
+        desktop are considered part of the live rotation. For each singer,
+        pick the single most relevant item: now_playing > up_next > approved
+        > pending. This prevents the portal from showing every individual
+        song request (e.g. additional mobile requests) as separate rows.
+        """
+        # Status priority: lower number = higher priority
+        priority = {"now_playing": 0, "up_next": 1, "approved": 2, "pending": 3}
+
+        by_singer: dict[str, list[QueueRequest]] = {}
+        for item in items:
+            if item.rotation_position is None:
+                continue
+            by_singer.setdefault(str(item.singer_id), []).append(item)
+
+        view: list[QueueRequest] = []
+        for singer_id, group in by_singer.items():
+            group.sort(key=lambda i: priority.get(str(i.status), 99))
+            view.append(group[0])
+
+        view.sort(key=lambda i: (i.rotation_position or 0, priority.get(str(i.status), 99)))
+        return view
+
     async def broadcast_queue_state(self, venue_id: str) -> None:
-        """Broadcast the full queue state + stats + now_playing via WebSocket."""
+        """Broadcast the live rotation + stats + now_playing via WebSocket."""
         # If no KJ device has been seen recently, broadcast empty state
         # (the show is offline — portal should show empty, not stale data).
         kj_online = await self.is_kj_online(venue_id)
@@ -858,22 +885,21 @@ class QueueService:
             await QueueEventPublisher.publish(venue_id, "now_playing", {})
             return
 
-        # Get active queue — use rotation_position for ordering to match
-        # the KJ desktop's rotation order, NOT round_robin interleaving.
+        # Get active queue, then collapse to one row per singer in rotation.
         items = await self.get_active_queue(venue_id, mode="fifo", include_details=True)
-        items.sort(key=lambda i: i.rotation_position or 0)
+        rotation_items = self._rotation_view(items)
 
         # Find the now_playing index so we can calculate estimated wait
         # starting from the current singer, wrapping around the rotation.
         AVG_SONG_SECONDS = 280  # 4:40
         now_playing_idx = -1
-        for i, item in enumerate(items):
+        for i, item in enumerate(rotation_items):
             if str(item.status) == "now_playing":
                 now_playing_idx = i
                 break
 
         queue_data = []
-        for idx, item in enumerate(items, start=1):
+        for idx, item in enumerate(rotation_items, start=1):
             singer = getattr(item, "singer", None)
             song = getattr(item, "song", None)
 

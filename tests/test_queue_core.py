@@ -19,7 +19,6 @@ from datetime import datetime, timezone
 import pytest
 from fastapi import status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 
 from app.models import Venue, Song, Singer, QueueRequest
 
@@ -129,7 +128,7 @@ async def populated_queue(db: AsyncSession, kj_venue):
 
 @pytest.mark.anyio
 async def test_list_queue_singer(client, jwt_encode, populated_queue):
-    venue_id, _, singer_id, _, _ = populated_queue
+    venue_id, kj_id, singer_id, _, _ = populated_queue
     token = jwt_encode(venue_id, role="singer", user_id=singer_id)
     resp = await client.get(
         f"/v1/venues/{venue_id}/queue/list",
@@ -137,8 +136,10 @@ async def test_list_queue_singer(client, jwt_encode, populated_queue):
     )
     assert resp.status_code == status.HTTP_200_OK
     data = resp.json()
-    assert data["total"] == 4
-    assert len(data["items"]) == 4
+    # Rotation view collapses to one row per singer (2 singers).
+    assert data["total"] == 2
+    assert len(data["items"]) == 2
+    assert {it["singer_id"] for it in data["items"]} == {singer_id, kj_id}
 
 
 @pytest.mark.anyio
