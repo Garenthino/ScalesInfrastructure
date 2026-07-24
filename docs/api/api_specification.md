@@ -556,10 +556,10 @@ State upload/download for crash recovery and multi-device KJ setups.
 
 | Auth | Method | Path | Description |
 |------|--------|------|-------------|
-| 🔒 kj | GET | `/venues/{venue_id}/kj/state` | Download current KJ state |
-| 🔒 kj | PUT | `/venues/{venue_id}/kj/state` | Upload state snapshot |
-| 🔒 kj | POST | `/venues/{venue_id}/kj/sync` | Trigger cross-device sync |
-| 🔒 kj | GET | `/venues/{venue_id}/kj/history` | KJ action log |
+| 🔒 kj | POST | `/kj/sync/repair` | Start full repair sync (push + reconcile) |
+| 🔒 kj | GET | `/kj/sync/repair/{sync_id}` | Poll repair sync status |
+| 🔒 kj | POST | `/kj/sync/repair/{sync_id}/resolve` | Resolve conflicts (prompt mode) |
+| 🔒 kj | DELETE | `/kj/sync/repair/{sync_id}` | Best-effort cancel repair sync |
 | 🔒 venue_admin | GET | `/venues/{venue_id}/kj/sessions` | Active KJ sessions |
 | 🔒 venue_admin | DELETE | `/venues/{venue_id}/kj/sessions/{session_id}` | Force KJ logout |
 

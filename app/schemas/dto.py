@@ -4,6 +4,7 @@ Organized by domain: venues, songs, singers, queue, loyalty, commerce, analytics
 """
 
 from typing import Any, Literal
+from enum import Enum
 
 import json
 
@@ -1431,3 +1432,132 @@ class GDPRDeleteResponse(ScalesModel):
     erased_at: str
     retention_days: int
     message: str
+
+
+# ---------------------------------------------------------------------------
+# Full Repair Sync
+# ---------------------------------------------------------------------------
+
+class RepairSyncConflictResolution(str, Enum):
+    server_wins = "server_wins"
+    client_wins = "client_wins"
+    merge = "merge"
+
+
+class RepairSyncConflictFieldResolution(ScalesModel):
+    """Per-field winner for merge conflicts."""
+
+    field: str
+    winner: Literal["server", "client"]
+
+
+class RepairSyncConflict(ScalesModel):
+    """Conflict detected during full repair sync."""
+
+    entity_type: Literal["singers", "queue", "settings"]
+    entity_id: str
+    display_label: str
+    changed_fields: list[str] = Field(default_factory=list)
+    server_state: dict[str, Any] = Field(default_factory=dict)
+    client_state: dict[str, Any] = Field(default_factory=dict)
+    resolution: Literal["server_wins", "client_wins", "merge"] = "server_wins"
+    field_resolutions: dict[str, str] | None = None
+    locked_fields: list[str] = Field(default_factory=list)
+    mergeable_fields: list[str] | None = None
+
+
+class RepairSyncProgress(ScalesModel):
+    total_steps: int
+    current_step: int
+    step_label: str
+    percent: int
+
+
+class RepairSyncSummary(ScalesModel):
+    singers_synced: int = 0
+    queue_synced: int = 0
+    settings_synced: int = 0
+    now_playing_synced: bool = False
+    conflicts_resolved: int = 0
+    server_modified_at: str
+
+
+class RepairSyncStatus(str, Enum):
+    accepted = "accepted"
+    processing = "processing"
+    needs_resolution = "needs_resolution"
+    completed = "completed"
+    failed = "failed"
+    cancelled = "cancelled"
+
+
+class NowPlayingSnapshot(ScalesModel):
+    singer_id: str | None = None
+    song_id: str | None = None
+    song_title: str | None = None
+    song_artist: str | None = None
+    singer_name: str | None = None
+    is_dj_track: bool = False
+    started_at: str | None = None
+
+
+class RepairSyncSingerSnapshot(ScalesModel):
+    items: list[SyncSingerItem] = Field(default_factory=list)
+    deleted_ids: list[str] = Field(default_factory=list)
+    last_modified_at: str | None = None
+
+
+class RepairSyncQueueSnapshot(ScalesModel):
+    items: list[SyncQueueItem] = Field(default_factory=list)
+    deleted_ids: list[str] = Field(default_factory=list)
+    last_modified_at: str | None = None
+
+
+class RepairSyncSettingsSnapshot(ScalesModel):
+    items: list[SyncSettingItem] = Field(default_factory=list)
+    last_modified_at: str | None = None
+
+
+class RepairSyncSnapshot(ScalesModel):
+    singers: RepairSyncSingerSnapshot | None = None
+    queue: RepairSyncQueueSnapshot | None = None
+    settings: RepairSyncSettingsSnapshot | None = None
+    now_playing: NowPlayingSnapshot | None = None
+
+
+class RepairSyncMode(str, Enum):
+    client_wins = "client_wins"
+    prompt = "prompt"
+
+
+class RepairSyncStartRequest(ScalesModel):
+    venue_id: str
+    mode: RepairSyncMode
+    snapshot: RepairSyncSnapshot
+
+
+class RepairSyncResolveRequest(ScalesModel):
+    resolutions: list[RepairSyncConflict] = Field(default_factory=list)
+
+
+class RepairSyncOut(ScalesModel):
+    sync_id: str
+    status: RepairSyncStatus
+    mode: RepairSyncMode
+    created_at: str
+    updated_at: str
+    progress: RepairSyncProgress | None = None
+    summary: RepairSyncSummary | None = None
+    conflicts: list[RepairSyncConflict] | None = None
+    error: ProblemDetail | None = None
+
+
+class RepairSyncJobSummary(ScalesModel):
+    """Internal persisted snapshot of a completed/failed repair sync job."""
+
+    singers_synced: int = 0
+    queue_synced: int = 0
+    settings_synced: int = 0
+    now_playing_synced: bool = False
+    conflicts_resolved: int = 0
+    server_modified_at: str | None = None
