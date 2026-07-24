@@ -33,6 +33,9 @@ import {
   PaginatedResponse,
   SubscriptionStatus,
   CheckoutSessionResponse,
+  RepairSyncPayload,
+  RepairSyncOut,
+  ConflictResolution,
 } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://dancingdragonservices.com/api/v1";
@@ -781,4 +784,72 @@ export async function createBillingPortalSession(venue_id: string, returnUrl: st
     throw new Error(err.detail || "Failed to open billing portal");
   }
   return res.json();
+}
+
+/* ── Repair Sync ────────────────────────────────────────── */
+
+function repairHeaders(token?: string): Record<string, string> {
+  const t = token || getToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Idempotency-Key": crypto.randomUUID(),
+  };
+  if (t) headers["Authorization"] = `Bearer ${t}`;
+  return headers;
+}
+
+export async function startRepairSync(
+  venue_id: string,
+  payload: RepairSyncPayload,
+  token?: string
+): Promise<RepairSyncOut> {
+  const res = await fetch(`${API_BASE}/kj/sync/repair`, {
+    method: "POST",
+    headers: repairHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Repair sync failed to start" }));
+    throw new Error(err.detail || "Repair sync failed to start");
+  }
+  return res.json();
+}
+
+export async function fetchRepairSyncStatus(sync_id: string, token?: string): Promise<RepairSyncOut> {
+  const res = await fetch(`${API_BASE}/kj/sync/repair/${encodeURIComponent(sync_id)}`, {
+    headers: authHeaders(token),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to fetch sync status" }));
+    throw new Error(err.detail || "Failed to fetch sync status");
+  }
+  return res.json();
+}
+
+export async function resolveRepairSyncConflicts(
+  sync_id: string,
+  resolutions: ConflictResolution[],
+  token?: string
+): Promise<RepairSyncOut> {
+  const res = await fetch(`${API_BASE}/kj/sync/repair/${encodeURIComponent(sync_id)}/resolve`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ resolutions }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to resolve conflicts" }));
+    throw new Error(err.detail || "Failed to resolve conflicts");
+  }
+  return res.json();
+}
+
+export async function cancelRepairSync(sync_id: string, token?: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/kj/sync/repair/${encodeURIComponent(sync_id)}`, {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to cancel repair sync" }));
+    throw new Error(err.detail || "Failed to cancel repair sync");
+  }
 }

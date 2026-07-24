@@ -130,7 +130,7 @@ describe("useQueueWS", () => {
   it("should update now_playing state", async () => {
     const { result } = renderHook(() => useQueueWS("venue-1"));
 
-    const nowPlaying = { request_id: "r3", singer_name: "Carol", song_title: "Song C", started_at: "2025-01-01T00:00:00Z", elapsed_seconds: 30 };
+    const nowPlaying = { request_id: "r3", singer_name: "Carol", song_title: "Song C", started_at: "2025-01-01T00:00:00Z", elapsed_seconds: 30, is_dj_track: false, song_artist: null };
 
     await waitFor(() => expect(listeners["connect"]).toBeDefined());
     listeners["connect"].forEach((cb) => cb());

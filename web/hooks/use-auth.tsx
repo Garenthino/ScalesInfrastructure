@@ -71,8 +71,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (fetchingRef.current?.token === token) {
         return fetchingRef.current.promise;
       }
-      // Already completed for this token; return the cached user.
-      if (fetchedTokens.has(token)) {
+      // Already completed for this token and we have a hydrated user; return it.
+      if (fetchedTokens.has(token) && user) {
         return user as User;
       }
       fetchedTokens.add(token);

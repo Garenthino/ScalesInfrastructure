@@ -493,3 +493,110 @@ export interface KJDeviceMessage {
   device_id: string;
   payload: KJDevice | KJDeviceNowPlaying | KJDeviceQueueItem[] | unknown;
 }
+
+// -- Repair Sync --
+
+export type RepairSyncStatus =
+  | "accepted"
+  | "processing"
+  | "needs_resolution"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type RepairSyncMode = "client_wins" | "prompt";
+
+export interface RepairSyncProgress {
+  total_steps: number;
+  current_step: number;
+  step_label: string;
+  percent: number;
+}
+
+export interface RepairSyncSummary {
+  singers_synced: number;
+  queue_synced: number;
+  settings_synced: number;
+  now_playing_synced: boolean;
+  conflicts_resolved: number;
+  server_modified_at: string;
+}
+
+export interface RepairSyncConflict {
+  entity_type: "singers" | "queue" | "settings";
+  entity_id: string;
+  display_label: string;
+  changed_fields: string[];
+  server_state: Record<string, unknown>;
+  client_state: Record<string, unknown>;
+  resolution: "server_wins" | "client_wins" | "merge";
+  locked_fields: string[];
+  mergeable_fields: string[] | null;
+}
+
+export interface RepairSyncOut {
+  sync_id: string;
+  status: RepairSyncStatus;
+  mode: RepairSyncMode;
+  created_at: string;
+  updated_at: string;
+  progress?: RepairSyncProgress | null;
+  summary?: RepairSyncSummary | null;
+  conflicts?: RepairSyncConflict[] | null;
+  error?: ProblemDetail | null;
+}
+
+export interface RepairSyncSingerSnapshot {
+  items: Record<string, unknown>[];
+  deleted_ids?: string[];
+  last_modified_at?: string;
+}
+
+export interface RepairSyncQueueSnapshot {
+  items: Record<string, unknown>[];
+  deleted_ids?: string[];
+  last_modified_at?: string;
+}
+
+export interface RepairSyncSettingsSnapshot {
+  items: Record<string, unknown>[];
+  last_modified_at?: string;
+}
+
+export interface RepairSyncNowPlayingSnapshot {
+  singer_id?: string | null;
+  song_id?: string | null;
+  song_title?: string | null;
+  song_artist?: string | null;
+  singer_name?: string | null;
+  is_dj_track?: boolean;
+  started_at?: string;
+}
+
+export interface RepairSyncPayload {
+  venue_id: string;
+  mode: RepairSyncMode;
+  snapshot: {
+    singers?: RepairSyncSingerSnapshot;
+    queue?: RepairSyncQueueSnapshot;
+    settings?: RepairSyncSettingsSnapshot;
+    now_playing?: RepairSyncNowPlayingSnapshot;
+  };
+}
+
+export type ConflictFieldSide = "client" | "server";
+
+export interface ConflictResolution {
+  entity_type: "singers" | "queue" | "settings";
+  entity_id: string;
+  resolution: "server_wins" | "client_wins" | "merge";
+  field_resolutions?: Record<string, ConflictFieldSide>;
+}
+
+export interface ProblemDetail {
+  type: string;
+  title: string;
+  status: number;
+  detail: string;
+  [key: string]: unknown;
+}

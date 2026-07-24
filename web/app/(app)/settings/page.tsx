@@ -23,6 +23,7 @@ import { Info, Save, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { fetchRotationMode, setRotationMode } from "@/lib/api";
 import type { RotationMode } from "@/lib/types";
+import { RepairSyncCard } from "@/components/settings/repair-sync-card";
 
 const rotationModes = [
   {
@@ -162,6 +163,8 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <RepairSyncCard />
     </div>
   );
 }
