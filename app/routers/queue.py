@@ -38,6 +38,7 @@ from app.core.queue_service import QueueEventPublisher
 
 from datetime import datetime, timezone
 
+
 router = APIRouter()
 
 # How long since last KJ push before we consider the KJ offline.
@@ -45,6 +46,9 @@ router = APIRouter()
 # for technical difficulties, pauses, etc. before clearing the portal.
 KJ_OFFLINE_THRESHOLD_SECONDS = 3600
 
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 async def _is_kj_online(db: AsyncSession, venue_id: str) -> bool:
     """Check if any KJ device for this venue has been seen recently."""
@@ -64,6 +68,7 @@ async def _is_kj_online(db: AsyncSession, venue_id: str) -> bool:
         )
     )
     return result.scalar_one() > 0
+
 
 NOW = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 

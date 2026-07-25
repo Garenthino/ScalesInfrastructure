@@ -545,6 +545,143 @@ async def test_reorder_with_invalid_id(client, jwt_encode, populated_queue):
     assert "do not belong" in resp.json()["detail"]
 
 
+@pytest.mark.anyio
+async def test_rejected_request_excluded_from_history(client, jwt_encode, populated_queue, db):
+    """A request rejected by the KJ must not appear in /singers/me/queue/history."""
+    venue_id, kj_id, singer_id, songs, items = populated_queue
+    pending = [i for i in items if i.status == "pending" and str(i.singer_id) == singer_id][0]
+
+    kj_token = jwt_encode(venue_id, role="kj", user_id=kj_id)
+    await client.post(
+        f"/v1/venues/{venue_id}/queue/admin/{pending.id}/reject",
+        headers=AUTHORIZATION(kj_token),
+        json={"reason": "rotation_full", "rejected_by": "KJ Doug"},
+    )
+
+    singer_token = jwt_encode(venue_id, role="singer", user_id=singer_id)
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/singers/me/queue/history",
+        headers=AUTHORIZATION(singer_token),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert not any(it["request_id"] == str(pending.id) for it in data["items"])
+
+
+@pytest.mark.anyio
+async def test_rejected_requests_endpoint(client, jwt_encode, populated_queue, db):
+    """Rejected requests surface on /singers/me/queue/rejected with metadata."""
+    venue_id, kj_id, singer_id, songs, items = populated_queue
+    pending = [i for i in items if i.status == "pending" and str(i.singer_id) == singer_id][0]
+
+    kj_token = jwt_encode(venue_id, role="kj", user_id=kj_id)
+    await client.post(
+        f"/v1/venues/{venue_id}/queue/admin/{pending.id}/reject",
+        headers=AUTHORIZATION(kj_token),
+        json={"reason": "explicit_content", "rejected_by": "KJ Doug"},
+    )
+
+    singer_token = jwt_encode(venue_id, role="singer", user_id=singer_id)
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/singers/me/queue/rejected",
+        headers=AUTHORIZATION(singer_token),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert len(data["items"]) == 1
+    item = data["items"][0]
+    assert item["request_id"] == str(pending.id)
+    assert item["status"] == "rejected"
+    assert item["rejected_reason"] == "explicit_content"
+    assert item["rejected_by"] == "KJ Doug"
+    assert "rejected_at" in item
+
+
+@pytest.mark.anyio
+async def test_rejected_requests_retention_cutoff(client, jwt_encode, populated_queue, db):
+    """Rejected requests older than PURGE_RETENTION_DAYS are hidden."""
+    from app.core.config import settings
+    from datetime import datetime, timedelta, timezone
+
+    venue_id, kj_id, singer_id, songs, items = populated_queue
+    pending = [i for i in items if i.status == "pending" and str(i.singer_id) == singer_id][0]
+
+    kj_token = jwt_encode(venue_id, role="kj", user_id=kj_id)
+    await client.post(
+        f"/v1/venues/{venue_id}/queue/admin/{pending.id}/reject",
+        headers=AUTHORIZATION(kj_token),
+        json={"reason": "not_available"},
+    )
+
+    # Simulate a rejection outside the retention window
+    cutoff = datetime.now(timezone.utc) - timedelta(days=settings.PURGE_RETENTION_DAYS + 1)
+    pending.rejected_at = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+    await db.commit()
+
+    singer_token = jwt_encode(venue_id, role="singer", user_id=singer_id)
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/singers/me/queue/rejected",
+        headers=AUTHORIZATION(singer_token),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    assert resp.json()["items"] == []
+
+
+@pytest.mark.anyio
+async def test_rejected_request_includes_song_title_in_event(client, jwt_encode, populated_queue, db, monkeypatch):
+    """Rejection event payload contains song_title and rejected_by."""
+    venue_id, kj_id, singer_id, songs, items = populated_queue
+    pending = [i for i in items if i.status == "pending" and str(i.singer_id) == singer_id][0]
+    captured = []
+
+    from app.core import queue_service
+    original_publish = queue_service.QueueEventPublisher.publish
+
+    async def _capture_publish(vid, event_type, data):
+        if event_type == "request_rejected":
+            captured.append(data)
+        await original_publish(vid, event_type, data)
+
+    monkeypatch.setattr(queue_service.QueueEventPublisher, "publish", _capture_publish)
+
+    kj_token = jwt_encode(venue_id, role="kj", user_id=kj_id)
+    resp = await client.post(
+        f"/v1/venues/{venue_id}/queue/admin/{pending.id}/reject",
+        headers=AUTHORIZATION(kj_token),
+        json={"reason": "venue_policy", "rejected_by": "KJ Doug"},
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    assert captured
+    assert captured[0]["song_title"] is not None
+    assert captured[0]["rejected_by"] == "KJ Doug"
+    assert captured[0]["rejected_at"] is not None
+
+
+@pytest.mark.anyio
+async def test_history_still_includes_completed_and_skipped(client, jwt_encode, populated_queue, db):
+    """History continues to include completed and skipped after the change."""
+    venue_id, kj_id, singer_id, songs, items = populated_queue
+    singer_items = [i for i in items if str(i.singer_id) == singer_id]
+    completed = singer_items[0]
+    skipped = singer_items[1]
+    completed.status = "completed"
+    completed.played_at = "2026-05-21T11:00:00Z"
+    skipped.status = "skipped"
+    skipped.played_at = "2026-05-21T11:05:00Z"
+    await db.commit()
+
+    singer_token = jwt_encode(venue_id, role="singer", user_id=singer_id)
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/singers/me/queue/history",
+        headers=AUTHORIZATION(singer_token),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    ids = {it["request_id"] for it in data["items"]}
+    assert str(completed.id) in ids
+    assert str(skipped.id) in ids
+
+
 # ---------------------------------------------------------------------------
 # RBAC cross-checks
 # ---------------------------------------------------------------------------

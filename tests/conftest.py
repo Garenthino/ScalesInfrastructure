@@ -164,6 +164,8 @@ async def client(db) -> AsyncIterator[AsyncClient]:
         base_url="http://test",
     ) as c:
         yield c
+    # Close any pending connection before restoring factories.
+    await db.close()
     app.dependency_overrides.clear()
     _db_mod.async_session_factory = _orig_db_factory
     _auth_mod.async_session_factory = _orig_auth_factory
