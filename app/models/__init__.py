@@ -408,6 +408,8 @@ class QueueRequest(Base):
     rejection_retention_until = Column(Text)  # ISO timestamp; NULL means no retention enforced
     rotation_position = Column(Integer)
     kj_id = Column(Text)
+    tempo = Column(Integer, default=0)
+    pitch = Column(Integer, default=0)
     requested_at = Column(Text, default=_now_iso)
     updated_at = Column(Text, default=_now_iso, onupdate=_now_iso)
     played_at = Column(Text)

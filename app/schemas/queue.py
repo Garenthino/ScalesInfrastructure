@@ -17,12 +17,16 @@ class _ScalesModel(BaseModel):
 class QueueJoinRequest(_ScalesModel):
     song_id: str
     notes: str | None = Field(None, max_length=200)
+    tempo: int = Field(0, ge=-50, le=50)
+    pitch: int = Field(0, ge=-12, le=12)
 
 
 class QueueJoinResponse(_ScalesModel):
     request_id: str
     estimated_position: int
     warning: str | None = None
+    tempo: int = 0
+    pitch: int = 0
 
 
 class QueueStatusResponse(_ScalesModel):
@@ -32,6 +36,8 @@ class QueueStatusResponse(_ScalesModel):
     song_title: str
     song_artist: str
     eta_seconds: int | None = None
+    tempo: int = 0
+    pitch: int = 0
 
 
 class QueueLeaveAllResponse(_ScalesModel):

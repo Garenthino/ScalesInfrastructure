@@ -367,3 +367,71 @@ async def test_public_queue_shows_current_song(client, jwt_encode, populated_sin
     assert data["current_song"] is not None
     assert data["current_song"]["song_title"] == "Song A"
     assert data["current_song"]["stage_name"] == "Stagey McStagename"
+
+
+
+# ---------------------------------------------------------------------------
+# Tempo / Pitch
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_join_queue_with_tempo_pitch(client, jwt_encode, venue_with_singer):
+    venue_id, singer_id, songs = venue_with_singer
+    token = jwt_encode(venue_id, role="singer", user_id=singer_id)
+    resp = await client.post(
+        f"/v1/venues/{venue_id}/queue/join",
+        headers=AUTHORIZATION(token),
+        json={"song_id": songs[0].id, "notes": "For mom", "tempo": 5, "pitch": -2},
+    )
+    assert resp.status_code == status.HTTP_201_CREATED
+    data = resp.json()
+    assert data["tempo"] == 5
+    assert data["pitch"] == -2
+
+
+@pytest.mark.anyio
+async def test_last_performance_defaults_to_zero(client, jwt_encode, venue_with_singer):
+    venue_id, singer_id, songs = venue_with_singer
+    token = jwt_encode(venue_id, role="singer", user_id=singer_id)
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/singers/me/queue/history/{songs[0].id}/last-performance",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert data["song_id"] == songs[0].id
+    assert data["tempo"] == 0
+    assert data["pitch"] == 0
+    assert data["performed_at"] is None
+
+
+@pytest.mark.anyio
+async def test_last_performance_returns_latest_values(client, jwt_encode, venue_with_singer, db):
+    venue_id, singer_id, songs = venue_with_singer
+    # Seed a completed request with tempo/pitch
+    from app.models import QueueRequest
+    q = QueueRequest(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=singer_id,
+        song_id=songs[0].id,
+        status="completed",
+        tempo=7,
+        pitch=-3,
+        requested_at="2026-05-21T10:00:00Z",
+        played_at="2026-05-21T10:05:00Z",
+        rotation_position=1,
+    )
+    db.add(q)
+    await db.commit()
+
+    token = jwt_encode(venue_id, role="singer", user_id=singer_id)
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/singers/me/queue/history/{songs[0].id}/last-performance",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert data["tempo"] == 7
+    assert data["pitch"] == -3
+    assert data["performed_at"] == "2026-05-21T10:05:00Z"

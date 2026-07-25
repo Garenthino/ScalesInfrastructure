@@ -179,6 +179,8 @@ async def join_queue(
         status="pending",
         notes=body.notes,
         rotation_position=tail + 1,
+        tempo=getattr(body, "tempo", 0) or 0,
+        pitch=getattr(body, "pitch", 0) or 0,
         requested_at=NOW(),
         updated_at=NOW(),
     )
@@ -209,6 +211,8 @@ async def join_queue(
         request_id=req_id,
         estimated_position=est_pos or tail + 1,
         warning=warning,
+        tempo=q.tempo or 0,
+        pitch=q.pitch or 0,
     )
 
 

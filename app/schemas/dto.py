@@ -629,6 +629,8 @@ class QueueRequestBase(ScalesModel):
     notes: str | None = Field(None, max_length=200)
     dedication_to: str | None = None
     priority_boost: bool = False
+    tempo: int = Field(0, ge=-50, le=50)
+    pitch: int = Field(0, ge=-12, le=12)
 
 
 class QueueRequestCreate(QueueRequestBase):
@@ -645,6 +647,8 @@ class QueueRequestOut(ScalesModel):
     estimated_start: str | None = None
     notes: str | None = None
     dedication: str | None = None
+    tempo: int = 0
+    pitch: int = 0
 
 
 class QueueAction(ScalesModel):
@@ -1097,6 +1101,7 @@ class SingerQueueOut(ScalesModel):
 
 class SingerQueueHistoryItem(ScalesModel):
     request_id: str
+    song_id: str
     song_title: str
     song_artist: str
     genre: str | None = None
@@ -1105,6 +1110,8 @@ class SingerQueueHistoryItem(ScalesModel):
     played_at: str | None = None
     notes: str | None = None
     reject_reason: str | None = None
+    tempo: int = 0
+    pitch: int = 0
 
 
 class SingerQueueHistoryOut(ScalesModel):

@@ -154,6 +154,8 @@ def _queue_request_out(item: QueueRequest, position: int | None = None, est_wait
         "estimated_start": None,
         "notes": str(item.notes) if item.notes is not None else None,
         "dedication": None,
+        "tempo": int(item.tempo) if item.tempo is not None else 0,
+        "pitch": int(item.pitch) if item.pitch is not None else 0,
     }
 
 
@@ -175,6 +177,8 @@ def _queue_item_out(item: QueueRequest, position: int | None = None) -> dict[str
         "notes": str(item.notes) if item.notes is not None else None,
         "reject_reason": str(item.reject_reason) if item.reject_reason is not None else None,
         "requested_at": str(item.requested_at),
+        "tempo": int(item.tempo) if item.tempo is not None else 0,
+        "pitch": int(item.pitch) if item.pitch is not None else 0,
         "updated_at": str(item.updated_at) if item.updated_at is not None else None,
         "played_at": str(item.played_at) if item.played_at is not None else None,
     }
@@ -379,6 +383,8 @@ async def submit_request(
         status="pending",
         notes=body.notes,
         rotation_position=tail + 1,
+        tempo=getattr(body, "tempo", 0) or 0,
+        pitch=getattr(body, "pitch", 0) or 0,
         requested_at=NOW,
         updated_at=NOW,
     )

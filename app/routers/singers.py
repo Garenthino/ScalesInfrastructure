@@ -12,7 +12,7 @@ from app.core.auth import get_current_user, get_current_user_or_kj, SingerUser, 
 from app.core.permissions import Role, has_role
 from app.core.db import get_db
 from app.models import Singer, QueueRequest, Song, CheckInSession, PointsLedger, SingerFavorite, SingerFollow, Payment, LeaderboardEntry, Consent, ShareEvent, SingerAchievement
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from app.core.points_service import add_points, get_achievements_for_singer
 from app.core.queue_service import SingerEventPublisher
 from app.services.singer_merge import merge_local_singer_into_mobile
@@ -671,6 +671,7 @@ async def get_my_queue_history(
     items = [
         SingerQueueHistoryItem(
             request_id=str(r.QueueRequest.id),
+            song_id=str(r.QueueRequest.song_id),
             song_title=r.title or "Unknown",
             song_artist=r.artist or "Unknown",
             genre=str(r.genre) if r.genre else None,
@@ -679,11 +680,59 @@ async def get_my_queue_history(
             played_at=str(r.QueueRequest.played_at) if r.QueueRequest.played_at else None,
             notes=str(r.QueueRequest.notes) if r.QueueRequest.notes else None,
             reject_reason=str(r.QueueRequest.reject_reason) if r.QueueRequest.reject_reason else None,
+            tempo=int(r.QueueRequest.tempo) if r.QueueRequest.tempo is not None else 0,
+            pitch=int(r.QueueRequest.pitch) if r.QueueRequest.pitch is not None else 0,
         )
         for r in rows
     ]
 
     return SingerQueueHistoryOut(items=items, total=total, page=page, per_page=per_page)
+
+
+class SingerSongLastPerformanceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+    song_id: str
+    tempo: int
+    pitch: int
+    performed_at: str | None = None
+
+
+@router.get("/me/queue/history/{song_id}/last-performance", response_model=SingerSongLastPerformanceOut)
+async def get_last_performance_for_song(
+    venue_id: str,
+    song_id: str,
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """GET /singers/me/queue/history/{song_id}/last-performance — last tempo/pitch used by this singer for the song."""
+    _require_venue(venue_id, current)
+
+    stmt = (
+        select(QueueRequest.played_at, QueueRequest.requested_at, QueueRequest.tempo, QueueRequest.pitch)
+        .where(
+            QueueRequest.venue_id == venue_id,
+            QueueRequest.singer_id == current.id,
+            QueueRequest.song_id == song_id,
+            QueueRequest.deleted_at.is_(None),
+            QueueRequest.status.in_(("completed", "now_playing", "skipped")),
+        )
+        .order_by(
+            func.coalesce(QueueRequest.played_at, QueueRequest.requested_at).desc()
+        )
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    row = result.one_or_none()
+    if row is None:
+        return SingerSongLastPerformanceOut(song_id=song_id, tempo=0, pitch=0, performed_at=None)
+
+    performed_at = row.played_at or row.requested_at
+    return SingerSongLastPerformanceOut(
+        song_id=song_id,
+        tempo=int(row.tempo) if row.tempo is not None else 0,
+        pitch=int(row.pitch) if row.pitch is not None else 0,
+        performed_at=str(performed_at) if performed_at else None,
+    )
 
 
 @router.get("/{singer_id}/history", response_model=SingerQueueHistoryOut)
@@ -731,6 +780,7 @@ async def get_singer_history_admin(
     items = [
         SingerQueueHistoryItem(
             request_id=str(r.QueueRequest.id),
+            song_id=str(r.QueueRequest.song_id),
             song_title=r.title or "Unknown",
             song_artist=r.artist or "Unknown",
             genre=str(r.genre) if r.genre else None,
@@ -739,6 +789,8 @@ async def get_singer_history_admin(
             played_at=str(r.QueueRequest.played_at) if r.QueueRequest.played_at else None,
             notes=str(r.QueueRequest.notes) if r.QueueRequest.notes else None,
             reject_reason=str(r.QueueRequest.reject_reason) if r.QueueRequest.reject_reason else None,
+            tempo=int(r.QueueRequest.tempo) if r.QueueRequest.tempo is not None else 0,
+            pitch=int(r.QueueRequest.pitch) if r.QueueRequest.pitch is not None else 0,
         )
         for r in rows
     ]
