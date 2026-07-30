@@ -491,6 +491,7 @@ async def pull_queue(
 
     filters = [
         QueueRequest.venue_id == venue_id,
+        QueueRequest.deleted_at.is_(None),
     ]
     if since:
         filters.append(or_(
@@ -534,6 +535,38 @@ async def pull_queue(
         removed_singer_ids=removed_singer_ids,
         server_modified_at=_now_iso(),
     )
+
+
+@router.post("/queue/{request_id}/ack", status_code=status.HTTP_204_NO_CONTENT)
+async def ack_queue_request(
+    venue_id: str,
+    request_id: str,
+    current: KJDeviceUser = Depends(kj_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """KJ desktop acknowledges/dismisses a queue request so it is not re-sent."""
+    venue_id = venue_id or str(current.venue_id)
+    _require_venue_match(venue_id, current)
+
+    row = (
+        await db.execute(
+            select(QueueRequest).where(
+                QueueRequest.id == request_id,
+                QueueRequest.venue_id == venue_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if row:
+        row.deleted_at = _now_iso()
+        row.updated_at = _now_iso()
+        await db.commit()
+        try:
+            svc = QueueService(db)
+            await svc.broadcast_queue_state(venue_id)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("broadcast after ack failed: %s", exc)
+    return None
 
 
 # ---------------------------------------------------------------------------

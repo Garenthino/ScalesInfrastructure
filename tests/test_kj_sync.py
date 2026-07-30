@@ -147,13 +147,60 @@ async def test_sync_singer_forbidden(client, jwt_encode, sync_venue):
 async def test_queue_pull(client, sync_queue):
     venue_id, _, _, _, raw_key, _ = sync_queue
     resp = await client.get(
-        f"/v1/kj/sync/queue/pull?venue_id={venue_id}",
+        f"{SYNC_BASE}/queue/pull?venue_id={venue_id}",
         headers=_kj_headers(raw_key),
     )
     assert resp.status_code == status.HTTP_200_OK
     data = resp.json()
     assert len(data["items"]) == 2
     assert data["server_modified_at"] is not None
+
+
+@pytest.mark.anyio
+async def test_queue_pull_excludes_soft_deleted(client, sync_queue, db):
+    """Soft-deleted requests should not be re-sent to the KJ desktop."""
+    venue_id, _, _, _, raw_key, items = sync_queue
+    deleted_item = items[0]
+    deleted_item.deleted_at = "2026-05-21T10:02:00Z"
+    deleted_item.updated_at = "2026-05-21T10:02:00Z"
+    await db.commit()
+
+    resp = await client.get(
+        f"{SYNC_BASE}/queue/pull?venue_id={venue_id}",
+        headers=_kj_headers(raw_key),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert len(data["items"]) == 1
+    assert data["items"][0]["request_id"] != str(deleted_item.id)
+
+
+@pytest.mark.anyio
+async def test_queue_ack_soft_deletes(client, sync_queue, db):
+    """KJ desktop can dismiss/ack a request so it is removed from future pulls."""
+    venue_id, _, _, _, raw_key, items = sync_queue
+    target_id = str(items[0].id)
+
+    resp = await client.post(
+        f"{SYNC_BASE}/queue/{target_id}/ack?venue_id={venue_id}",
+        headers=_kj_headers(raw_key),
+    )
+    assert resp.status_code == status.HTTP_204_NO_CONTENT
+
+    # Verify the request is soft-deleted in the DB
+    row = (await db.execute(
+        select(QueueRequest).where(QueueRequest.id == target_id)
+    )).scalar_one()
+    assert row.deleted_at is not None
+
+    resp = await client.get(
+        f"{SYNC_BASE}/queue/pull?venue_id={venue_id}",
+        headers=_kj_headers(raw_key),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert len(data["items"]) == 1
+    assert data["items"][0]["request_id"] != target_id
 
 
 @pytest.mark.anyio
