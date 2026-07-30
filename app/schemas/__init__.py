@@ -136,6 +136,8 @@ from app.schemas.dto import (
     SyncQueuePushPayload,
     SyncQueuePullOut,
     SyncQueueItem,
+    SyncHistoryBatchPushPayload,
+    SyncHistoryBatchPushOut,
     SyncSingersPushPayload,
     SyncSingersPullOut,
     SyncSingerItem,

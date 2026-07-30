@@ -1193,6 +1193,23 @@ class SyncQueuePushPayload(ScalesModel):
     last_modified_at: str | None = None
 
 
+class SyncHistoryBatchPushPayload(ScalesModel):
+    """Bulk push of completed play-history rows from the KJ desktop.
+
+    - All items are treated as completed QueueRequest rows.
+    - Server deduplicates by request_id first, then by (singer_id, song_id, played_at).
+    - Missing singers and songs are auto-created as stubs so history never fails FK checks.
+    """
+
+    items: list[SyncQueueItem]
+
+
+class SyncHistoryBatchPushOut(ScalesModel):
+    inserted: int
+    skipped: int
+    errors: int
+
+
 class SyncQueuePullOut(ScalesModel):
     items: list[SyncQueueItem]
     deleted_ids: list[str] = Field(default_factory=list)

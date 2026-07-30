@@ -147,6 +147,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Skip rate limiting for KJ sync, health endpoints, and lightweight identity/profile reads
         if (
             path.startswith("/kj/sync/")
+            or path.startswith("/v1/kj/sync/")
             or path in ("/api/health", "/docs", "/openapi.json")
             or path.endswith("/health")
             or path == "/v1/onboarding/me"

@@ -29,6 +29,8 @@ from app.schemas import (
     SyncQueuePushPayload,
     SyncQueuePullOut,
     SyncQueueItem,
+    SyncHistoryBatchPushPayload,
+    SyncHistoryBatchPushOut,
     SyncSingersPushPayload,
     SyncSingersPullOut,
     SyncSingerItem,
@@ -332,6 +334,156 @@ async def push_queue(
         )
 
     return {"synced": len(body.items), "deleted": len(body.deleted_ids), "conflicts": 0}
+
+
+# ---------------------------------------------------------------------------
+# History batch push
+# ---------------------------------------------------------------------------
+
+@router.post("/history/batch", response_model=SyncHistoryBatchPushOut)
+async def push_history_batch(
+    body: SyncHistoryBatchPushPayload,
+    venue_id: str | None = None,
+    current: KJDeviceUser = Depends(kj_auth),
+    db: AsyncSession = Depends(get_db),
+) -> SyncHistoryBatchPushOut:
+    """Bulk push completed play-history rows from the KJ desktop.
+
+    Deduplication order:
+    1. request_id already exists in this venue -> skip.
+    2. (singer_id, song_id, played_at) already exists -> skip.
+    3. Otherwise insert a completed QueueRequest row.
+
+    Missing singers and songs are auto-created as stubs so a full history sync
+    does not fail on FK constraints.
+    """
+    venue_id = venue_id or str(current.venue_id)
+    _require_venue_match(venue_id, current)
+
+    inserted = 0
+    skipped = 0
+    errors = 0
+
+    if not body.items:
+        return SyncHistoryBatchPushOut(inserted=0, skipped=0, errors=0)
+
+    # Pre-fetch existing request_ids and identity tuples in one query.
+    incoming_request_ids = [it.request_id for it in body.items]
+    incoming_identity_tuples = {
+        (it.singer_id, it.song_id, it.played_at) for it in body.items if it.played_at
+    }
+
+    existing_by_request_id = {
+        str(r[0])
+        for r in (
+            await db.execute(
+                select(QueueRequest.id).where(
+                    QueueRequest.venue_id == venue_id,
+                    QueueRequest.id.in_(incoming_request_ids),
+                )
+            )
+        ).all()
+    }
+
+    existing_by_identity = {
+        (str(r[0]), str(r[1]) if r[1] is not None else None, str(r[2]))
+        for r in (
+            await db.execute(
+                select(QueueRequest.singer_id, QueueRequest.song_id, QueueRequest.played_at).where(
+                    QueueRequest.venue_id == venue_id,
+                    QueueRequest.status == "completed",
+                    QueueRequest.singer_id.in_({it.singer_id for it in body.items if it.singer_id}),
+                )
+            )
+        ).all()
+    }
+
+    for item in body.items:
+        try:
+            if item.request_id in existing_by_request_id:
+                skipped += 1
+                continue
+            identity = (item.singer_id, item.song_id, item.played_at)
+            if item.played_at and identity in existing_by_identity:
+                skipped += 1
+                continue
+
+            # Ensure singer exists
+            existing_singer = (
+                await db.execute(
+                    select(Singer).where(
+                        Singer.id == item.singer_id,
+                        Singer.venue_id == venue_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if not existing_singer:
+                fallback_stage = (item.singer_name or "Unknown").strip() or "Unknown"
+                counter = 0
+                base_stage = fallback_stage
+                while True:
+                    dup = (
+                        await db.execute(
+                            select(Singer.id).where(
+                                Singer.venue_id == venue_id,
+                                Singer.stage_name == fallback_stage,
+                            ).limit(1)
+                        )
+                    ).scalar_one_or_none()
+                    if not dup:
+                        break
+                    counter += 1
+                    fallback_stage = f"{base_stage} ({counter})"
+                db.add(
+                    Singer(
+                        id=item.singer_id,
+                        venue_id=venue_id,
+                        stage_name=fallback_stage,
+                        created_at=_now_iso(),
+                        updated_at=_now_iso(),
+                    )
+                )
+                await db.flush()
+
+            resolved_song_id = await _resolve_or_create_song(
+                db, venue_id, item.song_id, item.song_title, item.song_artist
+            )
+            if resolved_song_id and item.song_id:
+                await db.flush()
+
+            q = QueueRequest(
+                id=item.request_id,
+                venue_id=venue_id,
+                singer_id=item.singer_id,
+                song_id=resolved_song_id,
+                status="completed",
+                notes=item.notes,
+                rotation_position=item.position if item.position is not None else 0,
+                requested_at=item.requested_at,
+                updated_at=_now_iso(),
+                played_at=item.played_at,
+                reject_reason=item.reject_reason,
+            )
+            db.add(q)
+            inserted += 1
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning(
+                "history batch item failed: request_id=%s error=%s", item.request_id, exc
+            )
+            errors += 1
+
+    await db.commit()
+
+    # Broadcast so portal/mobile reflect new history rows
+    try:
+        svc = QueueService(db)
+        await svc.broadcast_queue_state(venue_id)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("broadcast after history batch failed: %s", exc)
+
+    return SyncHistoryBatchPushOut(inserted=inserted, skipped=skipped, errors=errors)
 
 
 # ---------------------------------------------------------------------------
