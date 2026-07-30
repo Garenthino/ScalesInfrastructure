@@ -103,6 +103,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
+      PORT: 4000
       GATEWAY_PORT: '3001'
       REDIS_HOST: redis
       REDIS_URL: redis://redis:6379/0
@@ -137,6 +138,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
+      PORT: 4000
       NEXT_PUBLIC_API_URL: https://dancingdragonservices.com/api/v1
       NEXT_PUBLIC_SOCKET_URL: https://dancingdragonservices.com
       NEXT_PUBLIC_DEFAULT_VENUE_ID: default
