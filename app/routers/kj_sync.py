@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import cast
+
+from fastapi import APIRouter, Depends, HTTPException, status, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, update
 
@@ -262,6 +264,7 @@ async def push_queue(
             elif item.status not in ("rejected", "skipped") and str(existing.status) not in TERMINAL_STATUSES:
                 existing.song_id = None
             existing.status = item.status
+            existing.source = getattr(item, "source", "host")
             existing.rotation_position = item.position
             existing.notes = item.notes
             existing.requested_at = item.requested_at
@@ -279,6 +282,7 @@ async def push_queue(
                 song_id=resolved_song_id,
                 status=item.status,
                 notes=item.notes,
+                source=getattr(item, "source", "host"),
                 rotation_position=item.position,
                 requested_at=item.requested_at,
                 updated_at=_now_iso(),
@@ -458,6 +462,7 @@ async def push_history_batch(
                 song_id=resolved_song_id,
                 status="completed",
                 notes=item.notes,
+                source=getattr(item, "source", "host"),
                 rotation_position=item.position if item.position is not None else 0,
                 requested_at=item.requested_at,
                 updated_at=_now_iso(),
@@ -552,6 +557,7 @@ async def push_now_playing(
                 venue_id=venue_id,
                 singer_id=singer_id,
                 status="now_playing",
+                source="host",
                 rotation_position=0,
                 notes=singer_name or body.get("notes") or "",
                 requested_at=_now_iso(),
@@ -627,6 +633,7 @@ def _queue_item_to_sync(item: QueueRequest, song: Song | None = None, singer_nam
         updated_at=str(item.updated_at) if item.updated_at is not None else None,
         played_at=str(item.played_at) if item.played_at is not None else None,
         reject_reason=str(item.reject_reason or ""),
+        source=cast(Literal["mobile", "portal", "host"], str(item.source) if item.source is not None else "mobile"),
     )
 
 
@@ -644,6 +651,7 @@ async def pull_queue(
     filters = [
         QueueRequest.venue_id == venue_id,
         QueueRequest.deleted_at.is_(None),
+        QueueRequest.source.in_(("mobile", "portal")),
     ]
     if since:
         filters.append(or_(
@@ -727,48 +735,23 @@ async def ack_queue_request(
 
 @router.post("/queue/singers/{singer_id}/remove", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_singer_from_rotation(
-    venue_id: str,
-    singer_id: str,
-    current: dict = Depends(require_admin),
+    venue_id: str | None = None,
+    singer_id: str = Path(...),
+    current: KJDeviceUser = Depends(kj_auth),
     db: AsyncSession = Depends(get_db),
 ):
-    """Venue admin/KJ removes a singer from the current rotation.
+    """KJ desktop removes a singer from the current rotation.
 
     Cancels all active queue requests for the singer and records a removal
-    so the hosting program can pull it and remove the singer locally.
+    so the portal and other clients can pull it and remove the singer.
     """
-    if not venue_match_or_admin(venue_id, current):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
+    venue_id = venue_id or str(current.venue_id)
+    _require_venue_match(venue_id, current)
 
-    # Cancel all active requests for this singer at this venue
-    result = await db.execute(
-        select(QueueRequest).where(
-            QueueRequest.venue_id == venue_id,
-            QueueRequest.singer_id == singer_id,
-            QueueRequest.status.in_(["pending", "approved", "up_next", "now_playing"]),
-            QueueRequest.deleted_at.is_(None),
-        )
-    )
-    for item in result.scalars().all():
-        item.status = "rejected"
-        item.reject_reason = "Removed from rotation by venue"
-        item.updated_at = _now_iso()
-
-    # Record the removal
-    removal = SingerRemoval(
-        venue_id=venue_id,
-        singer_id=singer_id,
-        removed_by_account_id=current.get("account_id") or current.get("id"),
-        removed_at=_now_iso(),
-    )
-    db.add(removal)
-    await db.commit()
-
-    await QueueEventPublisher.publish(
-        venue_id, "singer_removed", {"singer_id": singer_id, "reason": "venue_removed"}
-    )
     svc = QueueService(db)
-    await svc.broadcast_queue_state(venue_id)
+    await svc.remove_singer_from_rotation(
+        venue_id, singer_id, removed_by_device_id=str(current.id)
+    )
     return None
 
 

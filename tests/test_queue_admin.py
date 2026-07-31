@@ -7,8 +7,9 @@ import pytest
 from fastapi import status
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
-from app.models import Venue, Song, Singer, QueueRequest
+from app.models import Venue, Song, Singer, QueueRequest, SingerRemoval
 
 
 AUTHORIZATION = lambda token: {"Authorization": f"Bearer {token}"}
@@ -92,6 +93,7 @@ async def populated_queue(db: AsyncSession, venue_with_singers_and_songs):
             singer_id=s1.id,
             song_id=songs[0].id,
             status="pending",
+            source="host",
             requested_at="2026-05-21T10:00:00Z",
             rotation_position=1,
         ),
@@ -101,6 +103,7 @@ async def populated_queue(db: AsyncSession, venue_with_singers_and_songs):
             singer_id=s2.id,
             song_id=songs[1].id,
             status="pending",
+            source="host",
             requested_at="2026-05-21T10:01:00Z",
             rotation_position=2,
         ),
@@ -110,6 +113,7 @@ async def populated_queue(db: AsyncSession, venue_with_singers_and_songs):
             singer_id=s1.id,
             song_id=songs[2].id,
             status="approved",
+            source="host",
             requested_at="2026-05-21T10:02:00Z",
             rotation_position=3,
         ),
@@ -119,6 +123,7 @@ async def populated_queue(db: AsyncSession, venue_with_singers_and_songs):
             singer_id=s2.id,
             song_id=songs[0].id,
             status="now_playing",
+            source="host",
             requested_at="2026-05-21T10:03:00Z",
             rotation_position=4,
         ),
@@ -551,3 +556,127 @@ async def test_remove_wrong_venue(client, jwt_encode, populated_queue):
     )
     assert resp.status_code == status.HTTP_403_FORBIDDEN
 
+
+
+# ---------------------------------------------------------------------------
+# 11b. REMOVE SINGER FROM ROTATION
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_remove_singer_from_rotation_admin(client, jwt_encode, populated_queue, db):
+    venue_id, items, singers, songs = populated_queue
+    target = singers[0]
+    token = jwt_encode(venue_id, role="admin")
+
+    resp = await client.post(
+        f"/v1/venues/{venue_id}/queue/admin/singers/{target.id}/remove",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_204_NO_CONTENT
+
+    # All active requests for the singer should now be rejected
+    from app.models import SingerRemoval
+    from sqlalchemy import select
+    for item in items:
+        await db.refresh(item)
+        if str(item.singer_id) == str(target.id):
+            assert item.status == "rejected"
+
+    removal = await db.execute(
+        select(SingerRemoval).where(
+            SingerRemoval.venue_id == venue_id,
+            SingerRemoval.singer_id == str(target.id),
+        )
+    )
+    assert removal.scalar_one_or_none() is not None
+
+    # The singer should no longer appear in the admin list
+    list_resp = await client.get(
+        f"/v1/venues/{venue_id}/queue/admin",
+        headers=AUTHORIZATION(token),
+    )
+    data = list_resp.json()
+    assert data["total"] == 2
+    assert all(str(i["singer"]["id"]) != str(target.id) for i in data["items"])
+
+
+# ---------------------------------------------------------------------------
+# 11c. SOURCE PIPELINE SEPARATION
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_admin_queue_excludes_mobile_requests(client, jwt_encode, venue_with_singers_and_songs, db):
+    venue_id, singers, songs = venue_with_singers_and_songs
+    s1, s2 = singers
+    # Mobile request (source='mobile') with a rotation_position — simulates an
+    # unhandled Android/portal request that should NOT appear in the KJ rotation.
+    mobile_req = QueueRequest(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=s1.id,
+        song_id=songs[0].id,
+        status="pending",
+        source="mobile",
+        rotation_position=1,
+        requested_at="2026-05-21T10:00:00Z",
+    )
+    # Host request (source='host') — the KJ desktop's authoritative rotation.
+    host_req = QueueRequest(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=s2.id,
+        song_id=songs[1].id,
+        status="approved",
+        source="host",
+        rotation_position=2,
+        requested_at="2026-05-21T10:01:00Z",
+    )
+    db.add_all([mobile_req, host_req])
+    await db.commit()
+
+    token = jwt_encode(venue_id, role="admin")
+    resp = await client.get(
+        f"/v1/venues/{venue_id}/queue/admin",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    # Only the host-sourced row should be visible; mobile stays in the Queue Requests inbox.
+    assert data["total"] == 1
+    assert data["items"][0]["request_id"] == str(host_req.id)
+    assert data["items"][0]["singer"]["id"] == str(s2.id)
+
+
+# ---------------------------------------------------------------------------
+# 11d. OWNER role can remove singer from rotation
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_remove_singer_from_rotation_owner_role(client, jwt_encode, venue_with_singers_and_songs, db):
+    venue_id, singers, songs = venue_with_singers_and_songs
+    s1 = singers[0]
+    # Seed a host-sourced active request
+    req = QueueRequest(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=s1.id,
+        song_id=songs[0].id,
+        status="approved",
+        source="host",
+        rotation_position=1,
+        requested_at="2026-05-21T10:00:00Z",
+    )
+    db.add(req)
+    await db.commit()
+
+    token = jwt_encode(venue_id, role="owner")
+    resp = await client.post(
+        f"/v1/venues/{venue_id}/queue/admin/singers/{s1.id}/remove",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_204_NO_CONTENT
+
+    # Verify request cancelled
+    result = await db.execute(select(QueueRequest).where(QueueRequest.id == req.id))
+    item = result.scalar_one()
+    assert item.status == "rejected"

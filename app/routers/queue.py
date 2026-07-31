@@ -382,6 +382,7 @@ async def submit_request(
         song_id=body.song_id,
         status="pending",
         notes=body.notes,
+        source="mobile",
         rotation_position=tail + 1,
         tempo=getattr(body, "tempo", 0) or 0,
         pitch=getattr(body, "pitch", 0) or 0,

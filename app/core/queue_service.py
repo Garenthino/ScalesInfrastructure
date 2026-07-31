@@ -10,10 +10,10 @@ from datetime import datetime, timezone
 import httpx
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 
-from app.models import QueueRequest, RotationSession, KJDevice
+from app.models import QueueRequest, RotationSession, KJDevice, SingerRemoval
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -305,6 +305,50 @@ class QueueService:
         )
         await self.broadcast_queue_state(venue_id)
         return item
+
+    async def remove_singer_from_rotation(
+        self,
+        venue_id: str,
+        singer_id: str,
+        removed_by_account_id: str | None = None,
+        removed_by_device_id: str | None = None,
+    ) -> list[QueueRequest]:
+        """Cancel all active queue requests for a singer and record a removal.
+
+        Used by both the portal (venue admin action) and the KJ desktop sync
+        path. Returns the cancelled request rows and broadcasts updated state.
+        """
+        result = await self.db.execute(
+            select(QueueRequest).where(
+                QueueRequest.venue_id == venue_id,
+                QueueRequest.singer_id == singer_id,
+                QueueRequest.status.in_(list(ACTIVE_STATUSES)),
+                QueueRequest.deleted_at.is_(None),
+            )
+        )
+        cancelled: list[QueueRequest] = []
+        for item in result.scalars().all():
+            item.status = "rejected"
+            item.reject_reason = "Removed from rotation"
+            item.updated_at = _NOW()
+            cancelled.append(item)
+
+        # Record the removal so KJ desktop pulls it and removes the singer locally.
+        removal = SingerRemoval(
+            venue_id=venue_id,
+            singer_id=singer_id,
+            removed_by_account_id=removed_by_account_id,
+            removed_by_device_id=removed_by_device_id,
+            removed_at=_NOW(),
+        )
+        self.db.add(removal)
+
+        await self.db.commit()
+        await QueueEventPublisher.publish(
+            venue_id, "singer_removed", {"singer_id": singer_id, "reason": "removed_from_rotation"}
+        )
+        await self.broadcast_queue_state(venue_id)
+        return cancelled
 
     async def complete(self, venue_id: str, request_id: str) -> QueueRequest:
         item = await self._get_item(venue_id, request_id)
@@ -837,11 +881,12 @@ class QueueService:
     def _rotation_view(items: list[QueueRequest]) -> list[QueueRequest]:
         """Collapse active queue items to one row per singer in rotation.
 
-        Only items that have been assigned a rotation_position by the KJ
-        desktop are considered part of the live rotation. For each singer,
-        pick the single most relevant item: now_playing > up_next > approved
-        > pending. This prevents the portal from showing every individual
-        song request (e.g. additional mobile requests) as separate rows.
+        Only items that have been pushed by the KJ desktop (source == 'host')
+        and assigned a rotation_position are considered part of the live
+        rotation. Mobile/portal requests live in the KJ's Queue Requests
+        inbox until the KJ explicitly places the singer in rotation. For each
+        singer, pick the single most relevant item: now_playing > up_next >
+        approved > pending.
         """
         # Status priority: lower number = higher priority
         priority = {"now_playing": 0, "up_next": 1, "approved": 2, "pending": 3}
@@ -849,6 +894,8 @@ class QueueService:
         by_singer: dict[str, list[QueueRequest]] = {}
         for item in items:
             if item.rotation_position is None:
+                continue
+            if getattr(item, "source", None) != "host":
                 continue
             by_singer.setdefault(str(item.singer_id), []).append(item)
 

@@ -406,6 +406,7 @@ class QueueRequest(Base):
     rejected_at = Column(Text)
     rejected_by = Column(Text)  # KJ display name or 'singer' for self-cancel
     rejection_retention_until = Column(Text)  # ISO timestamp; NULL means no retention enforced
+    source = Column(Text, nullable=False, default="mobile")  # mobile | portal | host
     rotation_position = Column(Integer)
     kj_id = Column(Text)
     tempo = Column(Integer, default=0)
@@ -417,6 +418,7 @@ class QueueRequest(Base):
 
     __table_args__ = (
         CheckConstraint("status IN ('pending','approved','up_next','now_playing','completed','skipped','rejected')"),
+        CheckConstraint("source IN ('mobile','portal','host')"),
         Index("ix_queue_venue_status", "venue_id", "status"),
         Index("queue_position_idx", "venue_id", "rotation_position"),
         Index("ix_queue_requests_singer_status", "singer_id", "status"),

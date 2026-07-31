@@ -90,7 +90,11 @@ async def get_admin_queue(
 
     svc = QueueService(db)
     items = await svc.get_active_queue(venue_id, mode="round_robin", include_details=True)
-    out_items = [_queue_item_out(item, position=idx + 1) for idx, item in enumerate(items)]
+    # The admin queue page shows the KJ desktop's live rotation only. Mobile
+    # and portal requests remain in the Queue Requests inbox until the KJ
+    # places the singer in rotation.
+    host_items = [i for i in items if getattr(i, "source", None) == "host"]
+    out_items = [_queue_item_out(item, position=idx + 1) for idx, item in enumerate(host_items)]
     return QueueAdminListOut(
         items=out_items,
         total=len(out_items),
@@ -265,6 +269,32 @@ async def remove_request(
         await svc.remove(venue_id, request_id)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return None
+
+
+# ---------------------------------------------------------------------------
+# REMOVE SINGER FROM ROTATION
+# ---------------------------------------------------------------------------
+
+@router.post("/singers/{singer_id}/remove", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_singer_from_rotation_admin(
+    venue_id: str,
+    singer_id: str,
+    db: AsyncSession = Depends(get_db),
+    token: dict = Depends(require_admin),
+):
+    """Venue admin/KJ removes a singer from the current rotation.
+
+    Cancels all active queue requests for the singer, records a SingerRemoval
+    for the KJ desktop, and broadcasts the updated queue state.
+    """
+    if not venue_match_or_admin(venue_id, token):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
+
+    svc = QueueService(db)
+    await svc.remove_singer_from_rotation(
+        venue_id, singer_id, removed_by_account_id=token.get("account_id") or token.get("id")
+    )
     return None
 
 

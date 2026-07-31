@@ -1185,6 +1185,7 @@ class SyncQueueItem(ScalesModel):
     updated_at: str | None = None
     played_at: str | None = None
     reject_reason: str | None = None
+    source: Literal["mobile", "portal", "host"] = "host"
 
 
 class SyncQueuePushPayload(ScalesModel):

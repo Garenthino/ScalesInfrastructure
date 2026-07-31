@@ -950,17 +950,10 @@ async def test_remove_singer_from_rotation_creates_removal_record(client, db, sy
     db.add(q)
     await db.commit()
 
-    # Venue admin token
-    from jose import jwt
-    from app.core.config import settings
-    token = jwt.encode(
-        {"sub": str(uuid.uuid4()), "venue_id": venue_id, "role": "admin", "iat": datetime.now(timezone.utc), "exp": datetime.now(timezone.utc).replace(year=datetime.now(timezone.utc).year + 1)},
-        settings.JWT_SECRET_KEY,
-        algorithm="HS256",
-    )
+    # KJ device x-api-key auth
     resp = await client.post(
         f"/v1/kj/sync/queue/singers/{singer.id}/remove?venue_id={venue_id}",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"x-api-key": "kj-remove-test"},
     )
     assert resp.status_code == 204, resp.text
 
@@ -1029,3 +1022,47 @@ async def test_pull_queue_includes_song_title_artist(client, db, sync_venue, ven
     assert item["song_artist"] == song.artist
     assert item["singer_name"] == singer.stage_name
 
+
+
+# ---------------------------------------------------------------------------
+# Queue pull source separation
+# ---------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_pull_queue_requests_excludes_host_source(client, sync_venue, db):
+    venue_id, _, _, _, raw_key = sync_venue
+    # Seed two rows: one mobile (should be pulled) and one host (should not).
+    mobile = QueueRequest(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=str(uuid.uuid4()),
+        song_id=str(uuid.uuid4()),
+        status="pending",
+        source="mobile",
+        rotation_position=1,
+        requested_at=datetime.now(timezone.utc).isoformat(),
+        updated_at=datetime.now(timezone.utc).isoformat(),
+    )
+    host = QueueRequest(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        singer_id=str(uuid.uuid4()),
+        song_id=str(uuid.uuid4()),
+        status="approved",
+        source="host",
+        rotation_position=2,
+        requested_at=datetime.now(timezone.utc).isoformat(),
+        updated_at=datetime.now(timezone.utc).isoformat(),
+    )
+    db.add_all([mobile, host])
+    await db.commit()
+
+    resp = await client.get(
+        f"/v1/kj/sync/queue/pull?venue_id={venue_id}",
+        headers={"x-api-key": raw_key},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    pulled_ids = {it["request_id"] for it in data["items"]}
+    assert str(mobile.id) in pulled_ids
+    assert str(host.id) not in pulled_ids

@@ -654,6 +654,7 @@ async def _apply_queue(
             elif item.status not in ("rejected", "skipped"):
                 existing.song_id = None
             existing.status = item.status
+            existing.source = getattr(item, "source", "host")
             existing.rotation_position = item.position
             existing.notes = item.notes
             existing.requested_at = item.requested_at
@@ -670,6 +671,7 @@ async def _apply_queue(
                 song_id=resolved_song_id,
                 status=item.status,
                 notes=item.notes,
+                source=getattr(item, "source", "host"),
                 rotation_position=item.position,
                 requested_at=item.requested_at,
                 updated_at=_now_iso(),
@@ -790,6 +792,7 @@ async def _apply_now_playing(
                     venue_id=venue_id,
                     singer_id=snapshot.singer_id,
                     status="now_playing",
+                    source="host",
                     rotation_position=0,
                     notes=snapshot.singer_name or "",
                     requested_at=_now_iso(),

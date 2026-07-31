@@ -410,7 +410,7 @@ export async function removeSingerFromQueue(venueId: string, id: string, token?:
 }
 
 export async function removeSingerFromRotation(venueId: string, singerId: string, token?: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/kj/sync/queue/singers/${encodeURIComponent(singerId)}/remove`, {
+  const res = await fetch(`${API_BASE}/venues/${encodeURIComponent(venueId)}/queue/admin/singers/${encodeURIComponent(singerId)}/remove`, {
     method: "POST",
     headers: authHeaders(token),
   });
