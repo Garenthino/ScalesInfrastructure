@@ -1066,3 +1066,67 @@ async def test_pull_queue_requests_excludes_host_source(client, sync_venue, db):
     pulled_ids = {it["request_id"] for it in data["items"]}
     assert str(mobile.id) in pulled_ids
     assert str(host.id) not in pulled_ids
+
+
+
+@pytest.mark.anyio
+async def test_push_queue_ignores_removed_singers(db, client, sync_venue):
+    venue_id, kj_id, singer_id, songs, raw_key = sync_venue
+    kj_headers = _kj_headers(raw_key)
+
+
+    # Seed a rotation item.
+    from app.models import QueueRequest
+    request_id = str(uuid.uuid4())
+    q = QueueRequest(
+        id=request_id,
+        venue_id=venue_id,
+        singer_id=singer_id,
+        song_id=songs[0].id,
+        status="pending",
+        source="host",
+        rotation_position=1,
+        requested_at=datetime.now(timezone.utc).isoformat(),
+    )
+    db.add(q)
+    await db.commit()
+
+    # Remove the singer via queue service.
+    from app.core.queue_service import QueueService
+    svc = QueueService(db)
+    await svc.remove_singer_from_rotation(venue_id, singer_id)
+
+    # Push a fresh rotation snapshot that still includes the removed singer.
+    resp = await client.post(
+        f"{SYNC_BASE}/queue/push",
+        headers=kj_headers,
+        params={"venue_id": venue_id},
+        json={
+            "items": [{
+                "request_id": request_id,
+                "singer_id": singer_id,
+                "song_id": str(songs[0].id),
+                "song_title": songs[0].title,
+                "song_artist": songs[0].artist,
+                "status": "pending",
+                "position": 1,
+                "notes": "",
+                "requested_at": datetime.now(timezone.utc).isoformat(),
+                "source": "host",
+            }],
+            "deleted_ids": [],
+            "last_modified_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    assert resp.status_code == status.HTTP_200_OK
+
+    # The active queue for the venue must not contain rows for the removed singer.
+    result = await db.execute(
+        select(QueueRequest).where(
+            QueueRequest.venue_id == venue_id,
+            QueueRequest.singer_id == singer_id,
+            QueueRequest.status.in_(("pending", "approved", "up_next", "now_playing")),
+            QueueRequest.deleted_at.is_(None),
+        )
+    )
+    assert result.scalars().all() == []

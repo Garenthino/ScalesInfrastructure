@@ -151,6 +151,17 @@ async def _get_venue_config_dict(db: AsyncSession, venue_id: str) -> dict[str, S
 # Queue
 # ---------------------------------------------------------------------------
 
+async def _removed_singer_ids_for_venue(db: AsyncSession, venue_id: str) -> set[str]:
+    """Return singer ids that have an unacknowledged removal for this venue."""
+    result = await db.execute(
+        select(SingerRemoval.singer_id).where(
+            SingerRemoval.venue_id == venue_id,
+            SingerRemoval.acknowledged_at.is_(None),
+        )
+    )
+    return {str(r[0]) for r in result.all()}
+
+
 @router.post("/queue/push")
 async def push_queue(
     body: SyncQueuePushPayload,
@@ -212,8 +223,17 @@ async def push_queue(
                 updated_at=_now_iso(),
             ))
 
+    # If the singer has been removed from rotation server-side (e.g. by the
+    # portal or a prior KJ remove call), do not let an incoming KJ snapshot
+    # resurrect their queue rows. Skip the upsert and mark the request as
+    # deleted on our side.
+    removed_singer_ids = await _removed_singer_ids_for_venue(db, venue_id)
+
     # Process upserts
     for item in body.items:
+        if item.singer_id in removed_singer_ids:
+            # Skip re-creating a removed singer's queue item.
+            continue
         # Resolve song_id to a server Song UUID (auto-create stub if needed)
         resolved_song_id = await _resolve_or_create_song(
             db, venue_id, item.song_id, item.song_title, item.song_artist

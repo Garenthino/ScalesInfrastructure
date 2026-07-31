@@ -343,6 +343,12 @@ class QueueService:
         )
         self.db.add(removal)
 
+        # Soft-delete the cancelled rows so they do not sit in active status and
+        # cannot be resurrected by a stale KJ desktop snapshot.
+        for item in cancelled:
+            item.deleted_at = _NOW()
+            item.updated_at = _NOW()
+
         await self.db.commit()
         await QueueEventPublisher.publish(
             venue_id, "singer_removed", {"singer_id": singer_id, "reason": "removed_from_rotation"}
