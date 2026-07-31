@@ -1130,3 +1130,24 @@ async def test_push_queue_ignores_removed_singers(db, client, sync_venue):
         )
     )
     assert result.scalars().all() == []
+
+
+
+@pytest.mark.anyio
+async def test_remove_singer_rejects_local_integer_id(client, sync_venue):
+    from app.core.security import hash_password
+    from app.models import KJDevice
+    venue_id, _, _, _, raw_key = sync_venue
+    device = KJDevice(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        name="Test KJ",
+        api_key_hash=hash_password(raw_key),
+    )
+    # Need db to add device; we can just use existing test pattern maybe reuse _kj_headers and sync_venue raw_key.
+    # The sync_venue fixture already creates a device with raw_key; we can use that.
+    url = f"/v1/kj/sync/queue/singers/4/remove?venue_id={venue_id}"
+    headers = {"x-api-key": raw_key}
+    resp = await client.post(url, headers=headers)
+    assert resp.status_code == 400, resp.text
+    assert "cloud singer UUID" in resp.text or "UUID" in resp.text

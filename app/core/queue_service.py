@@ -84,6 +84,25 @@ class QueueEventPublisher:
     """Publishes queue events to Redis, Gateway, or in-memory bus."""
 
     _redis = None
+    _http: httpx.AsyncClient | None = None
+
+    @classmethod
+    def _http_client(cls) -> httpx.AsyncClient:
+        if cls._http is None or cls._http.is_closed:
+            cls._http = httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=2.0, read=5.0, write=5.0, pool=1.0),
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+            )
+        return cls._http
+
+    @classmethod
+    async def _close(cls) -> None:
+        if cls._http is not None and not cls._http.is_closed:
+            await cls._http.aclose()
+            cls._http = None
+        if cls._redis is not None:
+            await cls._redis.close()
+            cls._redis = None
 
     @classmethod
     async def publish(cls, venue_id: str, event_type: str, data: dict) -> None:
@@ -92,12 +111,12 @@ class QueueEventPublisher:
         # 1. Gateway broadcast (primary for multi-container)
         if settings.GATEWAY_URL and settings.GATEWAY_INTERNAL_SECRET:
             try:
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    await client.post(
-                        f"{settings.GATEWAY_URL.rstrip('/')}/broadcast",
-                        json={"venue_id": venue_id, "event_type": event_type, "payload": data},
-                        headers={"Authorization": f"Bearer {settings.GATEWAY_INTERNAL_SECRET}"},
-                    )
+                client = cls._http_client()
+                await client.post(
+                    f"{settings.GATEWAY_URL.rstrip('/')}/broadcast",
+                    json={"venue_id": venue_id, "event_type": event_type, "payload": data},
+                    headers={"Authorization": f"Bearer {settings.GATEWAY_INTERNAL_SECRET}"},
+                )
             except Exception:
                 # Best-effort: gateway failure must not break queue ops
                 logger.debug("gateway_publish_failed", exc_info=True)
@@ -107,7 +126,10 @@ class QueueEventPublisher:
             try:
                 import redis.asyncio as aioredis
                 if cls._redis is None:
-                    cls._redis = await aioredis.from_url(settings.REDIS_URL)
+                    cls._redis = await aioredis.from_url(
+                        settings.REDIS_URL,
+                        max_connections=10,
+                    )
                 await cls._redis.publish(f"queue:{venue_id}", payload)
             except Exception:
                 # Best-effort: don't let Redis failures break queue ops

@@ -18,7 +18,7 @@ from typing import Any, Literal
 
 from typing import cast
 
-from fastapi import APIRouter, Depends, HTTPException, status, Path
+from fastapi import APIRouter, Depends, HTTPException, status, Path, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, update
 
@@ -62,6 +62,20 @@ def _require_venue_match(venue_id: str, current: KJDeviceUser) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Venue access denied",
         )
+
+
+def _is_uuid(value: str) -> bool:
+    """Return True if the value looks like a UUID."""
+    if not value:
+        return False
+    v = value.strip().lower().replace("-", "")
+    if len(v) != 32:
+        return False
+    try:
+        int(v, 16)
+        return True
+    except ValueError:
+        return False
 
 
 async def _resolve_or_create_song(
@@ -165,6 +179,7 @@ async def _removed_singer_ids_for_venue(db: AsyncSession, venue_id: str) -> set[
 @router.post("/queue/push")
 async def push_queue(
     body: SyncQueuePushPayload,
+    background_tasks: BackgroundTasks,
     venue_id: str | None = None,
     current: KJDeviceUser = Depends(kj_auth),
     db: AsyncSession = Depends(get_db),
@@ -339,14 +354,9 @@ async def push_queue(
 
     await db.commit()
 
-    # Broadcast the updated queue state via WebSocket so the portal reflects
-    # the KJ desktop's changes in real-time.
-    try:
-        svc = QueueService(db)
-        await svc.broadcast_queue_state(venue_id)
-    except Exception as exc:
-        import logging
-        logging.getLogger(__name__).warning("broadcast after queue push failed: %s", exc)
+    # Broadcast off the request path so the portal still updates, but the KJ
+    # desktop gets a fast 200 response and does not retry/time out.
+    background_tasks.add_task(_broadcast_queue_state, venue_id)
 
     if conflicts:
         raise HTTPException(
@@ -358,6 +368,18 @@ async def push_queue(
         )
 
     return {"synced": len(body.items), "deleted": len(body.deleted_ids), "conflicts": 0}
+
+
+async def _broadcast_queue_state(venue_id: str) -> None:
+    """Background broadcast of queue state; uses a fresh DB session."""
+    from app.core.db import async_session_factory
+    import logging as _logging
+    async with async_session_factory() as db:
+        try:
+            svc = QueueService(db)
+            await svc.broadcast_queue_state(venue_id)
+        except Exception as exc:
+            _logging.getLogger(__name__).warning("background broadcast failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -721,6 +743,7 @@ async def pull_queue(
 async def ack_queue_request(
     venue_id: str,
     request_id: str,
+    background_tasks: BackgroundTasks,
     current: KJDeviceUser = Depends(kj_auth),
     db: AsyncSession = Depends(get_db),
 ):
@@ -740,12 +763,7 @@ async def ack_queue_request(
         row.deleted_at = _now_iso()
         row.updated_at = _now_iso()
         await db.commit()
-        try:
-            svc = QueueService(db)
-            await svc.broadcast_queue_state(venue_id)
-        except Exception as exc:
-            import logging
-            logging.getLogger(__name__).warning("broadcast after ack failed: %s", exc)
+        background_tasks.add_task(_broadcast_queue_state, venue_id)
     return None
 
 
@@ -755,6 +773,7 @@ async def ack_queue_request(
 
 @router.post("/queue/singers/{singer_id}/remove", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_singer_from_rotation(
+    background_tasks: BackgroundTasks,
     venue_id: str | None = None,
     singer_id: str = Path(...),
     current: KJDeviceUser = Depends(kj_auth),
@@ -764,14 +783,25 @@ async def remove_singer_from_rotation(
 
     Cancels all active queue requests for the singer and records a removal
     so the portal and other clients can pull it and remove the singer.
+
+    The KJ desktop must send the canonical cloud singer UUID, not the local
+    integer id. Rejecting local ids prevents the server from minting stub
+    singers keyed by small integers that the portal cannot target.
     """
     venue_id = venue_id or str(current.venue_id)
     _require_venue_match(venue_id, current)
+
+    if not _is_uuid(singer_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="singer_id must be a cloud singer UUID",
+        )
 
     svc = QueueService(db)
     await svc.remove_singer_from_rotation(
         venue_id, singer_id, removed_by_device_id=str(current.id)
     )
+    background_tasks.add_task(_broadcast_queue_state, venue_id)
     return None
 
 
