@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 import pytest
 from fastapi import status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 
 from app.models import Venue, Song, Singer, QueueRequest
 
@@ -735,3 +736,79 @@ async def test_only_one_now_playing_after_start(client, jwt_encode, populated_qu
     )
     assert resp2.status_code == status.HTTP_400_BAD_REQUEST
     assert "already playing" in resp2.json()["detail"].lower()
+
+
+
+class TestNowPlayingDedupe:
+    @pytest.mark.anyio
+    async def test_broadcast_queue_state_handles_multiple_now_playing_rows(self, db, venue_with_songs):
+        venue_id, _ = venue_with_songs
+        from app.models import QueueRequest, KJDevice
+        from app.core.queue_service import QueueService
+
+        # Seed a KJ device so the broadcast treats the venue as online.
+        kj = KJDevice(
+            id=str(uuid.uuid4()),
+            venue_id=venue_id,
+            api_key_hash="test-key-hash",
+            name="Test KJ",
+            last_seen=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
+        db.add(kj)
+
+        song_result = await db.execute(select(Song).where(Song.venue_id == venue_id).limit(1))
+        song = song_result.scalar_one_or_none()
+        assert song is not None
+
+        s1 = Singer(
+            id=str(uuid.uuid4()),
+            venue_id=venue_id,
+            stage_name="Dedupe Singer One",
+        )
+        s2 = Singer(
+            id=str(uuid.uuid4()),
+            venue_id=venue_id,
+            stage_name="Dedupe Singer Two",
+        )
+        db.add_all([s1, s2])
+        await db.commit()
+
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        q1 = QueueRequest(
+            id=str(uuid.uuid4()),
+            venue_id=venue_id,
+            singer_id=s1.id,
+            song_id=song.id,
+            status="now_playing",
+            source="host",
+            rotation_position=1,
+            requested_at=now,
+            updated_at=now,
+        )
+        q2 = QueueRequest(
+            id=str(uuid.uuid4()),
+            venue_id=venue_id,
+            singer_id=s2.id,
+            song_id=song.id,
+            status="now_playing",
+            source="host",
+            rotation_position=2,
+            requested_at=now,
+            updated_at=now,
+        )
+        db.add_all([q1, q2])
+        await db.commit()
+
+        svc = QueueService(db)
+        await svc.broadcast_queue_state(venue_id)
+
+        result = await db.execute(
+            select(func.count())
+            .select_from(QueueRequest)
+            .where(
+                QueueRequest.venue_id == venue_id,
+                QueueRequest.status == "now_playing",
+                QueueRequest.deleted_at.is_(None),
+            )
+        )
+        assert result.scalar_one() == 1

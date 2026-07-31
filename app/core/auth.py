@@ -316,6 +316,25 @@ def _extract_token(request: Request) -> str:
     return auth[len("Bearer "):]
 
 
+async def get_current_user_or_admin(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> SingerUser | dict:
+    """Return admin/owner/KJ token payload if present, otherwise resolve singer user.
+
+    This lets portal owner/admin tokens (which use account ids as `sub`) access
+    venue-scoped CRUD endpoints while preserving self-service for singer tokens.
+    """
+    admin_payload = None
+    try:
+        admin_payload = await require_admin(request)
+    except HTTPException:
+        pass
+    if admin_payload:
+        return admin_payload
+    return await get_current_user(request, db)
+
+
 async def require_admin(request: Request) -> dict:
     """Dependency: enforce venue manager roles (admin, owner, kj) and venue_id present."""
     token = _extract_token(request)
@@ -379,13 +398,13 @@ def venue_match(venue_id_param: str, token_payload: dict) -> bool:
 
 
 def venue_match_or_admin(venue_id_param: str, token_payload: dict) -> bool:
-    """Return True for matching venue, admin, owner, or KJ tokens."""
+    """Return True when the URL venue matches the token venue for an admin/owner/KJ token."""
     token_venue = token_payload.get("venue_id")
     role = token_payload.get("role", "").lower()
-    if role in ("admin", "owner", "kj"):
-        return True
+    if role not in ("admin", "owner", "kj"):
+        return False
     if token_venue is None:
-        return True
+        return False
     return str(token_venue) == str(venue_id_param)
 
 

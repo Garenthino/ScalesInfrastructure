@@ -457,6 +457,11 @@ class QueueService:
     # -----------------------------------------------------------------------
 
     async def _get_now_playing(self, venue_id: str) -> QueueRequest | None:
+        """Return the single currently playing queue item for a venue.
+
+        The desktop is the authoritative source for now_playing, but if multiple
+        rows exist (e.g., a stale broadcast), pick the most recent and log it.
+        """
         stmt = (
             select(QueueRequest)
             .where(
@@ -464,6 +469,8 @@ class QueueService:
                 QueueRequest.status == "now_playing",
                 QueueRequest.deleted_at.is_(None),
             )
+            .order_by(QueueRequest.updated_at.desc(), QueueRequest.requested_at.desc())
+            .limit(1)
             .options(selectinload(QueueRequest.singer), selectinload(QueueRequest.song))
         )
         result = await self.db.execute(stmt)
@@ -907,6 +914,30 @@ class QueueService:
         view.sort(key=lambda i: (i.rotation_position or 0, priority.get(str(i.status), 99)))
         return view
 
+    async def _dedupe_now_playing(self, venue_id: str) -> None:
+        """Ensure at most one active now_playing row per venue.
+
+        Keeps the most recently updated row and demotes any others to pending.
+        This guards against duplicate now_playing rows that crash broadcasts.
+        """
+        result = await self.db.execute(
+            select(QueueRequest.id)
+            .where(
+                QueueRequest.venue_id == venue_id,
+                QueueRequest.status == "now_playing",
+                QueueRequest.deleted_at.is_(None),
+            )
+            .order_by(QueueRequest.updated_at.desc(), QueueRequest.requested_at.desc())
+            .offset(1)
+        )
+        stale_ids = [str(row[0]) for row in result.all()]
+        if stale_ids:
+            await self.db.execute(
+                update(QueueRequest)
+                .where(QueueRequest.id.in_(stale_ids))
+                .values(status="pending", updated_at=_NOW())
+            )
+
     async def broadcast_queue_state(self, venue_id: str) -> None:
         """Broadcast the live rotation + stats + now_playing via WebSocket."""
         # If no KJ device has been seen recently, broadcast empty state
@@ -933,6 +964,7 @@ class QueueService:
             return
 
         # Get active queue, then collapse to one row per singer in rotation.
+        await self._dedupe_now_playing(venue_id)
         items = await self.get_active_queue(venue_id, mode="fifo", include_details=True)
         rotation_items = self._rotation_view(items)
 

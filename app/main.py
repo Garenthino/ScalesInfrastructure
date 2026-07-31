@@ -54,14 +54,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Order: request_id -> security_headers -> rate_limit -> observability -> request_size -> CORS
+# Order (outermost -> innermost, so add in reverse): request_id -> security_headers -> rate_limit -> observability -> request_size -> CORS
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(ObservabilityMiddleware)
 app.add_middleware(RequestSizeMiddleware)
 
-# CORS
+# CORS is added last so it wraps everything and error responses still carry headers.
 if settings.DEBUG:
     origins = ["*"]
 else:

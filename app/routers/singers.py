@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, cast, DateTime
 
-from app.core.auth import get_current_user, get_current_user_or_kj, SingerUser, KJDeviceUser
+from app.core.auth import get_current_user, get_current_user_or_kj, require_admin, get_current_user_or_admin, SingerUser, KJDeviceUser
 from app.core.permissions import Role, has_role
 from app.core.db import get_db
 from app.models import Singer, QueueRequest, Song, CheckInSession, PointsLedger, SingerFavorite, SingerFollow, Payment, LeaderboardEntry, Consent, ShareEvent, SingerAchievement
@@ -150,11 +150,18 @@ async def _sync_singer_profile_to_account(db: AsyncSession, singer: Singer) -> N
     await db.commit()
 
 
-def _require_venue(venue_id: str, current: SingerUser | KJDeviceUser) -> None:
+def _require_venue(venue_id: str, current: SingerUser | KJDeviceUser | dict) -> None:
     """Enforce that the current user's venue matches the URL venue, or owner/admin/KJ."""
-    if str(getattr(current, "venue_id", "")) == str(venue_id):
+    if isinstance(current, dict):
+        token_venue = current.get("venue_id")
+        role = (current.get("role") or "").lower()
+    else:
+        token_venue = getattr(current, "venue_id", "")
+        role = getattr(current, "role", "").lower()
+
+    if str(token_venue) == str(venue_id):
         return
-    if getattr(current, "role", "").lower() in ("owner", "admin", "kj"):
+    if role in ("owner", "admin", "kj"):
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -1431,7 +1438,7 @@ async def delete_account(
 @router.get("", response_model=PaginatedResponse[SingerOut])
 async def list_singers(
     venue_id: str,
-    current: SingerUser = Depends(get_current_user),
+    current: SingerUser | dict = Depends(get_current_user_or_admin),
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=0),
     per_page: int = Query(20, ge=1, le=100),
@@ -1444,6 +1451,9 @@ async def list_singers(
         Singer.deleted_at.is_(None),
         Singer.deactivated_at.is_(None),
     ]
+    # Singers can only see themselves; admins/owners/KJs see the whole roster.
+    if isinstance(current, SingerUser) and current.role not in (Role.ADMIN, Role.OWNER, Role.KJ):
+        filters.append(Singer.id == current.id)
 
     total = (
         await db.execute(
@@ -1537,7 +1547,7 @@ async def get_me(
 async def get_singer(
     venue_id: str,
     singer_id: str,
-    current: SingerUser = Depends(get_current_user),
+    current: SingerUser | dict = Depends(get_current_user_or_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Get a single singer in the current venue."""
@@ -1557,6 +1567,14 @@ async def get_singer(
     if singer is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
 
+    # Singers may only view their own profile unless they are admin/owner/KJ.
+    if (
+        isinstance(current, SingerUser)
+        and current.role not in (Role.ADMIN, Role.OWNER, Role.KJ)
+        and str(current.id) != str(singer_id)
+    ):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Cannot view another singer's profile")
+
     return _singer_out(singer)
 
 
@@ -1568,14 +1586,14 @@ async def update_singer(
     venue_id: str,
     singer_id: str,
     body: SingerUpdate,
-    current: SingerUser = Depends(get_current_user),
+    current: SingerUser | dict = Depends(get_current_user_or_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update singer profile. Self-update or admin/kj only."""
+    """Update singer profile. Self-update or admin/KJ/owner only."""
     _require_venue(venue_id, current)
-    is_admin_or_kj = has_role(current.role, Role.KJ)
 
-    if not is_admin_or_kj and str(current.id) != str(singer_id):
+    is_admin = isinstance(current, dict) or current.role in (Role.ADMIN, Role.OWNER, Role.KJ)
+    if not is_admin and str(getattr(current, "id", "")) != str(singer_id):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail="Cannot update another singer's profile",
@@ -1596,6 +1614,36 @@ async def update_singer(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
 
     update_data = body.model_dump(exclude_unset=True)
+
+    # Normalize stage_name before uniqueness check
+    new_stage_name = update_data.get("stage_name")
+    if new_stage_name is not None:
+        new_stage_name = new_stage_name.strip()
+        if not new_stage_name:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="stage_name cannot be empty",
+            )
+        update_data["stage_name"] = new_stage_name
+
+    # If stage_name is changing, ensure no other singer at this venue already uses it.
+    if new_stage_name is not None and new_stage_name != singer.stage_name:
+        existing = (
+            await db.execute(
+                select(Singer.id).where(
+                    Singer.venue_id == venue_id,
+                    Singer.stage_name == new_stage_name,
+                    Singer.id != singer.id,
+                    Singer.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail=f"Stage name '{new_stage_name}' is already taken at this venue",
+            )
+
     for key, value in update_data.items():
         if value is not None:
             setattr(singer, key, value)
@@ -1613,12 +1661,14 @@ async def update_singer(
 async def delete_singer(
     venue_id: str,
     singer_id: str,
-    current: SingerUser = Depends(get_current_user),
+    current: SingerUser | dict = Depends(get_current_user_or_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Soft-delete a singer (admin or kj only)."""
+    """Soft-delete a singer (admin, owner, or kj only)."""
     _require_venue(venue_id, current)
-    if not has_role(current.role, Role.KJ):
+
+    # Only admin/owner/KJ may delete singers.
+    if isinstance(current, SingerUser) and current.role not in (Role.ADMIN, Role.OWNER, Role.KJ):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail="Admin or KJ access required",
@@ -1636,9 +1686,10 @@ async def delete_singer(
     if singer is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Singer not found")
 
-    # Hard delete: permanently remove singer from current venue.
-    # Related rows are left as-is (DB may cascade or orphan; avoids table-guessing).
-    await db.delete(singer)
+    # Soft-delete so related transactional data stays intact.
+    now = _now_iso()
+    singer.deleted_at = now
+    singer.deactivated_at = now
     await db.commit()
     return None
 
@@ -1651,13 +1702,13 @@ async def ban_singer(
     venue_id: str,
     singer_id: str,
     body: BanRequest,
-    current: SingerUser = Depends(get_current_user),
+    current: SingerUser | dict = Depends(get_current_user_or_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Ban a singer at this venue (admin or kj only). Sets deactivated_at."""
+    """Ban a singer at this venue (admin, owner, or kj only). Sets deactivated_at."""
     from app.schemas import BanResponse
     _require_venue(venue_id, current)
-    if not has_role(current.role, Role.KJ):
+    if isinstance(current, SingerUser) and current.role not in (Role.ADMIN, Role.OWNER, Role.KJ):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail="Admin or KJ access required",
@@ -1848,22 +1899,18 @@ async def merge_singer_admin(
     venue_id: str,
     source_singer_id: str,
     body: SingerMergeRequest,
-    current: SingerUser = Depends(get_current_user),
+    current: dict = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """KJ/admin merge a local-only source singer into any registered target singer.\\n\\n    Requires KJ or admin role.\\n    """
+    """KJ/admin merge a local-only source singer into any registered target singer.\n\n    Requires KJ or admin role.\n    """
     _require_venue(venue_id, current)
-    if not has_role(current.role, Role.KJ):
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            detail="Only KJ or admin can merge singers on the portal",
-        )
+
     result = await merge_local_singer_into_mobile(
         db=db,
         venue_id=venue_id,
         local_singer_id=source_singer_id,
         target_singer_id=body.target_singer_id,
-        merged_by_account_id=current.id,
+        merged_by_account_id=current.get("sub"),
     )
     await db.commit()
     target_result = await db.execute(select(Singer).where(Singer.id == body.target_singer_id))

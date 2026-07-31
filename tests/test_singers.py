@@ -406,3 +406,18 @@ async def test_delete_singer_not_found(client, db, venue_with_songs, jwt_encode)
 # ---------------------------------------------------------------------------
 # 6. SPRINT 0 STUBS (removed — implemented in test_singer_portal.py)
 # ---------------------------------------------------------------------------
+
+
+
+@pytest.mark.anyio
+async def test_delete_singer_owner_allowed(client, db, venue_with_songs, jwt_encode):
+    venue_id, _ = venue_with_songs
+    s = await _seed_singer(db, venue_id, stage_name="OwnerDeleteMe")
+    # Owner token uses account-style claims (different sub) with the same venue.
+    owner_id = str(uuid.uuid4())
+    token = jwt_encode(venue_id, role="owner", user_id=owner_id)
+    resp = await client.delete(
+        f"/v1/venues/{venue_id}/singers/{s.id}",
+        headers=AUTHORIZATION(token),
+    )
+    assert resp.status_code == status.HTTP_204_NO_CONTENT
