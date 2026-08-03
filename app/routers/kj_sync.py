@@ -18,7 +18,7 @@ from typing import Any, Literal
 
 from typing import cast
 
-from fastapi import APIRouter, Depends, HTTPException, status, Path, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, Path, BackgroundTasks, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, update
 
@@ -741,9 +741,9 @@ async def pull_queue(
 
 @router.post("/queue/{request_id}/ack", status_code=status.HTTP_204_NO_CONTENT)
 async def ack_queue_request(
-    venue_id: str,
-    request_id: str,
     background_tasks: BackgroundTasks,
+    request_id: str,
+    venue_id: str | None = Query(None),
     current: KJDeviceUser = Depends(kj_auth),
     db: AsyncSession = Depends(get_db),
 ):
@@ -814,8 +814,8 @@ async def remove_singer_from_rotation(
 
 @router.post("/queue/removals/ack", response_model=dict)
 async def ack_singer_removals(
-    venue_id: str,
     body: dict,
+    venue_id: str | None = Query(None),
     current: KJDeviceUser = Depends(kj_auth),
     db: AsyncSession = Depends(get_db),
 ):
