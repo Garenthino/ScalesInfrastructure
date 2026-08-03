@@ -794,12 +794,16 @@ async def remove_singer_from_rotation(
     if not _is_uuid(singer_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="singer_id must be a cloud singer UUID",
+            detail=(
+                "singer_id must be a cloud singer UUID. "
+                "The KJ desktop appears to be sending a local integer id; "
+                "please restart/rebuild the desktop app so it can mint cloud UUIDs for local singers."
+            ),
         )
 
     svc = QueueService(db)
     await svc.remove_singer_from_rotation(
-        venue_id, singer_id, removed_by_device_id=str(current.id)
+        venue_id, singer_id, removed_by_device_id=str(current.id), broadcast=False
     )
     background_tasks.add_task(_broadcast_queue_state, venue_id)
     return None

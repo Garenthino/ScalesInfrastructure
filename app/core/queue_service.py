@@ -334,11 +334,14 @@ class QueueService:
         singer_id: str,
         removed_by_account_id: str | None = None,
         removed_by_device_id: str | None = None,
+        broadcast: bool = True,
     ) -> list[QueueRequest]:
         """Cancel all active queue requests for a singer and record a removal.
 
         Used by both the portal (venue admin action) and the KJ desktop sync
-        path. Returns the cancelled request rows and broadcasts updated state.
+        path. Returns the cancelled request rows. By default broadcasts updated
+        state, but KJ sync callers can pass ``broadcast=False`` and schedule
+        their own background broadcast to keep the HTTP response fast.
         """
         result = await self.db.execute(
             select(QueueRequest).where(
@@ -375,7 +378,8 @@ class QueueService:
         await QueueEventPublisher.publish(
             venue_id, "singer_removed", {"singer_id": singer_id, "reason": "removed_from_rotation"}
         )
-        await self.broadcast_queue_state(venue_id)
+        if broadcast:
+            await self.broadcast_queue_state(venue_id)
         return cancelled
 
     async def complete(self, venue_id: str, request_id: str) -> QueueRequest:
