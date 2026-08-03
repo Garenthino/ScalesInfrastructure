@@ -771,11 +771,24 @@ async def ack_queue_request(
 # Singer removals (venue portal removes singer from rotation)
 # ---------------------------------------------------------------------------
 
+def _uuid_singer_id(singer_id: str = Path(..., title="Cloud singer UUID")) -> str:
+    if not _is_uuid(singer_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "singer_id must be a cloud singer UUID. "
+                "The KJ desktop appears to be sending a local integer id; "
+                "please restart/rebuild the desktop app so it can mint cloud UUIDs for local singers."
+            ),
+        )
+    return singer_id
+
+
 @router.post("/queue/singers/{singer_id}/remove", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_singer_from_rotation(
     background_tasks: BackgroundTasks,
     venue_id: str | None = None,
-    singer_id: str = Path(...),
+    singer_id: str = Depends(_uuid_singer_id),
     current: KJDeviceUser = Depends(kj_auth),
     db: AsyncSession = Depends(get_db),
 ):
@@ -790,16 +803,6 @@ async def remove_singer_from_rotation(
     """
     venue_id = venue_id or str(current.venue_id)
     _require_venue_match(venue_id, current)
-
-    if not _is_uuid(singer_id):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "singer_id must be a cloud singer UUID. "
-                "The KJ desktop appears to be sending a local integer id; "
-                "please restart/rebuild the desktop app so it can mint cloud UUIDs for local singers."
-            ),
-        )
 
     svc = QueueService(db)
     await svc.remove_singer_from_rotation(
