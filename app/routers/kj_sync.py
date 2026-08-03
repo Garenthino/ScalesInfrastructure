@@ -729,7 +729,10 @@ async def pull_queue(
             SingerRemoval.acknowledged_at.is_(None),
         )
     )
-    removed_singer_ids = [str(r[0]) for r in removal_result.all()]
+    removed_singer_ids = [
+        str(r[0]) for r in removal_result.all()
+        if _is_uuid(str(r[0]))
+    ]
 
     return SyncQueuePullOut(
         items=items,
@@ -823,11 +826,11 @@ async def ack_singer_removals(
     venue_id = venue_id or str(current.venue_id)
     _require_venue_match(venue_id, current)
 
-    singer_ids = body.get("singer_ids", [])
+    singer_ids = [s for s in body.get("singer_ids", []) if _is_uuid(str(s))]
     if not singer_ids:
         return {"acknowledged": []}
 
-    await db.execute(
+    result = await db.execute(
         update(SingerRemoval)
         .where(
             SingerRemoval.venue_id == venue_id,
@@ -837,7 +840,8 @@ async def ack_singer_removals(
         .values(acknowledged_at=_now_iso())
     )
     await db.commit()
-    return {"acknowledged": singer_ids}
+    print(f"[kj_sync] acked {result.rowcount} singer removals for ids={singer_ids}")
+    return {"acknowledged": singer_ids, "rowcount": result.rowcount}
 
 
 # ---------------------------------------------------------------------------

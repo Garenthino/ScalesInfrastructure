@@ -359,14 +359,23 @@ class QueueService:
             cancelled.append(item)
 
         # Record the removal so KJ desktop pulls it and removes the singer locally.
-        removal = SingerRemoval(
-            venue_id=venue_id,
-            singer_id=singer_id,
-            removed_by_account_id=removed_by_account_id,
-            removed_by_device_id=removed_by_device_id,
-            removed_at=_NOW(),
+        # Avoid creating duplicate unacknowledged removals for the same singer.
+        existing_removal = await self.db.execute(
+            select(SingerRemoval).where(
+                SingerRemoval.venue_id == venue_id,
+                SingerRemoval.singer_id == singer_id,
+                SingerRemoval.acknowledged_at.is_(None),
+            )
         )
-        self.db.add(removal)
+        if existing_removal.scalar_one_or_none() is None:
+            removal = SingerRemoval(
+                venue_id=venue_id,
+                singer_id=singer_id,
+                removed_by_account_id=removed_by_account_id,
+                removed_by_device_id=removed_by_device_id,
+                removed_at=_NOW(),
+            )
+            self.db.add(removal)
 
         # Soft-delete the cancelled rows so they do not sit in active status and
         # cannot be resurrected by a stale KJ desktop snapshot.
