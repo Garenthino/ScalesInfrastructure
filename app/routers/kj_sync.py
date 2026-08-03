@@ -694,6 +694,7 @@ async def pull_queue(
         QueueRequest.venue_id == venue_id,
         QueueRequest.deleted_at.is_(None),
         QueueRequest.source.in_(("mobile", "portal")),
+        QueueRequest.status.in_(("pending", "approved", "up_next")),
     ]
     if since:
         filters.append(or_(
