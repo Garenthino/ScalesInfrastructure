@@ -287,6 +287,22 @@ async def push_queue(
                 )
                 # KJ desktop is authoritative while it is online, so still apply
                 # the incoming queue state. The conflict record is informational.
+            # If the KJ desktop is making this item now_playing, ensure it is the
+            # only now_playing row for the venue by demoting any existing one.
+            if item.status == "now_playing":
+                current_now_playing = (
+                    await db.execute(
+                        select(QueueRequest).where(
+                            QueueRequest.venue_id == venue_id,
+                            QueueRequest.status == "now_playing",
+                            QueueRequest.id != item.request_id,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if current_now_playing:
+                    current_now_playing.status = "completed"
+                    current_now_playing.played_at = _now_iso()
+                    current_now_playing.updated_at = _now_iso()
             # Always trust the KJ desktop's incoming status unless the server
             # has already moved this item to a terminal state.
             existing.singer_id = item.singer_id
@@ -309,7 +325,21 @@ async def push_queue(
             if item.reject_reason:
                 existing.reject_reason = item.reject_reason
         else:
-            # Insert new
+            # Insert new. If this new row is now_playing, demote any existing
+            # now_playing row for the venue first.
+            if item.status == "now_playing":
+                current_now_playing = (
+                    await db.execute(
+                        select(QueueRequest).where(
+                            QueueRequest.venue_id == venue_id,
+                            QueueRequest.status == "now_playing",
+                        )
+                    )
+                ).scalar_one_or_none()
+                if current_now_playing:
+                    current_now_playing.status = "completed"
+                    current_now_playing.played_at = _now_iso()
+                    current_now_playing.updated_at = _now_iso()
             q = QueueRequest(
                 id=item.request_id,
                 venue_id=venue_id,
