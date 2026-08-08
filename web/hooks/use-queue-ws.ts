@@ -4,7 +4,10 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
 import { QueueRequest, NowPlaying, QueueStats } from "@/lib/types";
 
-const SOCKET_BASE = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
+const SOCKET_BASE =
+  process.env.NEXT_PUBLIC_SOCKET_URL ||
+  process.env.NEXT_PUBLIC_WS_URL ||
+  "http://localhost:3001";
 const DEFAULT_VENUE_ID = process.env.NEXT_PUBLIC_DEFAULT_VENUE_ID || "default";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
 
@@ -70,9 +73,12 @@ export function useQueueWS(venueId: string = DEFAULT_VENUE_ID) {
     const base = SOCKET_BASE.replace(/\/$/, "");
     const socket = io(base, {
       transports: ["websocket"],
-      query: token ? { token } : undefined,
-      reconnection: false,
-      timeout: 5000,
+      auth: token ? { token } : undefined,
+      query: { venue_id: venueId },
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      timeout: 10000,
     });
     socketRef.current = socket;
 

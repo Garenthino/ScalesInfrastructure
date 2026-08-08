@@ -157,7 +157,10 @@ io.on('connection', function(socket) {
   metrics.connections_total += 1;
   log('info', 'Client connected', { socketId: socket.id });
 
-  const tokenRaw = (socket.handshake.query && socket.handshake.query.token) || null;
+  const tokenRaw =
+    (socket.handshake.auth && socket.handshake.auth.token) ||
+    (socket.handshake.query && socket.handshake.query.token) ||
+    null;
   const user = tokenRaw ? validateToken(tokenRaw) : null;
 
   if (!user || !user.sub) {
