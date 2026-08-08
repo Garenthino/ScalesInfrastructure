@@ -1,6 +1,6 @@
 """Add host_rotation table
 
-Revision ID: 006c3a64-4ab
+Revision ID: 20260808193649
 Revises: 20260731_012420_unique_now_playing_per_venue
 Create Date: 2026-08-08T19:36:49.567675+00:00
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = "006c3a64-4ab"
+revision: str = "20260808193649"
 down_revision: Union[str, None] = "20260731_012420_unique_now_playing_per_venue"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
