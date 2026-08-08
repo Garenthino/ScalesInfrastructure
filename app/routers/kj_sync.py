@@ -238,7 +238,7 @@ async def push_queue(
     # Resolve song IDs and filter removed singers before handing off to service.
     class _DuckItem:
         __slots__ = (
-            "id", "singer_id", "song_id", "status", "rotation_position",
+            "id", "singer_id", "song_id", "song_title", "status", "rotation_position",
             "sort_order", "notes", "reject_reason", "tempo", "pitch", "kj_id",
             "requested_at", "source"
         )
@@ -283,6 +283,7 @@ async def push_queue(
             id=item.request_id,
             singer_id=item.singer_id,
             song_id=resolved_song_id,
+            song_title=item.song_title,
             status=item.status,
             rotation_position=item.position,
             sort_order=item.position,
@@ -542,6 +543,14 @@ async def push_now_playing(
     singer_name = body.get("singer_name")
     is_dj_track = body.get("is_dj_track", False)
 
+    # Resolve a local/unknown song_id to a cloud song row so host_rotation
+    # does not violate its song FK. DJ tracks do not need a song row.
+    resolved_song_id: str | None = None
+    if song_id and not is_dj_track:
+        resolved_song_id = await _resolve_or_create_song(
+            db, venue_id, song_id, song_title, song_artist
+        )
+
     # Clear previous now_playing — but ONLY for karaoke singer tracks.
     # DJ/filler tracks don't change the queue state; the previous singer
     # keeps their now_playing status in the queue table.
@@ -559,7 +568,7 @@ async def push_now_playing(
     now_playing_out = await svc.set_now_playing(
         venue_id=venue_id,
         singer_id=singer_id,
-        song_id=song_id,
+        song_id=resolved_song_id if resolved_song_id is not None else song_id,
         song_title=song_title,
         song_artist=song_artist,
         singer_name=singer_name,
@@ -593,6 +602,7 @@ def _host_rotation_item_to_dict(item: HostRotation) -> dict[str, Any]:
         "request_id": str(item.id),
         "singer_id": str(item.singer_id),
         "song_id": str(item.song_id) if item.song_id is not None else None,
+        "song_title": str(item.song_title or ""),
         "status": str(item.status),
         "position": (item.rotation_position or 0) + 1,
         "notes": str(item.notes or ""),

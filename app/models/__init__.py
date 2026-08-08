@@ -439,6 +439,7 @@ class HostRotation(Base):
     venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
     singer_id = Column(String(36), ForeignKey("singers.id"), nullable=False)
     song_id = Column(String(36), ForeignKey("songs.id"), nullable=True)
+    song_title = Column(Text, nullable=True)
     rotation_session_id = Column(String(36), ForeignKey("rotation_sessions.id"), nullable=True)
     status = Column(Text, nullable=False, default="pending")  # pending|up_next|now_playing|completed|skipped|rejected
     sort_order = Column(Integer, default=0)

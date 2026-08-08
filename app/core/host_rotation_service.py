@@ -151,6 +151,8 @@ class HostRotationService:
                 existing.singer_id = str(item.singer_id)
                 if getattr(item, "song_id", None):
                     existing.song_id = str(item.song_id)
+                if getattr(item, "song_title", None) is not None:
+                    existing.song_title = str(item.song_title)
                 existing.status = str(item.status)
                 existing.rotation_position = getattr(item, "rotation_position", None)
                 existing.sort_order = getattr(item, "sort_order", 0)
@@ -170,6 +172,7 @@ class HostRotationService:
                     venue_id=venue_id,
                     singer_id=str(item.singer_id),
                     song_id=str(getattr(item, "song_id", "")) if getattr(item, "song_id", None) else None,
+                    song_title=str(getattr(item, "song_title", "")) if getattr(item, "song_title", None) else None,
                     status=str(item.status),
                     rotation_position=getattr(item, "rotation_position", None),
                     sort_order=getattr(item, "sort_order", 0),
@@ -243,6 +246,7 @@ class HostRotationService:
                 venue_id=venue_id,
                 singer_id=singer_id,
                 song_id=song_id,
+                song_title=song_title,
                 status="now_playing",
                 rotation_position=0,
                 sort_order=0,
@@ -273,6 +277,8 @@ class HostRotationService:
         existing.updated_at = _now_iso()
         if song_id:
             existing.song_id = song_id
+        if song_title:
+            existing.song_title = song_title
         if notes:
             existing.notes = notes
 
