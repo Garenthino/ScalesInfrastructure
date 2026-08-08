@@ -430,6 +430,48 @@ class QueueRequest(Base):
     song = relationship("Song")
 
 
+
+
+class HostRotation(Base):
+    __tablename__ = "host_rotation"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
+    singer_id = Column(String(36), ForeignKey("singers.id"), nullable=False)
+    song_id = Column(String(36), ForeignKey("songs.id"), nullable=True)
+    rotation_session_id = Column(String(36), ForeignKey("rotation_sessions.id"), nullable=True)
+    status = Column(Text, nullable=False, default="pending")  # pending|up_next|now_playing|completed|skipped|rejected
+    sort_order = Column(Integer, default=0)
+    rotation_position = Column(Integer)
+    notes = Column(Text)
+    reject_reason = Column(Text)
+    tempo = Column(Integer, default=0)
+    pitch = Column(Integer, default=0)
+    source = Column(Text, nullable=False, default="host")
+    kj_id = Column(Text)
+    requested_at = Column(Text, default=_now_iso)
+    scheduled_at = Column(Text)
+    completed_at = Column(Text)
+    updated_at = Column(Text, default=_now_iso, onupdate=_now_iso)
+    deleted_at = Column(Text)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('pending','up_next','now_playing','completed','skipped','rejected')"),
+        Index("ix_host_rotation_venue_status", "venue_id", "status"),
+        Index("ix_host_rotation_venue_sort", "venue_id", "sort_order"),
+        Index("ix_host_rotation_singer_status", "singer_id", "status"),
+        Index("ix_host_rotation_session", "rotation_session_id"),
+    )
+
+    venue = relationship("Venue")
+    singer = relationship("Singer")
+    song = relationship("Song")
+    rotation_session = relationship("RotationSession")
+
+    def __repr__(self) -> str:
+        return f"<HostRotation {self.id} venue={self.venue_id} singer={self.singer_id} status={self.status}>"
+
+
 class SingerRemoval(Base):
     __tablename__ = "singer_removals"
 

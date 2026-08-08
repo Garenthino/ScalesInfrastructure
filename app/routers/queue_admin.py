@@ -28,7 +28,8 @@ from app.schemas import (
     SongOut,
     SingerOut,
 )
-from app.models import QueueRequest, RotationSession
+from app.core.host_rotation_service import HostRotationService
+from app.models import QueueRequest, RotationSession, HostRotation
 
 router = APIRouter()
 
@@ -75,6 +76,24 @@ def _queue_item_out(item: QueueRequest, position: int | None = None) -> QueueIte
     )
 
 
+def _host_rotation_item_out(item: HostRotation, position: int | None = None) -> QueueItemOut:
+    song = getattr(item, "song", None)
+    singer = getattr(item, "singer", None)
+    return QueueItemOut(
+        request_id=str(item.id),
+        venue_id=str(item.venue_id),
+        position=position if position is not None else int(item.rotation_position) if item.rotation_position is not None else None,
+        status=str(item.status),
+        song=_song_out_model(song),
+        singer=_singer_out_model(singer),
+        notes=str(item.notes) if item.notes is not None else None,
+        reject_reason=str(item.reject_reason) if item.reject_reason is not None else None,
+        requested_at=str(item.requested_at),
+        updated_at=str(item.updated_at) if item.updated_at is not None else None,
+        played_at=str(item.completed_at) if item.completed_at is not None else None,
+    )
+
+
 # ---------------------------------------------------------------------------
 # LIST
 # ---------------------------------------------------------------------------
@@ -88,13 +107,9 @@ async def get_admin_queue(
     if not venue_match_or_admin(venue_id, token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
-    svc = QueueService(db)
-    items = await svc.get_active_queue(venue_id, mode="round_robin", include_details=True)
-    # The admin queue page shows the KJ desktop's live rotation only. Mobile
-    # and portal requests remain in the Queue Requests inbox until the KJ
-    # places the singer in rotation.
-    host_items = [i for i in items if getattr(i, "source", None) == "host"]
-    out_items = [_queue_item_out(item, position=idx + 1) for idx, item in enumerate(host_items)]
+    svc = HostRotationService(db)
+    items = await svc.get_active_items(venue_id)
+    out_items = [_host_rotation_item_out(item, position=idx + 1) for idx, item in enumerate(items)]
     return QueueAdminListOut(
         items=out_items,
         total=len(out_items),
@@ -141,7 +156,7 @@ async def reject_request(
 
     svc = QueueService(db)
     try:
-        item = await svc.reject(venue_id, request_id, reason=body.reason)
+        item = await svc.reject(venue_id, request_id, reason=body.reason, rejected_by=body.rejected_by)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return _queue_item_out(item)
@@ -161,12 +176,12 @@ async def complete_request(
     if not venue_match_or_admin(venue_id, token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
-    svc = QueueService(db)
+    svc = HostRotationService(db)
     try:
         item = await svc.complete(venue_id, request_id)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    return _queue_item_out(item)
+    return _host_rotation_item_out(item)
 
 
 # ---------------------------------------------------------------------------
@@ -189,12 +204,12 @@ async def reorder_queue(
             detail="Body must contain 'singer_ids': list of singer IDs",
         )
 
-    svc = QueueService(db)
+    svc = HostRotationService(db)
     try:
         items = await svc.reorder_by_singer(venue_id, body.singer_ids)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    out_items = [_queue_item_out(item, position=idx + 1) for idx, item in enumerate(items)]
+    out_items = [_host_rotation_item_out(item, position=idx + 1) for idx, item in enumerate(items)]
     return QueueAdminListOut(items=out_items, total=len(out_items), active_mode="round_robin")
 
 
@@ -218,12 +233,12 @@ async def reorder_queue_by_request(
             detail="Body must contain 'order': list of request IDs",
         )
 
-    svc = QueueService(db)
+    svc = HostRotationService(db)
     try:
         items = await svc.reorder(venue_id, body.order)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    out_items = [_queue_item_out(item, position=idx + 1) for idx, item in enumerate(items)]
+    out_items = [_host_rotation_item_out(item, position=idx + 1) for idx, item in enumerate(items)]
     return QueueAdminListOut(items=out_items, total=len(out_items), active_mode="round_robin")
 
 
@@ -242,12 +257,12 @@ async def skip_to_end(
     if not venue_match_or_admin(venue_id, token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
-    svc = QueueService(db)
+    svc = HostRotationService(db)
     try:
         item = await svc.skip_to_end(venue_id, body.request_id)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    return _queue_item_out(item)
+    return _host_rotation_item_out(item)
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +279,7 @@ async def remove_request(
     if not venue_match_or_admin(venue_id, token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
-    svc = QueueService(db)
+    svc = HostRotationService(db)
     try:
         await svc.remove(venue_id, request_id)
     except ValueError as exc:
@@ -291,10 +306,11 @@ async def remove_singer_from_rotation_admin(
     if not venue_match_or_admin(venue_id, token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
-    svc = QueueService(db)
-    await svc.remove_singer_from_rotation(
+    svc = HostRotationService(db)
+    await svc.remove_singer(
         venue_id, singer_id, removed_by_account_id=token.get("account_id") or token.get("id")
     )
+    await svc.broadcast_queue_state(venue_id)
     return None
 
 

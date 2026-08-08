@@ -505,7 +505,7 @@ async def get_history(
             QueueRequest.venue_id == venue_id,
             QueueRequest.singer_id == current.id,
             QueueRequest.deleted_at.is_(None),
-            QueueRequest.status.in_(("completed", "skipped", "rejected")),
+            QueueRequest.status.in_(("completed", "skipped")),
         )
         .order_by(QueueRequest.requested_at.desc())
     )
@@ -654,7 +654,69 @@ async def get_my_queue_history(
         QueueRequest.venue_id == venue_id,
         QueueRequest.singer_id == current.id,
         QueueRequest.deleted_at.is_(None),
-        QueueRequest.status.in_(("completed", "skipped", "rejected")),
+        QueueRequest.status.in_(("completed", "skipped")),
+    ]
+    total = (
+        await db.execute(
+            select(func.count())
+            .select_from(QueueRequest)
+            .where(*filters)
+        )
+    ).scalar_one()
+
+    offset = (page - 1) * per_page
+    stmt = (
+        select(QueueRequest, Song.title, Song.artist, Song.genre)
+        .join(Song, Song.id == QueueRequest.song_id)
+        .where(*filters)
+        .order_by(QueueRequest.requested_at.desc())
+        .offset(offset)
+        .limit(per_page)
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+    items = [
+        SingerQueueHistoryItem(
+            request_id=str(r.QueueRequest.id),
+            song_id=str(r.QueueRequest.song_id),
+            song_title=r.title or "Unknown",
+            song_artist=r.artist or "Unknown",
+            genre=str(r.genre) if r.genre else None,
+            status=str(r.QueueRequest.status),
+            requested_at=str(r.QueueRequest.requested_at),
+            played_at=str(r.QueueRequest.played_at) if r.QueueRequest.played_at else None,
+            notes=str(r.QueueRequest.notes) if r.QueueRequest.notes else None,
+            reject_reason=str(r.QueueRequest.reject_reason) if r.QueueRequest.reject_reason else None,
+            tempo=int(r.QueueRequest.tempo) if r.QueueRequest.tempo is not None else 0,
+            pitch=int(r.QueueRequest.pitch) if r.QueueRequest.pitch is not None else 0,
+        )
+        for r in rows
+    ]
+    return SingerQueueHistoryOut(items=items, total=total, page=page, per_page=per_page)
+
+
+@router.get("/me/queue/rejected", response_model=SingerQueueHistoryOut)
+async def get_my_rejected_queue(
+    venue_id: str,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    current: SingerUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """GET /singers/me/queue/rejected — paginated rejected entries."""
+    _require_venue(venue_id, current)
+
+    from app.core.config import settings
+    from datetime import datetime, timedelta, timezone
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(days=settings.PURGE_RETENTION_DAYS)
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    filters = [
+        QueueRequest.venue_id == venue_id,
+        QueueRequest.singer_id == current.id,
+        QueueRequest.deleted_at.is_(None),
+        QueueRequest.status == "rejected",
+        QueueRequest.requested_at >= cutoff,
     ]
     total = (
         await db.execute(
@@ -694,6 +756,7 @@ async def get_my_queue_history(
     ]
 
     return SingerQueueHistoryOut(items=items, total=total, page=page, per_page=per_page)
+
 
 
 class SingerSongLastPerformanceOut(BaseModel):
@@ -765,7 +828,7 @@ async def get_singer_history_admin(
         QueueRequest.venue_id == venue_id,
         QueueRequest.singer_id == singer_id,
         QueueRequest.deleted_at.is_(None),
-        QueueRequest.status.in_(("completed", "skipped", "rejected")),
+        QueueRequest.status.in_(("completed", "skipped")),
     ]
     total = (
         await db.execute(

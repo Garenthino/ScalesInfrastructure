@@ -29,7 +29,7 @@ from app.core.db import get_db
 from app.core.queue_service import QueueService, ACTIVE_STATUSES
 from app.core.permissions import Role
 from app.core.dependencies import require_role
-from app.models import QueueRequest, Song, Venue, KJDevice
+from app.models import QueueRequest, Song, Venue, KJDevice, HostRotation
 from app.schemas import QueueRequestCreate, QueueRequestUpdate, QueueReorder, QueueAdminListOut
 from app.schemas.queue import QueueCancelResponse
 
@@ -38,6 +38,8 @@ from app.core.queue_service import QueueEventPublisher
 
 from datetime import datetime, timezone
 
+
+from app.core.host_rotation_service import HostRotationService
 
 router = APIRouter()
 
@@ -135,6 +137,32 @@ def _singer_out(singer) -> dict[str, Any] | None:
     }
 
 
+def _host_rotation_out(item: HostRotation, position: int | None = None, est_wait: int = 0) -> dict[str, Any]:
+    song = item.song if "song" in item.__dict__ else None
+    singer = item.singer if "singer" in item.__dict__ else None
+    song_data = _song_out(song) or {}
+    singer_data = _singer_out(singer) or {}
+    return {
+        "request_id": str(item.id),
+        "venue_id": str(item.venue_id),
+        "singer_id": str(item.singer_id),
+        "song_id": str(item.song_id) if item.song_id else None,
+        "position": position if position is not None else (item.rotation_position if item.rotation_position is not None else None),
+        "status": str(item.status),
+        "song": song_data,
+        "singer": singer_data,
+        "song_title": song_data.get("title") if song_data else "",
+        "singer_name": singer_data.get("stage_name") or singer_data.get("name") if singer_data else "",
+        "submitted_at": str(item.requested_at) if item.requested_at else None,
+        "estimated_wait_seconds": est_wait,
+        "estimated_start": None,
+        "notes": str(item.notes) if item.notes is not None else None,
+        "dedication": None,
+        "tempo": int(item.tempo) if item.tempo is not None else 0,
+        "pitch": int(item.pitch) if item.pitch is not None else 0,
+    }
+
+
 def _queue_request_out(item: QueueRequest, position: int | None = None, est_wait: int = 0) -> dict[str, Any]:
     song = getattr(item, "song", None)
     singer = getattr(item, "singer", None)
@@ -204,11 +232,22 @@ async def get_queue_list(
     if not await _is_kj_online(db, venue_id):
         return {"items": [], "total": 0, "page": page, "per_page": per_page}
 
-    svc = QueueService(db)
-    items = await svc.get_active_queue(venue_id, mode="fifo", include_details=True)
-    # Collapse to one row per singer in rotation; exclude un-positioned
-    # mobile requests that the KJ has not yet accepted into the rotation.
-    rotation_items = svc._rotation_view(items)
+    svc = HostRotationService(db)
+    rotation_items = await svc.get_active_items(venue_id)
+
+    # Collapse to one row per singer in the live rotation, picking the highest
+    # priority status (now_playing > up_next > pending).
+    by_singer: dict[str, HostRotation] = {}
+    priority = {"now_playing": 0, "up_next": 1, "pending": 2}
+    for item in rotation_items:
+        sid = str(item.singer_id)
+        existing = by_singer.get(sid)
+        if existing is None or priority.get(str(item.status), 99) < priority.get(str(existing.status), 99):
+            by_singer[sid] = item
+    rotation_items = sorted(
+        by_singer.values(),
+        key=lambda i: (i.rotation_position or 0, priority.get(str(i.status), 99)),
+    )
 
     # Calculate estimated wait starting from now_playing, wrapping around
     AVG_SONG_SECONDS = 280
@@ -233,7 +272,7 @@ async def get_queue_list(
             if positions_after <= 0:
                 positions_after = total - now_playing_idx + abs_idx
             est_wait = positions_after * AVG_SONG_SECONDS
-        out.append(_queue_request_out(item, position=abs_idx + 1, est_wait=est_wait))
+        out.append(_host_rotation_out(item, position=abs_idx + 1, est_wait=est_wait))
     return {"items": out, "total": total, "page": page, "per_page": per_page}
 
 
@@ -498,16 +537,23 @@ async def start_song(
     if str(current.venue_id) != str(venue_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
-    svc = QueueService(db)
+    svc = HostRotationService(db)
+    # Enforce only one now_playing at a time for the public KJ start endpoint.
+    existing = await svc._get_now_playing(venue_id)
+    if existing is not None and str(existing.id) != str(request_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Another request is already playing")
     try:
-        item = await svc.start(venue_id, request_id)
+        item = await svc.set_now_playing(
+            venue_id=venue_id,
+            singer_id=None,
+            song_id=None,
+            request_id=request_id,
+        )
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    try:
-        await db.refresh(item, attribute_names=["singer", "song"])
-    except Exception:
-        pass
-    return _queue_item_out(item)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Rotation item not found")
+    return item
 
 
 # ---------------------------------------------------------------------------
@@ -524,7 +570,7 @@ async def complete_song(
     if str(current.venue_id) != str(venue_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
-    svc = QueueService(db)
+    svc = HostRotationService(db)
     try:
         item = await svc.complete(venue_id, request_id)
     except ValueError as exc:
@@ -535,11 +581,7 @@ async def complete_song(
     if singer_id:
         await award_performance_points(db, venue_id, str(singer_id), request_id)
 
-    try:
-        await db.refresh(item, attribute_names=["singer", "song"])
-    except Exception:
-        pass
-    return _queue_item_out(item)
+    return _host_rotation_out(item)
 
 
 # ---------------------------------------------------------------------------
@@ -556,7 +598,7 @@ async def skip_song(
     if str(current.venue_id) != str(venue_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Venue access denied")
 
-    svc = QueueService(db)
+    svc = HostRotationService(db)
     try:
         item = await svc.skip(venue_id, request_id)
     except ValueError as exc:
@@ -565,7 +607,7 @@ async def skip_song(
         await db.refresh(item, attribute_names=["singer", "song"])
     except Exception:
         pass
-    return _queue_item_out(item)
+    return _host_rotation_out(item)
 
 
 # ---------------------------------------------------------------------------
@@ -588,10 +630,10 @@ async def reorder_queue(
             detail="Body must contain 'order': list of request IDs",
         )
 
-    svc = QueueService(db)
+    svc = HostRotationService(db)
     try:
         items = await svc.reorder(venue_id, body.order)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    out_items = [_queue_item_out(item, position=idx + 1) for idx, item in enumerate(items)]
+    out_items = [_host_rotation_out(item, position=idx + 1) for idx, item in enumerate(items)]
     return QueueAdminListOut(items=out_items, total=len(out_items), active_mode="round_robin")

@@ -661,6 +661,7 @@ class QueueReorder(ScalesModel):
 
 class QueueRejectRequest(ScalesModel):
     reason: str | None = Field(None, max_length=500)
+    rejected_by: str | None = Field(None, max_length=200)
 
 class QueueRequestUpdate(ScalesModel):
     song_id: str | None = None

@@ -27,6 +27,24 @@ settings.RATE_LIMIT_REQUESTS = 10_000
 settings.RATE_LIMIT_UNAUTHED_REQUESTS = 10_000
 settings.RATE_LIMIT_WINDOW = 60
 
+# Disable background notification/retention tasks that would connect to the
+# default (production) database engine during test lifespan.
+import app.core.notification_service as _notification_mod
+_notification_mod.register_tasks = lambda: None
+import app.services.retention as _retention_mod
+_retention_mod.schedule_nightly_retention = lambda: None
+
+# Disable audit logging in tests to avoid background SQLite sessions racing
+# with per-test engine disposal.
+import app.core.audit_service as _audit_service_mod
+import app.middleware.observability as _observability_mod
+
+async def _noop_log_audit(*args, **kwargs):
+    return None
+
+_audit_service_mod.log_audit = _noop_log_audit
+_observability_mod.log_audit = _noop_log_audit
+
 from app.main import app
 from app.core.db import Base, get_db
 from app.models import Venue, Song
@@ -142,22 +160,31 @@ async def client(db) -> AsyncIterator[AsyncClient]:
     from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
     import app.core.db as _db_mod
     import app.core.auth as _auth_mod
+    import app.core.audit_service as _audit_mod
+    import app.core.dependencies as _dependencies_mod
     import app.routers.auth as _auth_router
     import app.routers.kj_auth as _kj_auth_router
     import app.routers.accounts as _accounts_router
+    import app.routers.onboarding as _onboarding_mod
     _orig_db_factory = _db_mod.async_session_factory
     _orig_auth_factory = _auth_mod.async_session_factory
+    _orig_audit_factory = _audit_mod.async_session_factory
+    _orig_dependencies_factory = _dependencies_mod.async_session_factory
     _orig_router_factory = _auth_router.async_session_factory
     _orig_kj_factory = _kj_auth_router.async_session_factory
     _orig_accounts_factory = _accounts_router.async_session_factory
+    _orig_onboarding_factory = _onboarding_mod.async_session_factory
     _fresh_factory = async_sessionmaker(
         db.bind, class_=AsyncSession, expire_on_commit=False, autoflush=False
     )
     _db_mod.async_session_factory = _fresh_factory
     _auth_mod.async_session_factory = _fresh_factory
+    _audit_mod.async_session_factory = _fresh_factory
+    _dependencies_mod.async_session_factory = _fresh_factory
     _auth_router.async_session_factory = _fresh_factory
     _kj_auth_router.async_session_factory = _fresh_factory
     _accounts_router.async_session_factory = _fresh_factory
+    _onboarding_mod.async_session_factory = _fresh_factory
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -169,9 +196,12 @@ async def client(db) -> AsyncIterator[AsyncClient]:
     app.dependency_overrides.clear()
     _db_mod.async_session_factory = _orig_db_factory
     _auth_mod.async_session_factory = _orig_auth_factory
+    _audit_mod.async_session_factory = _orig_audit_factory
+    _dependencies_mod.async_session_factory = _orig_dependencies_factory
     _auth_router.async_session_factory = _orig_router_factory
     _kj_auth_router.async_session_factory = _orig_kj_factory
     _accounts_router.async_session_factory = _orig_accounts_factory
+    _onboarding_mod.async_session_factory = _orig_onboarding_factory
 
 
 @pytest.fixture
@@ -254,3 +284,25 @@ async def venue_with_songs(db: AsyncSession):
     for s in songs:
         await db.refresh(s)
     return venue_id, songs
+
+
+@pytest.fixture(autouse=True)
+async def patch_is_kj_online():
+    """Force KJ online checks to return True in tests without hitting the DB."""
+    import app.core.queue_service as qs
+    import app.core.host_rotation_service as hrs
+
+    _orig_qs = qs.is_kj_online
+    _orig_hrs = hrs.is_kj_online
+
+    async def _always_online(*args, **kwargs):
+        return True
+
+    qs.is_kj_online = _always_online
+    hrs.is_kj_online = _always_online
+    try:
+        yield
+    finally:
+        qs.is_kj_online = _orig_qs
+        hrs.is_kj_online = _orig_hrs
+

@@ -18,7 +18,7 @@ from fastapi import status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.models import Venue, Song, Singer, QueueRequest, VenueConfig, AnalyticsEvent, KJDevice, Account
+from app.models import Venue, Song, Singer, QueueRequest, VenueConfig, AnalyticsEvent, KJDevice, Account, HostRotation
 from app.core.security import hash_password, create_access_token
 
 SYNC_BASE = "/v1/kj/sync"
@@ -95,6 +95,43 @@ async def sync_queue(db: AsyncSession, sync_venue):
             requested_at="2026-05-21T10:01:00Z",
             updated_at="2026-05-21T10:01:00Z",
             rotation_position=2,
+        ),
+    ]
+    for it in items:
+        db.add(it)
+    await db.commit()
+    for it in items:
+        await db.refresh(it)
+    return venue_id, kj_id, singer_id, songs, raw_key, items
+
+
+
+@pytest.fixture
+async def sync_host_rotation(db: AsyncSession, sync_venue):
+    """Seed 2 host rotation rows."""
+    venue_id, kj_id, singer_id, songs, raw_key = sync_venue
+    items = [
+        HostRotation(
+            id=str(uuid.uuid4()),
+            venue_id=venue_id,
+            singer_id=singer_id,
+            song_id=songs[0].id,
+            status="pending",
+            requested_at="2026-05-21T10:00:00Z",
+            updated_at="2026-05-21T10:00:00Z",
+            rotation_position=1,
+            sort_order=1,
+        ),
+        HostRotation(
+            id=str(uuid.uuid4()),
+            venue_id=venue_id,
+            singer_id=kj_id,
+            song_id=songs[1].id,
+            status="up_next",
+            requested_at="2026-05-21T10:01:00Z",
+            updated_at="2026-05-21T10:01:00Z",
+            rotation_position=2,
+            sort_order=2,
         ),
     ]
     for it in items:
@@ -220,8 +257,8 @@ async def test_queue_pull_since(client, sync_queue):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.anyio
-async def test_queue_push_upsert(client, sync_queue, db):
-    venue_id, kj_id, singer_id, songs, raw_key, items = sync_queue
+async def test_queue_push_upsert(client, sync_host_rotation, db):
+    venue_id, kj_id, singer_id, songs, raw_key, items = sync_host_rotation
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     payload = {
@@ -230,7 +267,7 @@ async def test_queue_push_upsert(client, sync_queue, db):
                 "request_id": items[0].id,
                 "singer_id": singer_id,
                 "song_id": songs[0].id,
-                "status": "approved",
+                "status": "up_next",
                 "position": 1,
                 "notes": "Updated by KJ",
                 "requested_at": "2026-05-21T10:00:00Z",
@@ -260,24 +297,24 @@ async def test_queue_push_upsert(client, sync_queue, db):
 
     # Verify in DB
     result = await db.execute(
-        select(QueueRequest).where(QueueRequest.id == items[0].id)
+        select(HostRotation).where(HostRotation.id == items[0].id)
     )
     row = result.scalar_one()
-    assert row.status == "approved"
+    assert row.status == "up_next"
     assert row.notes == "Updated by KJ"
 
     # Verify new item
     new_id = payload["items"][1]["request_id"]
     result2 = await db.execute(
-        select(QueueRequest).where(QueueRequest.id == new_id)
+        select(HostRotation).where(HostRotation.id == new_id)
     )
     row2 = result2.scalar_one()
     assert row2.status == "now_playing"
 
 
 @pytest.mark.anyio
-async def test_queue_push_delete(client, sync_queue, db):
-    venue_id, _, _, _, raw_key, items = sync_queue
+async def test_queue_push_delete(client, sync_host_rotation, db):
+    venue_id, _, _, _, raw_key, items = sync_host_rotation
 
     payload = {
         "items": [],
@@ -291,15 +328,15 @@ async def test_queue_push_delete(client, sync_queue, db):
     assert resp.status_code == status.HTTP_200_OK
 
     result = await db.execute(
-        select(QueueRequest).where(QueueRequest.id == items[0].id)
+        select(HostRotation).where(HostRotation.id == items[0].id)
     )
     row = result.scalar_one()
     assert row.deleted_at is not None
 
 
 @pytest.mark.anyio
-async def test_queue_push_conflict_server_wins(client, sync_queue, db):
-    venue_id, _, _, _, raw_key, items = sync_queue
+async def test_queue_push_conflict_server_wins(client, sync_host_rotation, db):
+    venue_id, _, _, _, raw_key, items = sync_host_rotation
 
     # Server updates item after client's last_modified
     items[0].updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -882,13 +919,14 @@ async def test_queue_push_rejected_sets_reason_and_status(client, db, sync_venue
     await db.refresh(singer)
     song = songs[0]
     req_id = str(uuid.uuid4())
-    q = QueueRequest(
+    q = HostRotation(
         id=req_id,
         venue_id=venue_id,
         singer_id=str(singer.id),
         song_id=str(song.id),
         status="pending",
         rotation_position=1,
+        sort_order=1,
         requested_at=datetime.now(timezone.utc).isoformat(),
         updated_at=datetime.now(timezone.utc).isoformat(),
     )
@@ -937,13 +975,14 @@ async def test_remove_singer_from_rotation_creates_removal_record(client, db, sy
     await db.commit()
     await db.refresh(singer)
     song = songs[0]
-    q = QueueRequest(
+    q = HostRotation(
         id=str(uuid.uuid4()),
         venue_id=venue_id,
         singer_id=str(singer.id),
         song_id=str(song.id),
         status="pending",
         rotation_position=1,
+        sort_order=1,
         requested_at=datetime.now(timezone.utc).isoformat(),
         updated_at=datetime.now(timezone.utc).isoformat(),
     )
@@ -957,9 +996,9 @@ async def test_remove_singer_from_rotation_creates_removal_record(client, db, sy
     )
     assert resp.status_code == 204, resp.text
 
-    # Request should be rejected
+    # HostRotation row should be soft-deleted
     await db.refresh(q)
-    assert q.status == "rejected"
+    assert q.deleted_at is not None
 
     # Removal record should exist and appear in pull
     removal = await db.execute(select(SingerRemoval).where(SingerRemoval.singer_id == str(singer.id)))
@@ -1076,9 +1115,8 @@ async def test_push_queue_ignores_removed_singers(db, client, sync_venue):
 
 
     # Seed a rotation item.
-    from app.models import QueueRequest
     request_id = str(uuid.uuid4())
-    q = QueueRequest(
+    q = HostRotation(
         id=request_id,
         venue_id=venue_id,
         singer_id=singer_id,
@@ -1086,15 +1124,16 @@ async def test_push_queue_ignores_removed_singers(db, client, sync_venue):
         status="pending",
         source="host",
         rotation_position=1,
+        sort_order=1,
         requested_at=datetime.now(timezone.utc).isoformat(),
     )
     db.add(q)
     await db.commit()
 
-    # Remove the singer via queue service.
-    from app.core.queue_service import QueueService
-    svc = QueueService(db)
-    await svc.remove_singer_from_rotation(venue_id, singer_id)
+    # Remove the singer via host rotation service.
+    from app.core.host_rotation_service import HostRotationService
+    svc = HostRotationService(db)
+    await svc.remove_singer(venue_id, singer_id)
 
     # Push a fresh rotation snapshot that still includes the removed singer.
     resp = await client.post(
@@ -1122,11 +1161,11 @@ async def test_push_queue_ignores_removed_singers(db, client, sync_venue):
 
     # The active queue for the venue must not contain rows for the removed singer.
     result = await db.execute(
-        select(QueueRequest).where(
-            QueueRequest.venue_id == venue_id,
-            QueueRequest.singer_id == singer_id,
-            QueueRequest.status.in_(("pending", "approved", "up_next", "now_playing")),
-            QueueRequest.deleted_at.is_(None),
+        select(HostRotation).where(
+            HostRotation.venue_id == venue_id,
+            HostRotation.singer_id == singer_id,
+            HostRotation.status.in_(("pending", "approved", "up_next", "now_playing")),
+            HostRotation.deleted_at.is_(None),
         )
     )
     assert result.scalars().all() == []

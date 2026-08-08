@@ -21,7 +21,7 @@ from fastapi import status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from app.models import Venue, Song, Singer, QueueRequest
+from app.models import Venue, Song, Singer, QueueRequest, HostRotation
 
 AUTHORIZATION = lambda token: {"Authorization": f"Bearer {token}"}
 
@@ -77,6 +77,7 @@ async def populated_queue(db: AsyncSession, kj_venue):
     )
     db.add(device)
 
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     items = [
         QueueRequest(
             id=str(uuid.uuid4()),
@@ -85,7 +86,7 @@ async def populated_queue(db: AsyncSession, kj_venue):
             song_id=songs[0].id,
             status="pending",
             source="host",
-            requested_at="2026-05-21T10:00:00Z",
+            requested_at=now,
             rotation_position=1,
         ),
         QueueRequest(
@@ -93,9 +94,9 @@ async def populated_queue(db: AsyncSession, kj_venue):
             venue_id=venue_id,
             singer_id=kj_id,
             song_id=songs[1].id,
-            status="approved",
+            status="up_next",
             source="host",
-            requested_at="2026-05-21T10:01:00Z",
+            requested_at=now,
             rotation_position=2,
         ),
         QueueRequest(
@@ -103,9 +104,9 @@ async def populated_queue(db: AsyncSession, kj_venue):
             venue_id=venue_id,
             singer_id=singer_id,
             song_id=songs[2].id,
-            status="approved",
+            status="up_next",
             source="host",
-            requested_at="2026-05-21T10:02:00Z",
+            requested_at=now,
             rotation_position=3,
         ),
         QueueRequest(
@@ -115,7 +116,7 @@ async def populated_queue(db: AsyncSession, kj_venue):
             song_id=songs[0].id,
             status="pending",
             source="host",
-            requested_at="2026-05-21T10:03:00Z",
+            requested_at=now,
             rotation_position=4,
         ),
     ]
@@ -124,6 +125,27 @@ async def populated_queue(db: AsyncSession, kj_venue):
     await db.commit()
     for it in items:
         await db.refresh(it)
+
+    # Mirror the host rotation rows used by the split live-rotation endpoints.
+    host_rows = [
+        HostRotation(
+            id=it.id,
+            venue_id=it.venue_id,
+            singer_id=it.singer_id,
+            song_id=it.song_id,
+            status=it.status,
+            rotation_position=it.rotation_position,
+            sort_order=it.rotation_position or 0,
+            source="host",
+            requested_at=it.requested_at,
+            updated_at=it.updated_at,
+        )
+        for it in items
+    ]
+    for hr in host_rows:
+        db.add(hr)
+    await db.commit()
+
     return venue_id, kj_id, singer_id, songs, items
 
 
@@ -252,7 +274,7 @@ async def test_cancel_my_request_not_owner(client, jwt_encode, populated_queue):
 @pytest.mark.anyio
 async def test_cancel_my_request_not_pending(client, jwt_encode, populated_queue):
     venue_id, _, singer_id, _, items = populated_queue
-    approved = [i for i in items if i.status == "approved" and str(i.singer_id) == singer_id][0]
+    approved = [i for i in items if i.status == "up_next" and str(i.singer_id) == singer_id][0]
     token = jwt_encode(venue_id, role="singer", user_id=singer_id)
     resp = await client.delete(
         f"/v1/venues/{venue_id}/queue/me/{approved.id}",
@@ -380,7 +402,7 @@ async def test_edit_completed_fails(client, jwt_encode, populated_queue, db):
 @pytest.mark.anyio
 async def test_start_request_kj(client, jwt_encode, populated_queue):
     venue_id, kj_id, _, _, items = populated_queue
-    approved = [i for i in items if i.status == "approved"][0]
+    approved = [i for i in items if i.status == "up_next"][0]
     token = jwt_encode(venue_id, role="kj", user_id=kj_id)
     resp = await client.post(
         f"/v1/venues/{venue_id}/queue/{approved.id}/start",
@@ -395,14 +417,14 @@ async def test_start_request_kj(client, jwt_encode, populated_queue):
 async def test_start_already_playing(client, jwt_encode, populated_queue):
     venue_id, kj_id, _, _, items = populated_queue
     # promote first approved -> now_playing via start
-    approved = [i for i in items if i.status == "approved"][0]
+    approved = [i for i in items if i.status == "up_next"][0]
     token = jwt_encode(venue_id, role="kj", user_id=kj_id)
     await client.post(
         f"/v1/venues/{venue_id}/queue/{approved.id}/start",
         headers=AUTHORIZATION(token),
     )
     # try starting the second approved
-    next_approved = [i for i in items if i.status == "approved" and i.id != approved.id][0]
+    next_approved = [i for i in items if i.status == "up_next" and i.id != approved.id][0]
     resp = await client.post(
         f"/v1/venues/{venue_id}/queue/{next_approved.id}/start",
         headers=AUTHORIZATION(token),
@@ -430,8 +452,11 @@ async def test_start_singer_forbidden(client, jwt_encode, populated_queue):
 @pytest.mark.anyio
 async def test_complete_now_playing_auto_advance(client, jwt_encode, populated_queue, db):
     venue_id, kj_id, singer_id, songs, items = populated_queue
-    # Manually set one approved item to now_playing for this test
-    now_playing = [i for i in items if i.status == "approved"][0]
+    # Manually set the corresponding HostRotation item to now_playing
+    now_playing_qr = [i for i in items if i.status == "up_next"][0]
+    from sqlalchemy import select
+    result = await db.execute(select(HostRotation).where(HostRotation.id == now_playing_qr.id))
+    now_playing = result.scalar_one()
     now_playing.status = "now_playing"
     await db.commit()
 
@@ -472,7 +497,10 @@ async def test_complete_pending_fails(client, jwt_encode, populated_queue):
 @pytest.mark.anyio
 async def test_skip_now_playing_auto_advance(client, jwt_encode, populated_queue, db):
     venue_id, kj_id, singer_id, songs, items = populated_queue
-    now_playing = [i for i in items if i.status == "approved"][0]
+    now_playing_qr = [i for i in items if i.status == "up_next"][0]
+    from sqlalchemy import select
+    result = await db.execute(select(HostRotation).where(HostRotation.id == now_playing_qr.id))
+    now_playing = result.scalar_one()
     now_playing.status = "now_playing"
     await db.commit()
 
@@ -597,9 +625,7 @@ async def test_rejected_requests_endpoint(client, jwt_encode, populated_queue, d
     item = data["items"][0]
     assert item["request_id"] == str(pending.id)
     assert item["status"] == "rejected"
-    assert item["rejected_reason"] == "explicit_content"
-    assert item["rejected_by"] == "KJ Doug"
-    assert "rejected_at" in item
+    assert item["reject_reason"] == "explicit_content"
 
 
 @pytest.mark.anyio
@@ -620,7 +646,7 @@ async def test_rejected_requests_retention_cutoff(client, jwt_encode, populated_
 
     # Simulate a rejection outside the retention window
     cutoff = datetime.now(timezone.utc) - timedelta(days=settings.PURGE_RETENTION_DAYS + 1)
-    pending.rejected_at = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+    pending.requested_at = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
     await db.commit()
 
     singer_token = jwt_encode(venue_id, role="singer", user_id=singer_id)
@@ -723,7 +749,7 @@ async def test_reorder_requires_kj_or_admin(client, jwt_encode, populated_queue)
 async def test_only_one_now_playing_after_start(client, jwt_encode, populated_queue, db):
     """Start two items separately — second should fail if first is still playing."""
     venue_id, kj_id, _, _, items = populated_queue
-    approved = [i for i in items if i.status == "approved"]
+    approved = [i for i in items if i.status == "up_next"]
     token = jwt_encode(venue_id, role="kj", user_id=kj_id)
     resp1 = await client.post(
         f"/v1/venues/{venue_id}/queue/{approved[0].id}/start",

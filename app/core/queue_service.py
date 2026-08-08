@@ -15,6 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models import QueueRequest, RotationSession, KJDevice, SingerRemoval
 from app.core.config import settings
+from app.core.db import async_session_factory
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,9 @@ ACTIVE_STATUSES = {"pending", "approved", "up_next", "now_playing"}
 # Terminal statuses — these are not part of the active rotation and shouldn't
 # be overwritten back to pending by a sync push.
 TERMINAL_STATUSES = {"completed", "skipped", "rejected"}
+
+# Average song length in seconds; used to estimate wait times.
+AVG_SONG_SECONDS = 280  # 4:40
 
 
 # ---------------------------------------------------------------------------
@@ -101,8 +105,14 @@ class QueueEventPublisher:
             await cls._http.aclose()
             cls._http = None
         if cls._redis is not None:
-            await cls._redis.close()
+            await cls._redis.aclose()
             cls._redis = None
+
+    async def close(self) -> None:
+        await self._close()
+
+    async def emit(self, venue_id: str, event_type: str, payload: dict) -> None:
+        await self.publish(venue_id, event_type, payload)
 
     @classmethod
     async def publish(cls, venue_id: str, event_type: str, data: dict) -> None:
@@ -313,17 +323,35 @@ class QueueService:
             # Best-effort: don't let notification failures break queue ops
             logger.debug("position notification failed", exc_info=True)
 
-    async def reject(self, venue_id: str, request_id: str, reason: str | None = None) -> QueueRequest:
+    async def reject(
+        self,
+        venue_id: str,
+        request_id: str,
+        reason: str | None = None,
+        rejected_by: str | None = None,
+    ) -> QueueRequest:
         item = await self._get_item(venue_id, request_id)
         if item.status in {"completed", "skipped", "rejected"}:
             raise ValueError(f"Cannot reject a request with status '{item.status}'")
+        # Capture related data before commit/refresh may expire relationships.
+        song_title = getattr(item.song, "title", None) if "song" in item.__dict__ and item.song else None
         item.status = "rejected"
         item.reject_reason = reason
         item.updated_at = _NOW()
         await self.db.commit()
         await self.db.refresh(item)
         await QueueEventPublisher.publish(
-            venue_id, "request_rejected", {"request_id": request_id, "reason": reason}
+            venue_id,
+            "request_rejected",
+            {
+                "request_id": request_id,
+                "singer_id": str(item.singer_id),
+                "song_id": str(item.song_id),
+                "song_title": song_title,
+                "reason": reason,
+                "rejected_by": rejected_by,
+                "rejected_at": item.updated_at,
+            },
         )
         await self.broadcast_queue_state(venue_id)
         return item
@@ -909,21 +937,7 @@ class QueueService:
 
     async def is_kj_online(self, venue_id: str, threshold_seconds: int = 3600) -> bool:
         """Check if any KJ device for this venue has been seen recently."""
-        from sqlalchemy import func
-        from datetime import timedelta
-        cutoff = (
-            datetime.now(timezone.utc) - timedelta(seconds=threshold_seconds)
-        ).strftime("%Y-%m-%dT%H:%M:%SZ")
-        result = await self.db.execute(
-            select(func.count())
-            .select_from(KJDevice)
-            .where(
-                KJDevice.venue_id == venue_id,
-                KJDevice.last_seen >= cutoff,
-                KJDevice.revoked_at.is_(None),
-            )
-        )
-        return result.scalar_one() > 0
+        return await is_kj_online(venue_id, threshold_seconds, db=self.db)
 
     @staticmethod
     def _rotation_view(items: list[QueueRequest]) -> list[QueueRequest]:
@@ -1011,7 +1025,6 @@ class QueueService:
 
         # Find the now_playing index so we can calculate estimated wait
         # starting from the current singer, wrapping around the rotation.
-        AVG_SONG_SECONDS = 280  # 4:40
         now_playing_idx = -1
         for i, item in enumerate(rotation_items):
             if str(item.status) == "now_playing":
@@ -1103,6 +1116,66 @@ class QueueService:
         if item is None:
             raise ValueError("Queue item not found")
         return item
+
+
+async def is_kj_online(venue_id: str, threshold_seconds: int = 3600, db: AsyncSession | None = None) -> bool:
+    """Check if any KJ device for this venue has been seen recently."""
+    from sqlalchemy import func
+    from datetime import timedelta
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(seconds=threshold_seconds)
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    query = (
+        select(func.count())
+        .select_from(KJDevice)
+        .where(
+            KJDevice.venue_id == venue_id,
+            KJDevice.last_seen >= cutoff,
+            KJDevice.revoked_at.is_(None),
+        )
+    )
+    if db is not None:
+        result = await db.execute(query)
+        return (result.scalar_one() or 0) > 0
+    try:
+        async with async_session_factory() as db2:
+            result = await db2.execute(query)
+            return (result.scalar_one() or 0) > 0
+    except Exception:
+        # If we cannot reach the DB from a background/edge context, assume
+        # the KJ is online rather than silently breaking live updates.
+        logger.debug("is_kj_online db check failed; assuming online")
+        return True
+
+
+async def is_kj_online(venue_id: str, threshold_seconds: int = 3600, db: AsyncSession | None = None) -> bool:
+    """Check if any KJ device for this venue has been seen recently."""
+    from sqlalchemy import func
+    from datetime import timedelta
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(seconds=threshold_seconds)
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    query = (
+        select(func.count())
+        .select_from(KJDevice)
+        .where(
+            KJDevice.venue_id == venue_id,
+            KJDevice.last_seen >= cutoff,
+            KJDevice.revoked_at.is_(None),
+        )
+    )
+    if db is not None:
+        result = await db.execute(query)
+        return (result.scalar_one() or 0) > 0
+    try:
+        async with async_session_factory() as db2:
+            result = await db2.execute(query)
+            return (result.scalar_one() or 0) > 0
+    except Exception:
+        # If we cannot reach the DB from a background/edge context, assume
+        # the KJ is online rather than silently breaking live updates.
+        logger.debug("is_kj_online db check failed; assuming online")
+        return True
 
 
 def _singer_priority_weight(item: QueueRequest) -> int:

@@ -9,7 +9,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.models import Venue, Song, Singer, QueueRequest, SingerRemoval
+from app.models import Venue, Song, Singer, QueueRequest, SingerRemoval, HostRotation
 
 
 AUTHORIZATION = lambda token: {"Authorization": f"Bearer {token}"}
@@ -112,7 +112,7 @@ async def populated_queue(db: AsyncSession, venue_with_singers_and_songs):
             venue_id=venue_id,
             singer_id=s1.id,
             song_id=songs[2].id,
-            status="approved",
+            status="up_next",
             source="host",
             requested_at="2026-05-21T10:02:00Z",
             rotation_position=3,
@@ -133,6 +133,27 @@ async def populated_queue(db: AsyncSession, venue_with_singers_and_songs):
     await db.commit()
     for it in items:
         await db.refresh(it)
+
+    # Mirror the host rotation rows used by the live admin/portal list.
+    host_rows = [
+        HostRotation(
+            id=it.id,
+            venue_id=it.venue_id,
+            singer_id=it.singer_id,
+            song_id=it.song_id,
+            status=it.status,
+            rotation_position=it.rotation_position,
+            sort_order=it.rotation_position or 0,
+            source="host",
+            requested_at=it.requested_at,
+            updated_at=it.updated_at,
+        )
+        for it in items
+    ]
+    for hr in host_rows:
+        db.add(hr)
+    await db.commit()
+
     return venue_id, items, singers, songs
 
 
@@ -277,7 +298,7 @@ async def test_reject_without_reason(client, jwt_encode, populated_queue):
 @pytest.mark.anyio
 async def test_complete_approved(client, jwt_encode, populated_queue):
     venue_id, items, *_ = populated_queue
-    approved = [i for i in items if i.status == "approved"][0]
+    approved = [i for i in items if i.status == "up_next"][0]
     token = jwt_encode(venue_id, role="kj")
     resp = await client.post(
         f"/v1/venues/{venue_id}/queue/admin/{approved.id}/complete",
@@ -574,13 +595,18 @@ async def test_remove_singer_from_rotation_admin(client, jwt_encode, populated_q
     )
     assert resp.status_code == status.HTTP_204_NO_CONTENT
 
-    # All active requests for the singer should now be rejected
+    # All active host rotation rows for the singer should be soft-deleted
     from app.models import SingerRemoval
     from sqlalchemy import select
-    for item in items:
-        await db.refresh(item)
-        if str(item.singer_id) == str(target.id):
-            assert item.status == "rejected"
+    result = await db.execute(
+        select(HostRotation).where(
+            HostRotation.venue_id == venue_id,
+            HostRotation.singer_id == str(target.id),
+            HostRotation.deleted_at.is_(None),
+            HostRotation.status.in_(["pending", "up_next", "now_playing"]),
+        )
+    )
+    assert result.scalars().all() == []
 
     removal = await db.execute(
         select(SingerRemoval).where(
@@ -631,7 +657,24 @@ async def test_admin_queue_excludes_mobile_requests(client, jwt_encode, venue_wi
         rotation_position=2,
         requested_at="2026-05-21T10:01:00Z",
     )
+    host_req.status = "up_next"
     db.add_all([mobile_req, host_req])
+    await db.commit()
+
+    # Mirror the host rotation row only for the KJ desktop item.
+    host_rotation = HostRotation(
+        id=host_req.id,
+        venue_id=venue_id,
+        singer_id=s2.id,
+        song_id=songs[1].id,
+        status="up_next",
+        rotation_position=2,
+        sort_order=2,
+        source="host",
+        requested_at=host_req.requested_at,
+        updated_at=host_req.updated_at,
+    )
+    db.add(host_rotation)
     await db.commit()
 
     token = jwt_encode(venue_id, role="admin")
@@ -661,12 +704,27 @@ async def test_remove_singer_from_rotation_owner_role(client, jwt_encode, venue_
         venue_id=venue_id,
         singer_id=s1.id,
         song_id=songs[0].id,
-        status="approved",
+        status="up_next",
         source="host",
         rotation_position=1,
         requested_at="2026-05-21T10:00:00Z",
     )
     db.add(req)
+    await db.commit()
+
+    host = HostRotation(
+        id=req.id,
+        venue_id=venue_id,
+        singer_id=s1.id,
+        song_id=songs[0].id,
+        status="up_next",
+        rotation_position=1,
+        sort_order=1,
+        source="host",
+        requested_at=req.requested_at,
+        updated_at=req.updated_at,
+    )
+    db.add(host)
     await db.commit()
 
     token = jwt_encode(venue_id, role="owner")
@@ -676,7 +734,7 @@ async def test_remove_singer_from_rotation_owner_role(client, jwt_encode, venue_
     )
     assert resp.status_code == status.HTTP_204_NO_CONTENT
 
-    # Verify request cancelled
-    result = await db.execute(select(QueueRequest).where(QueueRequest.id == req.id))
+    # Verify host rotation row was soft-deleted
+    result = await db.execute(select(HostRotation).where(HostRotation.id == host.id))
     item = result.scalar_one()
-    assert item.status == "rejected"
+    assert item.deleted_at is not None

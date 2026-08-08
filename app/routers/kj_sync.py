@@ -25,7 +25,8 @@ from sqlalchemy import select, and_, or_, update
 from app.core.auth import kj_auth, KJDeviceUser, require_admin, venue_match_or_admin
 from app.core.db import get_db
 from app.core.queue_service import QueueService, QueueEventPublisher, TERMINAL_STATUSES
-from app.models import QueueRequest, Singer, Song, VenueConfig, SingerRemoval
+from app.core.host_rotation_service import HostRotationService
+from app.models import QueueRequest, Singer, Song, VenueConfig, SingerRemoval, HostRotation
 from app.services.singer_merge import merge_local_singer_into_mobile
 from app.schemas import (
     SyncQueuePushPayload,
@@ -186,7 +187,7 @@ async def push_queue(
 ) -> dict[str, Any]:
     """Push local queue state to cloud. Server wins on conflicts.
 
-    - Upserts items by request_id
+    - Upserts items into HostRotation (KJ desktop live rotation)
     - Soft-deletes items in deleted_ids
     - Returns any conflicts where server state diverged from client expectation
     """
@@ -206,17 +207,10 @@ async def push_queue(
             )
         ).scalar_one_or_none()
         if not existing_singer:
-            # Auto-create a stub singer for an unknown singer_id. Use the
-            # request notes only as a fallback display name; do not store them
-            # in singer.notes (that column is for internal venue notes only).
             fallback_stage = (item.notes or "Unknown").strip()
             if not fallback_stage:
                 fallback_stage = "Unknown"
 
-            # The venue enforces a unique (venue_id, stage_name) constraint.
-            # If the desired stage name is already taken, append a numeric
-            # suffix until we find a free name so the KJ desktop's queue push
-            # does not fail with a 500.
             base_stage = fallback_stage
             counter = 1
             while (
@@ -238,132 +232,91 @@ async def push_queue(
                 updated_at=_now_iso(),
             ))
 
-    # If the singer has been removed from rotation server-side (e.g. by the
-    # portal or a prior KJ remove call), do not let an incoming KJ snapshot
-    # resurrect their queue rows. Skip the upsert and mark the request as
-    # deleted on our side.
+    # Removed singers should not be resurrected by an incoming snapshot.
     removed_singer_ids = await _removed_singer_ids_for_venue(db, venue_id)
 
-    # The desktop is authoritative for the live rotation. If this snapshot
-    # promotes any item to now_playing, demote any existing now_playing row(s)
-    # for the venue to completed before applying the snapshot. This prevents
-    # the unique partial index on (venue_id) WHERE status='now_playing' from
-    # rejecting the upsert when the previous singer is still marked now_playing.
-    if any(item.status == "now_playing" for item in body.items):
-        await db.execute(
-            update(QueueRequest)
-            .where(
-                QueueRequest.venue_id == venue_id,
-                QueueRequest.status == "now_playing",
-            )
-            .values(
-                status="completed",
-                played_at=_now_iso(),
-                updated_at=_now_iso(),
-            )
+    # Resolve song IDs and filter removed singers before handing off to service.
+    class _DuckItem:
+        __slots__ = (
+            "id", "singer_id", "song_id", "status", "rotation_position",
+            "sort_order", "notes", "reject_reason", "tempo", "pitch", "kj_id",
+            "requested_at", "source"
         )
-        await db.flush()
+        def __init__(self, **kw):
+            for k, v in kw.items():
+                setattr(self, k, v)
 
-    # Process upserts
+    snapshot_items = []
     for item in body.items:
         if item.singer_id in removed_singer_ids:
-            # Skip re-creating a removed singer's queue item.
             continue
-        # Resolve song_id to a server Song UUID (auto-create stub if needed)
         resolved_song_id = await _resolve_or_create_song(
             db, venue_id, item.song_id, item.song_title, item.song_artist
         )
-        # Flush so any newly created Song stub is visible to FK constraints
-        # before queue item updates/inserts are flushed.
         if resolved_song_id and item.song_id:
             await db.flush()
 
-        # Check if server has newer state
-        existing = (
-            await db.execute(
-                select(QueueRequest).where(
-                    QueueRequest.id == item.request_id,
-                    QueueRequest.venue_id == venue_id,
+        # Conflict detection: if an *active* server row updated_at > client
+        # last_modified_at, record a conflict but still apply the KJ snapshot.
+        if body.last_modified_at:
+            existing_row = (
+                await db.execute(
+                    select(HostRotation).where(
+                        HostRotation.id == item.request_id,
+                        HostRotation.venue_id == venue_id,
+                        HostRotation.deleted_at.is_(None),
+                    )
                 )
-            )
-        ).scalar_one_or_none()
-
-        if existing:
-            # Conflict detection: if server updated_at > client last_modified_at
-            is_conflict = (
-                body.last_modified_at
-                and existing.updated_at
-                and str(existing.updated_at) > str(body.last_modified_at)
-            )
-            if is_conflict:
+            ).scalar_one_or_none()
+            if existing_row and existing_row.updated_at and str(existing_row.updated_at) > str(body.last_modified_at):
                 conflicts.append(
                     SyncConflictDetail(
                         entity_type="queue",
-                        entity_id=str(existing.id),
-                        server_state=_queue_item_to_dict(existing),
+                        entity_id=str(existing_row.id),
+                        server_state=_host_rotation_item_to_dict(existing_row),
                         client_state=item.model_dump(),
                         resolution="server_wins",
                     )
                 )
-                # KJ desktop is authoritative while it is online, so still apply
-                # the incoming queue state. The conflict record is informational.
-            # Always trust the KJ desktop's incoming status unless the server
-            # has already moved this item to a terminal state.
-            existing.singer_id = item.singer_id
-            if resolved_song_id is not None:
-                existing.song_id = resolved_song_id
-            # Only clear song_id when the KJ desktop explicitly removes a song
-            # from a non-terminal request. Do NOT clear it on rejection/skip,
-            # because queue_requests.song_id is NOT NULL and the rejection reason
-            # refers to the song that was originally requested.
-            elif item.status not in ("rejected", "skipped") and str(existing.status) not in TERMINAL_STATUSES:
-                existing.song_id = None
-            existing.status = item.status
-            existing.source = getattr(item, "source", "host")
-            existing.rotation_position = item.position
-            existing.notes = item.notes
-            existing.requested_at = item.requested_at
-            existing.updated_at = _now_iso()
-            if item.played_at:
-                existing.played_at = item.played_at
-            if item.reject_reason:
-                existing.reject_reason = item.reject_reason
-        else:
-            # Insert new
-            q = QueueRequest(
-                id=item.request_id,
-                venue_id=venue_id,
-                singer_id=item.singer_id,
-                song_id=resolved_song_id,
-                status=item.status,
-                notes=item.notes,
-                source=getattr(item, "source", "host"),
-                rotation_position=item.position,
-                requested_at=item.requested_at,
-                updated_at=_now_iso(),
-                played_at=item.played_at,
-                reject_reason=item.reject_reason,
-            )
-            db.add(q)
 
-    # Process soft deletes
+        snapshot_items.append(_DuckItem(
+            id=item.request_id,
+            singer_id=item.singer_id,
+            song_id=resolved_song_id,
+            status=item.status,
+            rotation_position=item.position,
+            sort_order=item.position,
+            notes=item.notes,
+            reject_reason=item.reject_reason,
+            tempo=getattr(item, "tempo", 0),
+            pitch=getattr(item, "pitch", 0),
+            kj_id=str(current.id) if current else None,
+            requested_at=item.requested_at,
+            source=getattr(item, "source", "host"),
+        ))
+
+    # Snapshot items have already had removed singers filtered out, so any
+    # host-rotation row for a removed singer should be left soft-deleted.
+    svc = HostRotationService(db)
+    upserted, removed_ids = await svc.upsert_snapshot(venue_id, snapshot_items)
+
+    # Process explicit soft deletes from the desktop.
     for del_id in body.deleted_ids:
         row = (
             await db.execute(
-                select(QueueRequest).where(
-                    QueueRequest.id == del_id,
-                    QueueRequest.venue_id == venue_id,
+                select(HostRotation).where(
+                    HostRotation.id == del_id,
+                    HostRotation.venue_id == venue_id,
                 )
             )
         ).scalar_one_or_none()
         if row:
-            # server wins: only delete if client was not stale
             if body.last_modified_at and row.updated_at and str(row.updated_at) > str(body.last_modified_at):
                 conflicts.append(
                     SyncConflictDetail(
                         entity_type="queue",
                         entity_id=del_id,
-                        server_state=_queue_item_to_dict(row),
+                        server_state=_host_rotation_item_to_dict(row),
                         client_state={"deleted": True},
                         resolution="server_wins",
                     )
@@ -371,12 +324,13 @@ async def push_queue(
                 continue
             row.deleted_at = _now_iso()
             row.updated_at = _now_iso()
+            removed_ids.append(del_id)
 
     await db.commit()
 
     # Broadcast off the request path so the portal still updates, but the KJ
     # desktop gets a fast 200 response and does not retry/time out.
-    background_tasks.add_task(_broadcast_queue_state, venue_id)
+    background_tasks.add_task(_broadcast_host_rotation_state, venue_id)
 
     if conflicts:
         raise HTTPException(
@@ -388,6 +342,19 @@ async def push_queue(
         )
 
     return {"synced": len(body.items), "deleted": len(body.deleted_ids), "conflicts": 0}
+
+
+async def _broadcast_host_rotation_state(venue_id: str) -> None:
+    """Background broadcast of host rotation state; uses a fresh DB session."""
+    from app.core.db import async_session_factory
+    import logging as _logging
+    async with async_session_factory() as db:
+        try:
+            svc = HostRotationService(db)
+            await svc.broadcast_queue_state(venue_id)
+        except Exception as exc:
+            _logging.getLogger(__name__).warning("background host rotation broadcast failed: %s", exc)
+
 
 
 async def _broadcast_queue_state(venue_id: str) -> None:
@@ -588,43 +555,17 @@ async def push_now_playing(
             .values(status="pending", updated_at=_now_iso())
         )
 
-    if singer_id and not is_dj_track:
-        # Karaoke singer — update their queue item to now_playing
-        existing = (
-            await db.execute(
-                select(QueueRequest).where(
-                    QueueRequest.singer_id == singer_id,
-                    QueueRequest.venue_id == venue_id,
-                    QueueRequest.deleted_at.is_(None),
-                )
-            )
-        ).scalars().first()
-
-        if existing:
-            existing.status = "now_playing"
-            existing.updated_at = _now_iso()
-            if song_id:
-                # Resolve song_id (may be a local integer ID from the client)
-                resolved = await _resolve_or_create_song(
-                    db, venue_id, song_id, song_title, song_artist
-                )
-                if resolved:
-                    existing.song_id = resolved
-                    # Flush so the Song stub (if newly created) is visible
-                    # to the FK constraint before the queue update commits.
-                    await db.flush()
-        else:
-            db.add(QueueRequest(
-                id=str(uuid.uuid4()),
-                venue_id=venue_id,
-                singer_id=singer_id,
-                status="now_playing",
-                source="host",
-                rotation_position=0,
-                notes=singer_name or body.get("notes") or "",
-                requested_at=_now_iso(),
-                updated_at=_now_iso(),
-            ))
+    svc = HostRotationService(db)
+    now_playing_out = await svc.set_now_playing(
+        venue_id=venue_id,
+        singer_id=singer_id,
+        song_id=song_id,
+        song_title=song_title,
+        song_artist=song_artist,
+        singer_name=singer_name,
+        notes=singer_name or body.get("notes") or "",
+        is_dj_track=is_dj_track,
+    )
 
     await db.commit()
 
@@ -633,28 +574,33 @@ async def push_now_playing(
     # queue state (the queue hasn't changed, and broadcast_queue_state would
     # send an empty now_playing event that overwrites our DJ track event).
     try:
-        svc = QueueService(db)
-        now_playing_out = {
-            "request_id": str(singer_id) if singer_id else "dj_track",
-            "singer_name": singer_name or "DJ" if is_dj_track else singer_name,
-            "song_title": song_title,
-            "song_artist": song_artist,
-            "started_at": _now_iso(),
-            "elapsed_seconds": 0,
-            "is_dj_track": is_dj_track,
-        }
-        await QueueEventPublisher.publish(venue_id, "now_playing", now_playing_out)
+        if now_playing_out:
+            await QueueEventPublisher.publish(venue_id, "now_playing", now_playing_out)
         # Broadcast queue state for karaoke singers (queue changed:
         # previous now_playing cleared, new now_playing set).
         # Skip for DJ tracks — queue is unchanged.
         if not is_dj_track:
-            svc = QueueService(db)
             await svc.broadcast_queue_state(venue_id)
     except Exception as exc:
         import logging
         logging.getLogger(__name__).warning("broadcast after now_playing push failed: %s", exc)
 
     return {"status": "ok", "singer_id": singer_id, "is_dj_track": is_dj_track}
+
+
+def _host_rotation_item_to_dict(item: HostRotation) -> dict[str, Any]:
+    return {
+        "request_id": str(item.id),
+        "singer_id": str(item.singer_id),
+        "song_id": str(item.song_id) if item.song_id is not None else None,
+        "status": str(item.status),
+        "position": (item.rotation_position or 0) + 1,
+        "notes": str(item.notes or ""),
+        "requested_at": str(item.requested_at),
+        "updated_at": str(item.updated_at) if item.updated_at is not None else None,
+        "completed_at": str(item.completed_at) if item.completed_at is not None else None,
+        "reject_reason": str(item.reject_reason or ""),
+    }
 
 
 def _queue_item_to_dict(item: QueueRequest) -> dict[str, Any]:
@@ -828,11 +774,10 @@ async def remove_singer_from_rotation(
     venue_id = venue_id or str(current.venue_id)
     _require_venue_match(venue_id, current)
 
-    svc = QueueService(db)
-    await svc.remove_singer_from_rotation(
-        venue_id, singer_id, removed_by_device_id=str(current.id), broadcast=False
-    )
-    background_tasks.add_task(_broadcast_queue_state, venue_id)
+    svc = HostRotationService(db)
+    await svc.remove_singer(venue_id, singer_id, removed_by_device_id=str(current.id))
+    await db.commit()
+    background_tasks.add_task(_broadcast_host_rotation_state, venue_id)
     return None
 
 
@@ -1434,6 +1379,5 @@ async def push_settings(
         )
 
     return {"synced": synced, "conflicts": 0}
-
 
 
