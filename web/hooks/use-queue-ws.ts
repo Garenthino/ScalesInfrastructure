@@ -38,9 +38,10 @@ export function useQueueWS(venueId: string = DEFAULT_VENUE_ID) {
   useEffect(() => {
     if (!venueId || venueId === "default") return;
     const token = getSocketToken();
+    if (!token || !venueId || venueId === "default") return;
     const url = API_BASE + "/venues/" + encodeURIComponent(venueId) + "/queue/list";
     fetch(url, {
-      headers: token ? { Authorization: "Bearer " + token } : {},
+      headers: { Authorization: "Bearer " + token },
     })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -70,10 +71,18 @@ export function useQueueWS(venueId: string = DEFAULT_VENUE_ID) {
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
     const token = getSocketToken();
+    // Wait for auth and venue context to be available before connecting.
+    // Connecting without a token causes the gateway to close the socket
+    // during handshake, which surfaces in the browser as
+    // "WebSocket is closed before the connection is established".
+    if (!token || !venueId || venueId === "default") {
+      setConnectionState("closed");
+      return;
+    }
     const base = SOCKET_BASE.replace(/\/$/, "");
     const socket = io(base, {
       transports: ["websocket"],
-      auth: token ? { token } : undefined,
+      auth: { token },
       query: { venue_id: venueId },
       reconnection: true,
       reconnectionAttempts: 5,

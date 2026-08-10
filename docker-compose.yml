@@ -140,7 +140,7 @@ services:
       NODE_ENV: production
       PORT: 4000
       NEXT_PUBLIC_API_URL: https://dancingdragonservices.com/api/v1
-      NEXT_PUBLIC_SOCKET_URL: https://dancingdragonservices.com
+      NEXT_PUBLIC_SOCKET_URL: wss://dancingdragonservices.com
       NEXT_PUBLIC_DEFAULT_VENUE_ID: default
     ports:
     - 4000:4000
