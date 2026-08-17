@@ -177,6 +177,27 @@ async def test_register_duplicate_email_returns_409(client, session, sample_venu
 
 
 @pytest.mark.anyio
+async def test_account_register_without_stage_name_derives_default(client, session):
+    email = f"{uuid.uuid4().hex[:8]}@example.com"
+    resp = await client.post("/v1/accounts/register", json={
+        "email": email,
+        "password": "securepass123",
+        "first_name": "Alex",
+        "last_name": "Tester",
+    })
+    assert resp.status_code == 201
+    data = resp.json()
+    assert "account_id" in data
+    assert "access_token" in data
+
+    me = await client.get("/v1/accounts/me", headers={"Authorization": f"Bearer {data['access_token']}"})
+    assert me.status_code == 200
+    me_data = me.json()
+    # Should derive from real_name (first + last) when no stage_name supplied.
+    assert me_data["stage_name"] == "Alex Tester"
+
+
+@pytest.mark.anyio
 async def test_login_returns_valid_jwt_with_venue_id(client, session, sample_venue):
     singer = await seed_singer(session, sample_venue.id)
     resp = await client.post("/v1/auth/login", json={

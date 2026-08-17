@@ -121,11 +121,15 @@ async def register_account(body: AccountRegisterRequest):
             )
 
         now = _now_iso()
+        # Derive a default stage_name only if the client did not provide one.
+        stage_name = body.stage_name
+        if stage_name is None or not stage_name.strip():
+            stage_name = body.real_name or body.email.split('@')[0]
         account = Account(
             id=str(uuid.uuid4()),
             email=body.email,
             password_hash=hash_password(body.password),
-            stage_name=body.stage_name,
+            stage_name=stage_name,
             first_name=body.first_name,
             last_name=body.last_name,
             real_name=body.real_name,

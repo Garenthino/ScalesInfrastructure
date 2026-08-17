@@ -22,6 +22,7 @@ import {
   removeSingerFromRotation,
 } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
+import { toast } from "sonner";
 
 interface QueueTableProps {
   queue: QueueRequest[];
@@ -243,10 +244,16 @@ export function QueueTable({ queue, venueId, onUpdate }: QueueTableProps) {
   }, [queue, sort]);
 
   const removeMutation = useMutation({
+    mutationKey: ["remove-singer", venueId],
     mutationFn: (singerId: string) => removeSingerFromRotation(venueId, singerId, token),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["queue-admin"] });
+      queryClient.invalidateQueries({ queryKey: ["queue-admin", venueId] });
+      queryClient.invalidateQueries({ queryKey: ["queue-analytics", venueId] });
       onUpdate?.();
+      toast.success("Singer removed from rotation");
+    },
+    onError: (err) => {
+      toast.error(err?.message || "Failed to remove singer from rotation");
     },
   });
 

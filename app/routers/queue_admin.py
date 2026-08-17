@@ -310,7 +310,6 @@ async def remove_singer_from_rotation_admin(
     await svc.remove_singer(
         venue_id, singer_id, removed_by_account_id=token.get("account_id") or token.get("id")
     )
-    await svc.broadcast_queue_state(venue_id)
     return None
 
 

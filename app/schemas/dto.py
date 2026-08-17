@@ -40,7 +40,7 @@ class ProblemDetail(ScalesModel):
 class AccountRegisterRequest(ScalesModel):
     email: EmailStr
     password: str = Field(..., min_length=6, max_length=128)
-    stage_name: str = Field(..., min_length=1, max_length=50)
+    stage_name: str | None = Field(None, min_length=1, max_length=50)
     first_name: str | None = Field(None, max_length=50)
     last_name: str | None = Field(None, max_length=50)
     real_name: str | None = Field(None, max_length=100)  # legacy full name; derived from first/last if absent

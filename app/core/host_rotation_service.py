@@ -313,15 +313,26 @@ class HostRotationService:
         # Record a SingerRemoval so the KJ desktop (and other clients) can pull it.
         if removed_ids:
             from app.models import SingerRemoval
-            self.db.add(SingerRemoval(
-                id=str(uuid.uuid4()),
-                venue_id=venue_id,
-                singer_id=singer_id,
-                removed_by_device_id=removed_by_device_id,
-                removed_by_account_id=removed_by_account_id,
-                removed_at=_now_iso(),
-            ))
-            await self.db.flush()
+            existing = await self.db.execute(
+                select(SingerRemoval).where(
+                    SingerRemoval.venue_id == venue_id,
+                    SingerRemoval.singer_id == singer_id,
+                    SingerRemoval.acknowledged_at.is_(None),
+                )
+            )
+            if existing.scalar_one_or_none() is None:
+                self.db.add(
+                    SingerRemoval(
+                        id=str(uuid.uuid4()),
+                        venue_id=venue_id,
+                        singer_id=singer_id,
+                        removed_by_device_id=removed_by_device_id,
+                        removed_by_account_id=removed_by_account_id,
+                        removed_at=_now_iso(),
+                    )
+                )
+            await self.db.commit()
+            await self.broadcast_queue_state(venue_id)
         return removed_ids
 
     async def broadcast_queue_state(self, venue_id: str) -> None:
@@ -549,4 +560,3 @@ class HostRotationService:
             await self.db.refresh(next_item)
             return next_item
         return None
-
