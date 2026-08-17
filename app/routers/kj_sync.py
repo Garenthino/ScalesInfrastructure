@@ -699,6 +699,19 @@ async def pull_queue(
         )
         deleted_ids = [str(r[0]) for r in del_result.all()]
 
+    # Requests cancelled by the singer while already approved/queued. The KJ
+    # desktop needs to know which specific cloud request ids to remove from
+    # the local playlist/rotation, without dropping the whole singer.
+    cancelled_result = await db.execute(
+        select(QueueRequest.id).where(
+            QueueRequest.venue_id == venue_id,
+            QueueRequest.deleted_at.isnot(None),
+            QueueRequest.status.in_(("approved", "up_next", "now_playing")),
+            QueueRequest.source.in_(("mobile", "portal")),
+        )
+    )
+    cancelled_request_ids = [str(r[0]) for r in cancelled_result.all()]
+
     # Unacknowledged singer removals for this venue
     removal_result = await db.execute(
         select(SingerRemoval.singer_id).where(
@@ -715,6 +728,7 @@ async def pull_queue(
         items=items,
         deleted_ids=deleted_ids,
         removed_singer_ids=removed_singer_ids,
+        cancelled_request_ids=cancelled_request_ids,
         server_modified_at=_now_iso(),
     )
 

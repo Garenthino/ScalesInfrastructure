@@ -1216,6 +1216,7 @@ class SyncQueuePullOut(ScalesModel):
     items: list[SyncQueueItem]
     deleted_ids: list[str] = Field(default_factory=list)
     removed_singer_ids: list[str] = Field(default_factory=list)
+    cancelled_request_ids: list[str] = Field(default_factory=list)
     server_modified_at: str
 
 

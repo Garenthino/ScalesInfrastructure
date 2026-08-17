@@ -241,6 +241,30 @@ async def test_queue_ack_soft_deletes(client, sync_queue, db):
 
 
 @pytest.mark.anyio
+async def test_queue_pull_returns_cancelled_active_request_ids(client, sync_queue, db):
+    """Cancelling an approved/up_next mobile/portal request must expose its id so
+    the KJ desktop can remove the queued song without removing the whole singer.
+    """
+    venue_id, _, _, _, raw_key, items = sync_queue
+    approved = [it for it in items if it.status == "approved"][0]
+    approved.deleted_at = "2026-05-21T10:03:00Z"
+    approved.updated_at = "2026-05-21T10:03:00Z"
+    await db.commit()
+
+    resp = await client.get(
+        f"{SYNC_BASE}/queue/pull?venue_id={venue_id}",
+        headers=_kj_headers(raw_key),
+    )
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert str(approved.id) in data["cancelled_request_ids"]
+    # The cancelled item must not be returned as a normal pending item.
+    assert all(str(it["request_id"]) != str(approved.id) for it in data["items"])
+    # Pending items for other singers remain visible.
+    assert len(data["items"]) == 1
+
+
+@pytest.mark.anyio
 async def test_queue_pull_since(client, sync_queue):
     venue_id, _, _, _, raw_key, _ = sync_queue
     resp = await client.get(
