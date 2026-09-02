@@ -144,6 +144,80 @@ async def _resolve_or_create_song(
     return new_id
 
 
+async def _resolve_or_create_singer(
+    db: AsyncSession,
+    venue_id: str,
+    singer_id: str | None,
+    singer_name: str | None = None,
+) -> str | None:
+    """Resolve a singer_id from the KJ client to a server Singer UUID.
+
+    The KJ desktop sometimes sends local integer IDs for events such as
+    now_playing before the singer stub has been synced.  Strategy:
+    1. If singer_id matches an existing Singer UUID, use it.
+    2. If singer_id is a UUID but no row exists, create a stub using singer_name
+       as stage_name (with duplicate-name deduplication).
+    3. If singer_id is not a UUID (local integer), try to match by stage_name.
+    4. Otherwise auto-create a stub so host_rotation FKs stay valid.
+    Returns the server Singer UUID, or None if no singer info was provided.
+    """
+    if not singer_id and not singer_name:
+        return None
+
+    # 1. Direct UUID match
+    if _is_uuid(str(singer_id or "")):
+        existing = (
+            await db.execute(
+                select(Singer).where(
+                    Singer.id == singer_id,
+                    Singer.venue_id == venue_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            return str(existing.id)
+
+    # 2. Match by stage_name (works whether the desktop sent a UUID or a local id)
+    if singer_name:
+        existing = (
+            await db.execute(
+                select(Singer).where(
+                    Singer.venue_id == venue_id,
+                    Singer.stage_name == singer_name,
+                    Singer.deleted_at.is_(None),
+                ).limit(1)
+            )
+        ).scalars().first()
+        if existing:
+            return str(existing.id)
+
+    # 3. Auto-create stub with duplicate-name handling
+    base_stage = singer_name or "Unknown"
+    stage = base_stage
+    counter = 1
+    while (
+        await db.execute(
+            select(Singer.id).where(
+                Singer.venue_id == venue_id,
+                Singer.stage_name == stage,
+            )
+        )
+    ).scalar_one_or_none():
+        counter += 1
+        stage = f"{base_stage} ({counter})"
+
+    new_id = str(uuid.uuid4())
+    singer = Singer(
+        id=new_id,
+        venue_id=venue_id,
+        stage_name=stage,
+        created_at=_now_iso(),
+        updated_at=_now_iso(),
+    )
+    db.add(singer)
+    return new_id
+
+
 async def _get_venue_config_dict(db: AsyncSession, venue_id: str) -> dict[str, SyncSettingItem]:
     """Return all venue_configs as a dict keyed by config_key."""
     result = await db.execute(
@@ -536,12 +610,20 @@ async def push_now_playing(
     venue_id = venue_id or str(current.venue_id)
     _require_venue_match(venue_id, current)
 
-    singer_id = body.get("singer_id")
+    raw_singer_id = body.get("singer_id")
     song_id = body.get("song_id")
     song_title = body.get("song_title")
     song_artist = body.get("song_artist")
     singer_name = body.get("singer_name")
     is_dj_track = body.get("is_dj_track", False)
+
+    # Resolve a local/unknown singer_id to a cloud Singer row so host_rotation
+    # does not violate its singer FK. DJ tracks do not need a singer row.
+    resolved_singer_id: str | None = None
+    if raw_singer_id and not is_dj_track:
+        resolved_singer_id = await _resolve_or_create_singer(
+            db, venue_id, raw_singer_id, singer_name
+        )
 
     # Resolve a local/unknown song_id to a cloud song row so host_rotation
     # does not violate its song FK. DJ tracks do not need a song row.
@@ -567,7 +649,7 @@ async def push_now_playing(
     svc = HostRotationService(db)
     now_playing_out = await svc.set_now_playing(
         venue_id=venue_id,
-        singer_id=singer_id,
+        singer_id=resolved_singer_id if resolved_singer_id is not None else raw_singer_id,
         song_id=resolved_song_id if resolved_song_id is not None else song_id,
         song_title=song_title,
         song_artist=song_artist,
@@ -594,7 +676,7 @@ async def push_now_playing(
         import logging
         logging.getLogger(__name__).warning("broadcast after now_playing push failed: %s", exc)
 
-    return {"status": "ok", "singer_id": singer_id, "is_dj_track": is_dj_track}
+    return {"status": "ok", "singer_id": resolved_singer_id if resolved_singer_id is not None else raw_singer_id, "is_dj_track": is_dj_track}
 
 
 def _host_rotation_item_to_dict(item: HostRotation) -> dict[str, Any]:

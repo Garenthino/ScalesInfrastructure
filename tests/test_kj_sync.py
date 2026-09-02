@@ -23,6 +23,14 @@ from app.core.security import hash_password, create_access_token
 
 SYNC_BASE = "/v1/kj/sync"
 
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(str(value))
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
 
 def _kj_headers(api_key: str) -> dict[str, str]:
     return {"x-api-key": api_key}
@@ -1255,3 +1263,46 @@ async def test_remove_singer_rejects_local_integer_id(client, sync_venue):
     resp = await client.post(url, headers=headers)
     assert resp.status_code == 400, resp.text
     assert "cloud singer UUID" in resp.text or "UUID" in resp.text
+
+
+async def test_now_playing_creates_singer_stub_for_local_id(client, sync_venue, db):
+    """A KJ desktop sending a local integer singer_id for now_playing should not 500;
+    the server should create a matching Singer stub so the host_rotation FK holds."""
+    venue_id, kj_id, singer_id, songs, raw_key = sync_venue
+
+    resp = await client.post(
+        "/v1/kj/sync/now_playing",
+        headers={"x-api-key": raw_key},
+        json={
+            "singer_id": "205",
+            "song_id": "13",
+            "song_title": "Caramelldansen (speedy mix)",
+            "song_artist": "Caramell",
+            "singer_name": "Garenthino",
+            "is_dj_track": False,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert data["is_dj_track"] is False
+    # Server returned the resolved cloud UUID, not the integer id
+    resolved_singer_id = data["singer_id"]
+    assert _is_uuid(resolved_singer_id)
+
+    # Singer stub exists in the venue
+    singer = (await db.execute(select(Singer).where(Singer.id == resolved_singer_id, Singer.venue_id == venue_id))).scalar_one_or_none()
+    assert singer is not None
+    assert singer.stage_name == "Garenthino"
+
+    # HostRotation now_playing row exists and FKs are valid
+    row = (
+        await db.execute(
+            select(HostRotation).where(
+                HostRotation.venue_id == venue_id,
+                HostRotation.singer_id == resolved_singer_id,
+                HostRotation.status == "now_playing",
+            )
+        )
+    ).scalar_one_or_none()
+    assert row is not None
