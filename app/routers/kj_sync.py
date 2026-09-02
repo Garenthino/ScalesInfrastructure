@@ -888,10 +888,29 @@ async def push_singers(
             existing.deactivated_at = item.deactivated_at
             existing.updated_at = _now_iso()
         else:
+            # Check for a stage_name collision.  The KJ desktop mints local-only
+            # singers with fresh UUIDs, so two singers in the same venue can
+            # share a display name (e.g. an existing registered singer and a new
+            # local stub).  Rename the incoming stub so the insert succeeds;
+            # the KJ can merge identities later if desired.
+            base_stage = item.stage_name or "Unknown"
+            stage = base_stage
+            counter = 1
+            while (
+                await db.execute(
+                    select(Singer.id).where(
+                        Singer.venue_id == venue_id,
+                        Singer.stage_name == stage,
+                    )
+                )
+            ).scalar_one_or_none():
+                counter += 1
+                stage = f"{base_stage} ({counter})"
+
             singer = Singer(
                 id=item.id,
                 venue_id=venue_id,
-                stage_name=item.stage_name,
+                stage_name=stage,
                 real_name=item.real_name,
                 first_name=item.first_name,
                 last_name=item.last_name,

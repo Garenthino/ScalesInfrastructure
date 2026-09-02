@@ -471,6 +471,47 @@ async def test_singers_push_upsert(client, sync_venue, db):
     assert row.notes is None or row.notes == "", f"expected no singer notes, got {row.notes!r}"
 
 
+@pytest.mark.anyio
+async def test_singers_push_renames_on_duplicate_stage_name(client, sync_venue, db):
+    """A local-only singer stub whose stage_name already exists is renamed, not 500."""
+    venue_id, _, existing_singer_id, _, raw_key = sync_venue
+
+    # The fixture already created a singer named "Stagey".
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    new_id = str(uuid.uuid4())
+    payload = {
+        "items": [
+            {
+                "id": new_id,
+                "stage_name": "Stagey",
+                "first_name": "",
+                "last_name": "",
+                "email": "",
+                "total_points": 0,
+                "loyalty_tier_id": None,
+                "last_seen": None,
+                "deactivated_at": None,
+                "created_at": now,
+                "updated_at": now,
+            },
+        ],
+        "deleted_ids": [],
+    }
+
+    resp = await client.post(
+        f"/v1/kj/sync/singers/push?venue_id={venue_id}",
+        json=payload,
+        headers=_kj_headers(raw_key),
+    )
+    assert resp.status_code == status.HTTP_200_OK, resp.text
+    data = resp.json()
+    assert data["synced"] == 1
+
+    result = await db.execute(select(Singer).where(Singer.id == new_id))
+    row = result.scalar_one()
+    assert row.stage_name == "Stagey (2)"
+
+
 # ---------------------------------------------------------------------------
 # Songs Pull
 # ---------------------------------------------------------------------------
