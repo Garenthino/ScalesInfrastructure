@@ -733,6 +733,34 @@ async def pull_queue(
     )
 
 
+@router.post("/queue/removals/ack", response_model=dict)
+async def ack_singer_removals(
+    body: dict,
+    venue_id: str | None = Query(None),
+    current: KJDeviceUser = Depends(kj_auth),
+    db: AsyncSession = Depends(get_db),
+):
+    """KJ desktop acknowledges singer removals so they are not re-sent."""
+    venue_id = venue_id or str(current.venue_id)
+    _require_venue_match(venue_id, current)
+
+    singer_ids = [s for s in body.get("singer_ids", []) if _is_uuid(str(s))]
+    if not singer_ids:
+        return {"acknowledged": []}
+
+    result = await db.execute(
+        update(SingerRemoval)
+        .where(
+            SingerRemoval.venue_id == venue_id,
+            SingerRemoval.singer_id.in_(singer_ids),
+            SingerRemoval.acknowledged_at.is_(None),
+        )
+        .values(acknowledged_at=_now_iso())
+    )
+    await db.commit()
+    print(f"[kj_sync] acked {result.rowcount} singer removals for ids={singer_ids}")
+    return {"acknowledged": singer_ids, "rowcount": result.rowcount}
+
 @router.post("/queue/{request_id}/ack", status_code=status.HTTP_204_NO_CONTENT)
 async def ack_queue_request(
     background_tasks: BackgroundTasks,
@@ -805,33 +833,6 @@ async def remove_singer_from_rotation(
     return None
 
 
-@router.post("/queue/removals/ack", response_model=dict)
-async def ack_singer_removals(
-    body: dict,
-    venue_id: str | None = Query(None),
-    current: KJDeviceUser = Depends(kj_auth),
-    db: AsyncSession = Depends(get_db),
-):
-    """KJ desktop acknowledges singer removals so they are not re-sent."""
-    venue_id = venue_id or str(current.venue_id)
-    _require_venue_match(venue_id, current)
-
-    singer_ids = [s for s in body.get("singer_ids", []) if _is_uuid(str(s))]
-    if not singer_ids:
-        return {"acknowledged": []}
-
-    result = await db.execute(
-        update(SingerRemoval)
-        .where(
-            SingerRemoval.venue_id == venue_id,
-            SingerRemoval.singer_id.in_(singer_ids),
-            SingerRemoval.acknowledged_at.is_(None),
-        )
-        .values(acknowledged_at=_now_iso())
-    )
-    await db.commit()
-    print(f"[kj_sync] acked {result.rowcount} singer removals for ids={singer_ids}")
-    return {"acknowledged": singer_ids, "rowcount": result.rowcount}
 
 
 # ---------------------------------------------------------------------------
