@@ -1161,18 +1161,34 @@ async def link_singer_to_mobile(
     favorites, and achievements. All those records are reassigned to the
     target singer row, and the local singer is soft-deleted.
     """
+    if not _is_uuid(local_singer_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "local_singer_id must be a cloud singer UUID. "
+                "The KJ desktop appears to be sending a local integer id; "
+                "please restart/rebuild the desktop app so it can mint cloud UUIDs for local singers."
+            ),
+        )
+
     venue_id = venue_id or str(current.venue_id)
     _require_venue_match(venue_id, current)
 
-    result = await merge_local_singer_into_mobile(
-        db=db,
-        venue_id=venue_id,
-        local_singer_id=local_singer_id,
-        target_singer_id=body.target_singer_id,
-        target_account_email=body.target_account_email,
-        merged_by_account_id=None,
-        merged_by_kj_device_id=current.id,
-    )
+    try:
+        result = await merge_local_singer_into_mobile(
+            db=db,
+            venue_id=venue_id,
+            local_singer_id=local_singer_id,
+            target_singer_id=body.target_singer_id,
+            target_account_email=body.target_account_email,
+            merged_by_account_id=None,
+            merged_by_kj_device_id=current.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"detail": str(exc), "code": "merge_validation_error"},
+        ) from exc
     await db.commit()
     # Refresh target after commit so the broadcast has updated totals.
     target_result = await db.execute(select(Singer).where(Singer.id == result.target_singer_id))
@@ -1202,21 +1218,27 @@ async def merge_local_singer_by_details(
     venue_id = venue_id or str(current.venue_id)
     _require_venue_match(venue_id, current)
 
-    result = await merge_local_singer_into_mobile(
-        db=db,
-        venue_id=venue_id,
-        local_singer_id=body.local_singer_id,
-        local_name=body.local_name,
-        local_first_name=body.local_first_name,
-        local_last_name=body.local_last_name,
-        local_email=body.local_email,
-        local_phone=body.local_phone,
-        target_singer_id=body.target_singer_id,
-        target_account_email=body.target_account_email,
-        merged_by_account_id=None,
-        merged_by_kj_device_id=current.id,
-        create_stub_if_missing=True,
-    )
+    try:
+        result = await merge_local_singer_into_mobile(
+            db=db,
+            venue_id=venue_id,
+            local_singer_id=body.local_singer_id,
+            local_name=body.local_name,
+            local_first_name=body.local_first_name,
+            local_last_name=body.local_last_name,
+            local_email=body.local_email,
+            local_phone=body.local_phone,
+            target_singer_id=body.target_singer_id,
+            target_account_email=body.target_account_email,
+            merged_by_account_id=None,
+            merged_by_kj_device_id=current.id,
+            create_stub_if_missing=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"detail": str(exc), "code": "merge_validation_error"},
+        ) from exc
     await db.commit()
     target_result = await db.execute(select(Singer).where(Singer.id == result.target_singer_id))
     target = target_result.scalar_one_or_none()

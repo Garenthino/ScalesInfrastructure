@@ -757,6 +757,54 @@ async def test_kj_merge_local_singer_into_mobile(client, sync_venue, db):
     assert row.singer_id == mobile.id
 
 
+@pytest.mark.anyio
+async def test_kj_link_rejects_non_uuid_source_id(client, sync_venue, db):
+    """Legacy integer ids must not reach the merge service as a path param."""
+    venue_id, _, _, _, raw_key = sync_venue
+
+    account = Account(
+        id=str(uuid.uuid4()),
+        email="mobile-target@example.com",
+        password_hash=hash_password("x"),
+        stage_name="Mobile Target",
+    )
+    mobile = Singer(
+        id=str(uuid.uuid4()),
+        venue_id=venue_id,
+        account_id=account.id,
+        stage_name="Mobile Target",
+    )
+    db.add_all([account, mobile])
+    await db.commit()
+
+    resp = await client.post(
+        f"{SYNC_BASE}/singers/2/link?venue_id={venue_id}",
+        json={"target_singer_id": mobile.id},
+        headers=_kj_headers(raw_key),
+    )
+    assert resp.status_code == status.HTTP_400_BAD_REQUEST
+    assert "cloud singer UUID" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_kj_link_rejects_non_mobile_target(client, sync_venue, db):
+    """Merging into a cloud-only (non-mobile-linked) singer is not allowed."""
+    venue_id, _, _, _, raw_key = sync_venue
+
+    source = Singer(id=str(uuid.uuid4()), venue_id=venue_id, stage_name="Local Only")
+    target = Singer(id=str(uuid.uuid4()), venue_id=venue_id, stage_name="Cloud Only")
+    db.add_all([source, target])
+    await db.commit()
+
+    resp = await client.post(
+        f"{SYNC_BASE}/singers/{source.id}/link?venue_id={venue_id}",
+        json={"target_singer_id": target.id},
+        headers=_kj_headers(raw_key),
+    )
+    assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert "mobile-linked" in resp.json()["detail"]["detail"]
+
+
 # ---------------------------------------------------------------------------
 # Cross-domain: pull symmetry check
 # ---------------------------------------------------------------------------
