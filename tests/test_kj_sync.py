@@ -1306,3 +1306,60 @@ async def test_now_playing_creates_singer_stub_for_local_id(client, sync_venue, 
         )
     ).scalar_one_or_none()
     assert row is not None
+
+
+async def test_push_song_scan_missing_from_disk_retracts_songs(client, sync_venue, db):
+    """Songs listed in missing_from_disk are soft-deleted and not surfaced by list/pull."""
+    venue_id, kj_id, singer_id, songs, raw_key = sync_venue
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Create a song via a scan first
+    song_path = "Tracks/Keep Me.mp3"
+    resp = await client.post(
+        "/v1/kj/sync/songs",
+        headers={"x-api-key": raw_key},
+        json={
+            "venue_id": venue_id,
+            "device_id": "dev-1",
+            "scan_timestamp": now,
+            "new_or_updated": [{
+                "file_path": song_path,
+                "title": "Keep Me",
+                "artist": "A",
+            }],
+            "missing_from_disk": [],
+            "corrupted": [],
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    # Now retract it
+    resp = await client.post(
+        "/v1/kj/sync/songs",
+        headers={"x-api-key": raw_key},
+        json={
+            "venue_id": venue_id,
+            "device_id": "dev-1",
+            "scan_timestamp": now,
+            "new_or_updated": [],
+            "missing_from_disk": [song_path],
+            "corrupted": [],
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["marked_unavailable"] == 1
+
+    # Verify the row is soft-deleted
+    from app.models import Song
+    song = (await db.execute(select(Song).where(Song.venue_id == venue_id, Song.file_path == song_path))).scalar_one_or_none()
+    assert song is not None
+    assert song.is_available == 0
+    assert song.is_active == 0
+    assert song.deleted_at is not None
+    assert song.unavailable_reason == "removed_from_library"
+
+    # Verify it does not come back in the public song list
+    from app.routers.songs import _base_song_query
+    remaining = (await db.execute(_base_song_query().where(Song.venue_id == venue_id))).scalars().all()
+    assert all(s.file_path != song_path for s in remaining)
