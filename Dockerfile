@@ -43,6 +43,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY app/ ./app/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
+COPY scripts/ ./scripts/
 
 # Ensure non-root can read app files
 RUN chown -R scales:scales /app
