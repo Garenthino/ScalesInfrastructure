@@ -25,6 +25,7 @@ from sqlalchemy import (
     UniqueConstraint,
     CheckConstraint,
     Index,
+    text,
 )
 from sqlalchemy.orm import relationship
 
@@ -220,6 +221,7 @@ class Song(Base):
         Index("ix_songs_venue_genre", "venue_id", "genre"),
         Index("ix_songs_venue_year", "venue_id", "year"),
         Index("ix_songs_venue_category", "venue_id", "category"),
+        Index("ix_songs_venue_file_path", "venue_id", "file_path"),
     )
 
     venue = relationship("Venue", back_populates="songs")

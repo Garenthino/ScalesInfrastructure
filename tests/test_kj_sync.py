@@ -1363,3 +1363,71 @@ async def test_push_song_scan_missing_from_disk_retracts_songs(client, sync_venu
     from app.routers.songs import _base_song_query
     remaining = (await db.execute(_base_song_query().where(Song.venue_id == venue_id))).scalars().all()
     assert all(s.file_path != song_path for s in remaining)
+
+
+async def test_push_song_scan_handles_duplicate_file_path_rows(client, sync_venue, db):
+    """If duplicate (venue_id, file_path) rows exist, sync should not 500;
+    it should collapse duplicates and continue updating/retracting."""
+    venue_id, kj_id, singer_id, songs, raw_key = sync_venue
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    song_path = "Tracks/Duplicate Me.mp3"
+
+    # Seed two active rows with the same file_path (historical bad state)
+    from app.models import Song
+    for _ in range(2):
+        db.add(Song(
+            id=str(uuid.uuid4()),
+            venue_id=venue_id,
+            file_path=song_path,
+            title="Dup",
+            artist="A",
+            is_available=1,
+            is_active=1,
+            last_scanned_at=now,
+        ))
+    await db.commit()
+
+    # Update should succeed despite duplicates
+    resp = await client.post(
+        "/v1/kj/sync/songs",
+        headers={"x-api-key": raw_key},
+        json={
+            "venue_id": venue_id,
+            "device_id": "dev-1",
+            "scan_timestamp": now,
+            "new_or_updated": [{
+                "file_path": song_path,
+                "title": "Renamed",
+                "artist": "B",
+            }],
+            "missing_from_disk": [],
+            "corrupted": [],
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    # Only one active row should remain
+    rows = (await db.execute(
+        select(Song).where(
+            Song.venue_id == venue_id,
+            Song.file_path == song_path,
+            Song.deleted_at.is_(None),
+        )
+    )).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].title == "Renamed"
+
+    # Retraction should also succeed
+    resp = await client.post(
+        "/v1/kj/sync/songs",
+        headers={"x-api-key": raw_key},
+        json={
+            "venue_id": venue_id,
+            "device_id": "dev-1",
+            "scan_timestamp": now,
+            "new_or_updated": [],
+            "missing_from_disk": [song_path],
+            "corrupted": [],
+        },
+    )
+    assert resp.status_code == 200, resp.text

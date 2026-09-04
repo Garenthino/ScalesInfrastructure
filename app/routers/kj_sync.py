@@ -1233,6 +1233,41 @@ async def merge_local_singer_by_details(
 # ---------------------------------------------------------------------------
 
 
+async def _first_active_song_by_file_path(
+    db: AsyncSession, venue_id: str, file_path: str | None
+) -> Song | None:
+    """Return one active Song row for a file_path, soft-deleting any extras.
+
+    Historical sync bugs allowed duplicate `(venue_id, file_path)` rows.
+    This helper collapses them on contact so the rest of the sync code can
+    assume a single authoritative row per path.  It orders by `created_at`
+    ascending so the oldest row wins, which is consistent with the desktop
+    treating the first-seen path as canonical.
+    """
+    if not file_path:
+        return None
+    result = await db.execute(
+        select(Song).where(
+            and_(
+                Song.venue_id == venue_id,
+                Song.file_path == file_path,
+                Song.deleted_at.is_(None),
+            )
+        ).order_by(Song.created_at.asc())
+    )
+    rows = result.scalars().all()
+    if not rows:
+        return None
+    keep = rows[0]
+    now = _now_iso()
+    for dup in rows[1:]:
+        dup.is_available = 0
+        dup.is_active = 0
+        dup.deleted_at = now
+        dup.unavailable_reason = "duplicate_file_path"
+    return keep
+
+
 @router.post("/songs", status_code=200)
 async def push_song_scan(  # type: ignore[no-redef]
     payload: SyncSongsScanPayload,
@@ -1245,12 +1280,9 @@ async def push_song_scan(  # type: ignore[no-redef]
     created = updated = marked_unavailable = 0
 
     for item in payload.new_or_updated:
-        result = await db.execute(
-            select(Song).where(
-                and_(Song.venue_id == payload.venue_id, Song.file_path == item.get("file_path"))
-            )
+        song = await _first_active_song_by_file_path(
+            db, payload.venue_id, item.get("file_path")
         )
-        song = result.scalar_one_or_none()
         if song:
             song.file_hash = item.get("file_hash")
             song.file_size = item.get("file_size")
@@ -1287,12 +1319,7 @@ async def push_song_scan(  # type: ignore[no-redef]
             created += 1
 
     for path in payload.missing_from_disk:
-        result = await db.execute(
-            select(Song).where(
-                and_(Song.venue_id == payload.venue_id, Song.file_path == path)
-            )
-        )
-        song = result.scalar_one_or_none()
+        song = await _first_active_song_by_file_path(db, payload.venue_id, path)
         if song:
             song.is_available = 0
             song.is_active = 0
@@ -1305,12 +1332,7 @@ async def push_song_scan(  # type: ignore[no-redef]
         path = item.get("file_path")
         reason = item.get("reason", "file_corrupted")
         if not path: continue
-        result = await db.execute(
-            select(Song).where(
-                and_(Song.venue_id == payload.venue_id, Song.file_path == path)
-            )
-        )
-        song = result.scalar_one_or_none()
+        song = await _first_active_song_by_file_path(db, payload.venue_id, path)
         if song:
             song.is_available = 0
             song.unavailable_reason = reason
