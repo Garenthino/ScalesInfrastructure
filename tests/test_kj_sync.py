@@ -787,8 +787,8 @@ async def test_kj_link_rejects_non_uuid_source_id(client, sync_venue, db):
 
 
 @pytest.mark.anyio
-async def test_kj_link_rejects_non_mobile_target(client, sync_venue, db):
-    """Merging into a cloud-only (non-mobile-linked) singer is not allowed."""
+async def test_kj_link_allows_cloud_only_target(client, sync_venue, db):
+    """Merging a local-only singer into a cloud-only duplicate must work."""
     venue_id, _, _, _, raw_key = sync_venue
 
     source = Singer(id=str(uuid.uuid4()), venue_id=venue_id, stage_name="Local Only")
@@ -801,8 +801,18 @@ async def test_kj_link_rejects_non_mobile_target(client, sync_venue, db):
         json={"target_singer_id": target.id},
         headers=_kj_headers(raw_key),
     )
-    assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-    assert "mobile-linked" in resp.json()["detail"]["detail"]
+    assert resp.status_code == status.HTTP_200_OK
+    data = resp.json()
+    assert data["target_singer_id"] == target.id
+    assert data.get("merged_records", {}).get("queue_requests") == 0
+
+    # Source should be soft-deleted.
+    src_result = await db.execute(
+        select(Singer).where(Singer.id == source.id)
+    )
+    src = src_result.scalar_one_or_none()
+    assert src.deleted_at is not None
+    assert str(src.linked_singer_id) == target.id
 
 
 # ---------------------------------------------------------------------------

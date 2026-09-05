@@ -156,9 +156,7 @@ async def merge_local_singer_into_mobile(
             target = singer_result.scalar_one_or_none()
 
     if target is None:
-        raise ValueError("Target mobile-linked singer not found")
-    if not (target.account_id or "").strip():
-        raise ValueError("Target singer must be mobile-linked (have an account)")
+        raise ValueError("Target singer not found in this venue")
     if target.id == local.id:
         raise ValueError("Cannot merge a singer into itself")
 
