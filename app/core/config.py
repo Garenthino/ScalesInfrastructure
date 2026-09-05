@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     RATE_LIMIT_WINDOW: int = 60
     SECURITY_HEADERS_ENABLED: bool = True
     CORS_ORIGINS_PROD: str | None = None
+    # RequestSizeMiddleware caps body size; KJ sync /songs batches are ~1 MB at 2000
+    # songs, and /queue or /singers payloads can also approach that. Keep in sync
+    # with nginx client_max_body_size if you add it there.
     REQUEST_MAX_BODY_SIZE_MB: float = 1.0
 
     # Stripe

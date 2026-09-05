@@ -97,7 +97,12 @@ run_migrations() {
 # ---------------------------------------------------------------------------
 start_app() {
     echo "[entrypoint] Starting uvicorn ..."
-    exec uvicorn app.main:app --host "${HOST:-0.0.0.0}" --port "${PORT:-8000}" "$@"
+    # --timeout-keep-alive 120: KJ desktop bulk song-sync uploads one batch every
+    # ~60-70s while the server is inserting 2000 rows. Uvicorn's default 5s
+    # keep-alive timeout closes idle connections mid-request, which nginx then
+    # reports to the client as a read timeout. 120s keeps the control connection
+    # open for the full batch duration.
+    exec uvicorn app.main:app --host "${HOST:-0.0.0.0}" --port "${PORT:-8000}" --timeout-keep-alive 120 "$@"
 }
 
 # ---------------------------------------------------------------------------

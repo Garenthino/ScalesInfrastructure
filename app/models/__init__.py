@@ -221,6 +221,9 @@ class Song(Base):
         Index("ix_songs_venue_genre", "venue_id", "genre"),
         Index("ix_songs_venue_year", "venue_id", "year"),
         Index("ix_songs_venue_category", "venue_id", "category"),
+        # Fast lookup for KJ desktop song-sync upserts keyed by (venue_id, file_path).
+        # Without it, every 2000-song batch scans the whole table and a single batch
+        # can take 60-70s, tripping uvicorn/nginx read timeouts on the control connection.
         Index("ix_songs_venue_file_path", "venue_id", "file_path"),
     )
 
