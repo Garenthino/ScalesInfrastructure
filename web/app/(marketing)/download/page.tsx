@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import QRCode from "qrcode";
 import { Button } from "@/components/ui/button";
+import { DownloadAnalytics } from "./analytics";
 import {
   Download,
   Smartphone,
   Monitor,
   Apple,
-  QrCode,
   ShieldCheck,
   FileText,
   CheckCircle,
@@ -127,6 +128,8 @@ function DownloadCard({
   channel,
   playStoreUrl,
   variant = "default",
+  platform,
+  version,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
@@ -134,6 +137,8 @@ function DownloadCard({
   channel: { url: string; size: number; sha256: string; signatureSha256?: string };
   playStoreUrl?: string;
   variant?: "default" | "qr";
+  platform: string;
+  version: string;
 }) {
   const isMissing = !channel.url || channel.sha256 === "-";
   return (
@@ -147,13 +152,28 @@ function DownloadCard({
       <div className="mt-4 space-y-3">
         {variant === "qr" ? (
           <>
-            <Link href={playStoreUrl || channel.url} target="_blank" rel="noopener noreferrer">
+            <Link
+              href={playStoreUrl || channel.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-download={platform}
+              data-channel="stable"
+              data-version={version}
+            >
               <Button className="w-full gap-2" disabled={isMissing}>
                 <Smartphone className="h-4 w-4" />
                 Get it on Google Play
               </Button>
             </Link>
-            <Link href={channel.url} target="_blank" rel="noopener noreferrer" aria-label="Download APK directly">
+            <Link
+              href={channel.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Download APK directly"
+              data-download={`${platform}-apk`}
+              data-channel="stable"
+              data-version={version}
+            >
               <Button variant="outline" className="w-full gap-2" disabled={isMissing}>
                 <Download className="h-4 w-4" />
                 Download APK fallback
@@ -161,7 +181,14 @@ function DownloadCard({
             </Link>
           </>
         ) : (
-          <Link href={channel.url} target="_blank" rel="noopener noreferrer">
+          <Link
+            href={channel.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-download={platform}
+            data-channel="stable"
+            data-version={version}
+          >
             <Button className="w-full gap-2" disabled={isMissing}>
               <Download className="h-4 w-4" />
               Download
@@ -191,9 +218,16 @@ function DownloadCard({
 
 export default async function DownloadPage() {
   const channel = await fetchChannel();
+  const qrSvg = await QRCode.toString("https://dancingdragonservices.com/download", {
+    type: "svg",
+    margin: 2,
+    width: 200,
+    color: { dark: "#000000", light: "#ffffff" },
+  }).catch(() => null);
 
   return (
     <div className="flex flex-col">
+      <DownloadAnalytics endpoint="/api/v1/analytics/download" />
       <section className="bg-gradient-to-b from-primary/10 to-background py-20">
         <div className="mx-auto max-w-5xl px-4 text-center">
           <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl">
@@ -232,18 +266,24 @@ export default async function DownloadPage() {
               channel={channel.platforms.android.stable}
               playStoreUrl={channel.platforms.android.playStoreUrl}
               variant="qr"
+              platform="android"
+              version={channel.version}
             />
             <DownloadCard
               icon={Monitor}
               title="Windows"
               subtitle="KJ hosting software (64-bit)"
               channel={channel.platforms.windows.stable}
+              platform="windows"
+              version={channel.version}
             />
             <DownloadCard
               icon={Apple}
               title="macOS"
               subtitle="KJ hosting software (Intel & Apple Silicon)"
               channel={channel.platforms.macos.stable}
+              platform="macos"
+              version={channel.version}
             />
           </div>
         </div>
@@ -286,7 +326,17 @@ export default async function DownloadPage() {
             </div>
 
             <div className="flex flex-col items-center justify-center rounded-xl border bg-card p-8">
-              <QrCode className="h-24 w-24 text-primary" />
+              {qrSvg ? (
+                <div
+                  className="h-48 w-48"
+                  dangerouslySetInnerHTML={{ __html: qrSvg }}
+                  aria-label="QR code for dancingdragonservices.com/download"
+                />
+              ) : (
+                <div className="flex h-48 w-48 items-center justify-center rounded bg-muted text-muted-foreground text-sm">
+                  QR code unavailable
+                </div>
+              )}
               <p className="mt-4 font-medium">Scan to open this page</p>
               <p className="text-center text-sm text-muted-foreground">
                 Point your Android camera at the QR code above, or share the link
