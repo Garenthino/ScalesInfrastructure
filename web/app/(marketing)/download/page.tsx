@@ -159,6 +159,8 @@ function DownloadCard({
               data-download={platform}
               data-channel="stable"
               data-version={version}
+              className={isMissing ? "pointer-events-none" : undefined}
+              aria-disabled={isMissing}
             >
               <Button className="w-full gap-2" disabled={isMissing}>
                 <Smartphone className="h-4 w-4" />
@@ -173,6 +175,8 @@ function DownloadCard({
               data-download={`${platform}-apk`}
               data-channel="stable"
               data-version={version}
+              className={isMissing ? "pointer-events-none" : undefined}
+              aria-disabled={isMissing}
             >
               <Button variant="outline" className="w-full gap-2" disabled={isMissing}>
                 <Download className="h-4 w-4" />
@@ -188,6 +192,8 @@ function DownloadCard({
             data-download={platform}
             data-channel="stable"
             data-version={version}
+            className={isMissing ? "pointer-events-none" : undefined}
+            aria-disabled={isMissing}
           >
             <Button className="w-full gap-2" disabled={isMissing}>
               <Download className="h-4 w-4" />
@@ -204,12 +210,19 @@ function DownloadCard({
           {channel.signatureSha256 && (
             <p className="break-all">APK signature: {channel.signatureSha256}</p>
           )}
-          <p>
+          <div className="flex flex-wrap gap-x-4">
             <Link href={VERIFY_URL} className="inline-flex items-center gap-1 text-primary hover:underline">
               <ShieldCheck className="h-3 w-3" />
               How to verify
             </Link>
-          </p>
+            <Link
+              href="/releases/release-channel.json.sig"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              <FileText className="h-3 w-3" />
+              Download signature
+            </Link>
+          </div>
         </div>
       )}
     </div>

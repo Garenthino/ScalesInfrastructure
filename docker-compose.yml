@@ -145,7 +145,7 @@ services:
     ports:
     - 4000:4000
     volumes:
-    - /home/scales/releases:/app/public/releases:ro
+    - /home/scales/release-mirror:/app/public/releases:ro
     depends_on:
       api:
         condition: service_healthy
