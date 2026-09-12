@@ -1,0 +1,303 @@
+name: Scales Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 1.0.0)'
+        required: true
+      release_target_repo:
+        description: 'GitHub repository where the release will be created (owner/repo)'
+        required: true
+        default: 'Garenthino/ScalesInfrastructure'
+      build_mobile:
+        description: 'Build Android APK/AAB'
+        required: true
+        type: boolean
+        default: true
+      build_desktop_linux:
+        description: 'Build desktop Linux artifacts'
+        required: true
+        type: boolean
+        default: true
+      build_desktop_windows:
+        description: 'Build desktop Windows installer (requires Windows runner)'
+        required: true
+        type: boolean
+        default: false
+      build_desktop_macos:
+        description: 'Build desktop macOS installer (requires macOS runner)'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  VERSION: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', github.event.inputs.version) }}
+  RELEASE_TARGET_REPO: ${{ github.event_name == 'push' && 'Garenthino/ScalesInfrastructure' || github.event.inputs.release_target_repo }}
+  PLAY_STORE_URL: https://play.google.com/store/apps/details?id=com.scales.singer
+  RELEASE_MIRROR_BASE_URL: https://dancingdragonservices.com/releases
+
+jobs:
+  build-mobile:
+    if: ${{ github.event_name == 'push' || inputs.build_mobile == true }}
+    runs-on: ubuntu-latest
+    outputs:
+      apk_name: ${{ steps.names.outputs.apk_name }}
+      aab_name: ${{ steps.names.outputs.aab_name }}
+      version: ${{ steps.names.outputs.version }}
+      version_code: ${{ steps.names.outputs.version_code }}
+    steps:
+      - name: Checkout ScalesMobile
+        uses: actions/checkout@v4
+        with:
+          repository: Garenthino/ScalesMobile
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Decode signing keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
+          KEY_PROPERTIES: ${{ secrets.KEY_PROPERTIES }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
+          echo "$KEY_PROPERTIES" > android/key.properties
+
+      - name: Compute version metadata
+        id: names
+        run: |
+          VERSION_NAME="${VERSION#v}"
+          VERSION_CODE=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f2)
+          echo "version=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "apk_name=scales-${VERSION_NAME}.apk" >> "$GITHUB_OUTPUT"
+          echo "aab_name=scales-${VERSION_NAME}.aab" >> "$GITHUB_OUTPUT"
+
+      - name: Build APK
+        run: bash .github/scripts/build_apk.sh
+
+      - name: Build AAB
+        run: bash .github/scripts/build_aab.sh
+
+      - name: Generate release metadata
+        env:
+          APK_PATH: build/app/outputs/flutter-apk/app-release.apk
+          APK_URL: ${{ env.RELEASE_MIRROR_BASE_URL }}/android/${{ steps.names.outputs.version }}/scales-${{ steps.names.outputs.version }}.apk
+        run: bash .github/scripts/generate_release_metadata.sh
+
+      - name: Upload mobile artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-artifacts
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/flutter-apk/app-release.apk.sha1
+            build/app/outputs/flutter-apk/app-release.apk.sha256
+            build/app/outputs/flutter-apk/release-channel.json
+            build/app/outputs/bundle/release/app-release.aab
+            build/app/outputs/bundle/release/app-release.aab.sha1
+          if-no-files-found: error
+
+  build-desktop-linux:
+    if: ${{ github.event_name == 'push' || inputs.build_desktop_linux == true }}
+    runs-on: ubuntu-latest
+    outputs:
+      deb_name: ${{ steps.assets.outputs.deb_name }}
+      appimage_name: ${{ steps.assets.outputs.appimage_name }}
+    steps:
+      - name: Checkout DragonHost2-Hermes
+        uses: actions/checkout@v4
+        with:
+          repository: Garenthino/DragonHost2-Hermes
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libegl1 libopengl0 portaudio19-dev libvlc-dev ffmpeg vlc
+
+      - name: Install Python build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r packaging/requirements-build.txt
+
+      - name: Build Linux Nuitka distribution
+        run: python -m packaging.nuitka.build_linux
+
+      - name: Build Linux packages
+        id: assets
+        run: |
+          VERSION_NAME="${VERSION#v}"
+          bash packaging/linux/build_pkg.sh --format deb --version "$VERSION_NAME"
+          bash packaging/linux/build_pkg.sh --format appimage --version "$VERSION_NAME"
+          ls -la dist/installer
+          echo "deb_name=$(basename dist/installer/*.deb)" >> "$GITHUB_OUTPUT"
+          echo "appimage_name=$(basename dist/installer/*.AppImage)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux-artifacts
+          path: dist/installer/*
+          if-no-files-found: error
+
+  build-desktop-windows:
+    if: ${{ inputs.build_desktop_windows == true }}
+    runs-on: windows-latest
+    steps:
+      - name: Checkout DragonHost2-Hermes
+        uses: actions/checkout@v4
+        with:
+          repository: Garenthino/DragonHost2-Hermes
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r packaging/requirements-build.txt
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          python -m packaging.nuitka.build_windows --mpv "C:/mpv" --console
+          $version = "${env:VERSION}" -replace '^v',''
+          iscc /Qp /DAppVersion=$version packaging/windows/dragonhost.iss
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows-artifacts
+          path: dist/installer/*.exe
+          if-no-files-found: error
+
+  build-desktop-macos:
+    if: ${{ inputs.build_desktop_macos == true }}
+    runs-on: macos-latest
+    steps:
+      - name: Checkout DragonHost2-Hermes
+        uses: actions/checkout@v4
+        with:
+          repository: Garenthino/DragonHost2-Hermes
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r packaging/requirements-build.txt
+
+      - name: Build macOS app bundle
+        run: python -m packaging.nuitka.build_macos
+
+      - name: Upload macOS app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos-artifacts
+          path: dist/*.app
+          if-no-files-found: error
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [build-mobile, build-desktop-linux]
+    if: always() && needs.build-mobile.result == 'success' && needs.build-desktop-linux.result == 'success'
+    steps:
+      - name: Checkout release target repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.RELEASE_TARGET_REPO }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Fetch mobile artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: mobile-artifacts
+          path: ./out/mobile
+
+      - name: Fetch desktop Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-linux-artifacts
+          path: ./out/desktop
+
+      - name: Rename mobile artifacts
+        run: |
+          VERSION_NAME="${VERSION#v}"
+          mkdir -p out/artifacts
+          mv out/mobile/app-release.apk "out/artifacts/scales-${VERSION_NAME}.apk"
+          mv out/mobile/app-release.apk.sha1 "out/artifacts/scales-${VERSION_NAME}.apk.sha1"
+          mv out/mobile/app-release.apk.sha256 "out/artifacts/scales-${VERSION_NAME}.apk.sha256"
+          mv out/mobile/app-release.aab "out/artifacts/scales-${VERSION_NAME}.aab"
+          mv out/mobile/app-release.aab.sha1 "out/artifacts/scales-${VERSION_NAME}.aab.sha1"
+          mv out/mobile/release-channel.json "out/artifacts/android-release-channel.json"
+
+      - name: Stage desktop artifacts
+        run: |
+          mkdir -p out/artifacts
+          cp out/desktop/* out/artifacts/ || true
+
+      - name: Generate release notes
+        run: |
+          VERSION_NAME="${VERSION#v}"
+          python3 scripts/generate_release_notes.py \
+            --version "$VERSION_NAME" \
+            --repo ../ScalesMobile \
+            --repo ../DragonHost2-Hermes \
+            --output out/artifacts/release-notes.md
+
+      - name: Build unified release-channel.json
+        env:
+          METADATA_SIGNING_KEY: ${{ secrets.METADATA_SIGNING_KEY }}
+        run: |
+          VERSION_NAME="${VERSION#v}"
+          python3 scripts/build_release_channel.py \
+            --version "$VERSION_NAME" \
+            --android-channel out/artifacts/android-release-channel.json \
+            --desktop-dir out/artifacts \
+            --play-store-url "$PLAY_STORE_URL" \
+            --base-url "$RELEASE_MIRROR_BASE_URL" \
+            --output out/artifacts/release-channel.json
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$VERSION" \
+            --repo "$RELEASE_TARGET_REPO" \
+            --title "Scales $VERSION" \
+            --notes-file out/artifacts/release-notes.md \
+            out/artifacts/*
