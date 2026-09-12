@@ -1,14 +1,14 @@
 import { Suspense } from "react";
 import { Metadata } from "next";
-import SignupForm from "./signup-form";
+import SignupPlanForm from "./signup-plan-form";
 
 export const metadata: Metadata = {
-  title: "Create your venue — Scales Karaoke",
+  title: "Choose a plan — Scales Karaoke",
   description:
-    "Sign up for Scales Karaoke. Create your venue, start the 30-day KJ hosting software trial, and choose a venue plan.",
+    "Select a Scales venue plan and start your subscription. The Windows KJ hosting software includes a 30-day free trial.",
 };
 
-export default function SignupPage() {
+export default function SignupPlanPage() {
   return (
     <Suspense
       fallback={
@@ -17,7 +17,7 @@ export default function SignupPage() {
         </div>
       }
     >
-      <SignupForm />
+      <SignupPlanForm />
     </Suspense>
   );
 }

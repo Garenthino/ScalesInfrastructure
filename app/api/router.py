@@ -3,30 +3,10 @@
 from fastapi import APIRouter
 
 from app.routers import (
-    accounts,
-    admin,
-    admin_venues,
-    analytics,
-    auth,
-    billing,
-    commerce,
-    download_analytics,
-    kj_auth,
-    kj_sync,
-    loyalty,
-    notifications,
-    onboarding,
-    payments,
-    queue,
-    queue_admin,
-    queue_singer,
-    repair_sync,
-    singer_favorites,
-    singer_follows,
-    singers,
-    social,
-    songs,
-    venues,
+    venues, songs, singers, singer_favorites, singer_follows, queue_singer, queue,
+    queue_admin, loyalty, commerce, social, analytics, auth, kj_auth, kj_sync,
+    payments, notifications, admin, onboarding, admin_venues, billing, accounts,
+    repair_sync, license, admin_license, download_analytics,
 )
 
 api_router = APIRouter()
@@ -42,6 +22,8 @@ api_router.include_router(repair_sync.router, prefix="/kj/sync", tags=["Repair S
 
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])
 api_router.include_router(admin_venues.router, prefix="/admin", tags=["Admin Venues"])
+api_router.include_router(admin_license.router, prefix="/admin", tags=["Admin Licenses"])
+api_router.include_router(license.router, prefix="/license", tags=["License"])
 api_router.include_router(onboarding.router, prefix="/onboarding", tags=["Onboarding"])
 api_router.include_router(venues.router, prefix="/venues", tags=["Venues"])
 api_router.include_router(songs.router, prefix="/venues/{venue_id}/songs", tags=["Songs"])

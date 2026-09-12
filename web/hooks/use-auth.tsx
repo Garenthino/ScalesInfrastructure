@@ -11,7 +11,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  loginWithSignup: (data: { access_token: string; refresh_token: string }) => Promise<void>;
+  loginWithSignup: (data: { access_token: string; refresh_token: string }, redirectTo?: string) => Promise<void>;
   logout: () => void;
   stopImpersonating: () => void;
   isImpersonating: boolean;
@@ -197,7 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const loginWithSignup = async (data: { access_token: string; refresh_token: string }) => {
+  const loginWithSignup = async (data: { access_token: string; refresh_token: string }, redirectTo?: string) => {
     setIsLoading(true);
     try {
       // If this is the first impersonation, stash the current admin tokens.
@@ -213,7 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await ensureUserForToken(data.access_token);
       // During impersonation we already are on /venue; avoid a redundant navigation that remounts the page.
       if (typeof window === "undefined" || !window.location.pathname.startsWith("/venue")) {
-        router.push("/venue");
+        router.push(redirectTo || "/venue");
       }
     } catch (err) {
       throw err;

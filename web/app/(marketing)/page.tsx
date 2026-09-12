@@ -2,6 +2,12 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Music, Mic2, Smartphone, BarChart3, QrCode, Users, ArrowRight, CheckCircle } from "lucide-react";
 
+export const metadata = {
+  title: "Scales Karaoke — Hosting software, singer apps, and venue management",
+  description:
+    "Scales gives KJs and venues a complete toolkit: Windows hosting software, Android singer app, QR check-in, live queue, analytics, and Stripe billing.",
+};
+
 export default function HomePage() {
   const features = [
     { icon: Mic2, title: "KJ Hosting Software", desc: "Windows desktop app for KJs with rotation, queue, and playback control." },
@@ -14,7 +20,6 @@ export default function HomePage() {
 
   return (
     <div className="flex flex-col">
-      {/* Hero */}
       <section className="relative overflow-hidden bg-gradient-to-b from-primary/10 to-background py-24">
         <div className="mx-auto max-w-7xl px-4 text-center">
           <h1 className="mx-auto max-w-4xl text-4xl font-extrabold tracking-tight sm:text-6xl">
@@ -28,7 +33,7 @@ export default function HomePage() {
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link href="/auth/signup">
               <Button size="lg" className="gap-2">
-                Start Free Trial <ArrowRight className="h-4 w-4" />
+                Create your venue <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
             <Link href="/features">
@@ -36,12 +41,11 @@ export default function HomePage() {
             </Link>
           </div>
           <p className="mt-4 text-sm text-muted-foreground">
-            30-day free trial of the hosting software. No credit card required.
+            30-day free trial of the hosting software. Venue dashboard and Android app require a paid plan.
           </p>
         </div>
       </section>
 
-      {/* Features */}
       <section className="py-20">
         <div className="mx-auto max-w-7xl px-4">
           <div className="text-center">
@@ -62,7 +66,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* CTA */}
       <section className="border-t bg-muted/40 py-20">
         <div className="mx-auto max-w-4xl px-4 text-center">
           <h2 className="text-3xl font-bold">Ready to modernize your karaoke night?</h2>

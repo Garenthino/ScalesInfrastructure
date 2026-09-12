@@ -188,6 +188,22 @@ from app.schemas.dto import (
 )
 
 
+from app.schemas.license import (
+    LicenseActivateRequest,
+    LicenseActivateResponse,
+    LicenseCheckInRequest,
+    LicenseCheckInResponse,
+    LicenseCreate,
+    LicenseOut,
+    LicenseAdminCreateResponse,
+    LicenseListParams,
+    LicenseOfflineRequest,
+    LicenseOfflineActivationCode,
+    LicenseFilePayload,
+    LicenseStatus,
+    LicenseStatusResponse,
+)
+
 from app.schemas.favorites import FavoriteBase, FavoriteCreate, FavoriteOut
 from app.schemas.social import FollowCreate, FollowOut, FollowStatusOut
 from app.schemas.queue import (

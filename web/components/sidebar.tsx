@@ -17,6 +17,7 @@ import {
   LayoutDashboard,
   SlidersHorizontal,
   CreditCard,
+  Key,
 } from "lucide-react";
 
 const navItems = [
@@ -33,7 +34,8 @@ const navItems = [
 ];
 
 const adminItems = [
-  { label: "Admin", href: "/admin", icon: Settings },
+  { label: "Venues", href: "/admin", icon: Settings },
+  { label: "Licenses", href: "/admin/licenses", icon: Key },
 ];
 
 export function SidebarContent({ onNav }: { onNav?: () => void }) {

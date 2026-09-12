@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI(
     title="Scales API",
     description="Karaoke platform REST API",
-    version="0.1.0",
+    version="0.3.0",
 )
 
 app.add_middleware(
