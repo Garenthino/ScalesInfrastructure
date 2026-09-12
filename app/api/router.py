@@ -57,7 +57,8 @@ api_router.include_router(loyalty.router, prefix="/singer/loyalty", tags=["Loyal
 api_router.include_router(commerce.router, prefix="/venues/{venue_id}/merch", tags=["Commerce"])
 api_router.include_router(social.router, prefix="/venues/{venue_id}/leaderboard", tags=["Social"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["Analytics"])
-api_router.include_router(download_analytics.router, prefix="/analytics", tags=["Download Analytics"])
+# Intentionally no prefix: download_analytics.router already defines /analytics/download.
+api_router.include_router(download_analytics.router, tags=["Download Analytics"])
 api_router.include_router(payments.router, prefix="/venues/{venue_id}/payments", tags=["Payments"])
 # Stripe webhook is intentionally unscoped; it is exposed here under /v1/stripe/
 api_router.include_router(payments.router, prefix="/stripe", tags=["Stripe Webhook"])
