@@ -1,0 +1,49 @@
+{
+  "version": "1.0.0",
+  "build": "10234",
+  "date": "2026-09-12",
+  "channels": ["stable", "beta"],
+  "minimumVersion": "1.0.0",
+  "required": false,
+  "platforms": {
+    "android": {
+      "stable": {
+        "url": "https://github.com/Garenthino/ScalesMobile/releases/download/v1.0.0/scales-1.0.0.apk",
+        "size": 0,
+        "sha256": "-",
+        "signatureSha256": "-"
+      },
+      "beta": {
+        "url": "https://github.com/Garenthino/ScalesMobile/releases/download/v1.0.0-beta.1/scales-1.0.0-beta.1.apk",
+        "size": 0,
+        "sha256": "-",
+        "signatureSha256": "-"
+      },
+      "playStoreUrl": "https://play.google.com/store/apps/details?id=com.scales.singer"
+    },
+    "windows": {
+      "stable": {
+        "url": "https://github.com/Garenthino/ScalesDesktop/releases/download/v1.0.0/Scales-1.0.0-win-x64.exe",
+        "size": 0,
+        "sha256": "-"
+      },
+      "beta": {
+        "url": "https://github.com/Garenthino/ScalesDesktop/releases/download/v1.0.0-beta.1/Scales-1.0.0-beta.1-win-x64.exe",
+        "size": 0,
+        "sha256": "-"
+      }
+    },
+    "macos": {
+      "stable": {
+        "url": "https://github.com/Garenthino/ScalesDesktop/releases/download/v1.0.0/Scales-1.0.0-mac.dmg",
+        "size": 0,
+        "sha256": "-"
+      },
+      "beta": {
+        "url": "https://github.com/Garenthino/ScalesDesktop/releases/download/v1.0.0-beta.1/Scales-1.0.0-beta.1-mac.dmg",
+        "size": 0,
+        "sha256": "-"
+      }
+    }
+  }
+}

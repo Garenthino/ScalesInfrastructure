@@ -144,6 +144,8 @@ services:
       NEXT_PUBLIC_DEFAULT_VENUE_ID: default
     ports:
     - 4000:4000
+    volumes:
+    - /home/scales/releases:/app/public/releases:ro
     depends_on:
       api:
         condition: service_healthy

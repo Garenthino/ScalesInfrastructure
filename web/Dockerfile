@@ -30,8 +30,9 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 # Copy only what's needed for standalone output
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
-# public/ is optional -- create empty dir if project does not have one
-RUN mkdir -p public
+# public/ is optional -- create empty dir if project does not have one,
+# and preserve a releases/ mount point for mirrored artifacts.
+RUN mkdir -p public/releases
 
 EXPOSE 4000
 
