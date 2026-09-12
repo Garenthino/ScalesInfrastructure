@@ -5,10 +5,13 @@ import { useEffect } from "react";
 /**
  * Fire-and-forget download analytics.
  *
- * Sends a tiny, PII-free payload (platform, channel, version, href, timestamp)
+ * Sends a tiny, PII-free payload (event, platform, channel, version, href, timestamp)
  * when a user clicks any element with `data-download`. The endpoint is optional;
  * failures are silently ignored so the page keeps working even if the backend
  * counter is not deployed yet.
+ *
+ * NOTE: If Redis is unavailable, the backend falls back to writing JSON lines to
+ * /var/log/scales/download-analytics.log inside the API container.
  */
 export function DownloadAnalytics({ endpoint }: { endpoint: string }) {
   useEffect(() => {

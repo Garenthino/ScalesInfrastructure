@@ -140,7 +140,10 @@ function DownloadCard({
   platform: string;
   version: string;
 }) {
-  const isMissing = !channel.url || channel.sha256 === "-";
+  const isMissing = !channel.url;
+  const hasChecksum = channel.sha256 && channel.sha256 !== "-";
+  const hasSize = !!channel.size;
+  const hasApkSig = channel.signatureSha256 && channel.signatureSha256 !== "-";
   return (
     <div className="rounded-xl border bg-card p-6 shadow-sm">
       <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -205,10 +208,20 @@ function DownloadCard({
 
       {!isMissing && (
         <div className="mt-4 space-y-1 border-t pt-4 text-xs text-muted-foreground">
-          <p>Size: {formatBytes(channel.size)}</p>
-          <p className="break-all">SHA-256: {channel.sha256}</p>
-          {channel.signatureSha256 && (
+          {hasSize ? (
+            <p>Size: {formatBytes(channel.size)}</p>
+          ) : (
+            <p>Size: will be published when release artifacts ship</p>
+          )}
+          {hasChecksum ? (
+            <p className="break-all">SHA-256: {channel.sha256}</p>
+          ) : (
+            <p>SHA-256: will be published when release artifacts ship</p>
+          )}
+          {hasApkSig ? (
             <p className="break-all">APK signature: {channel.signatureSha256}</p>
+          ) : (
+            <p>APK signature: will be published when release artifacts ship</p>
           )}
           <div className="flex flex-wrap gap-x-4">
             <Link href={VERIFY_URL} className="inline-flex items-center gap-1 text-primary hover:underline">
