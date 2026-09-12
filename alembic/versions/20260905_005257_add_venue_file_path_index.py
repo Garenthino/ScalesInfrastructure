@@ -20,11 +20,7 @@ def upgrade() -> None:
     # CONCURRENTLY is safe on production and avoids locking the songs table while
     # KJ desktop syncs may be running. The index is critical for the
     # /v1/kj/sync/songs batch upsert path.
-    # NOTE: CONCURRENTLY cannot run inside a transaction, so we raise the
-    # isolation level to AUTOCOMMIT for this statement.
-    op.get_bind().execution_options(isolation_level="AUTOCOMMIT")
     op.execute("CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_songs_venue_file_path ON songs (venue_id, file_path)")
-    op.get_bind().execution_options(isolation_level="READ_COMMITTED")
 
 
 def downgrade() -> None:

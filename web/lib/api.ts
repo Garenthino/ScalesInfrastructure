@@ -36,9 +36,6 @@ import {
   RepairSyncPayload,
   RepairSyncOut,
   ConflictResolution,
-  License,
-  LicenseCreatePayload,
-  LicenseCreateResponse,
 } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://dancingdragonservices.com/api/v1";
@@ -738,61 +735,6 @@ export async function provisionVenue(payload: VenueProvisionPayload, token?: str
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error("Failed to provision venue");
-  return res.json();
-}
-
-/* ── Licenses ─────────────────────────────────────────── */
-
-export async function fetchAdminLicenses(
-  params?: { page?: number; per_page?: number; venue_id?: string; status?: string },
-  token?: string
-): Promise<PaginatedResponse<License>> {
-  const qs = new URLSearchParams();
-  if (params?.page !== undefined) qs.set("page", String(params.page));
-  if (params?.per_page !== undefined) qs.set("per_page", String(params.per_page));
-  if (params?.venue_id) qs.set("venue_id", params.venue_id);
-  if (params?.status) qs.set("status", params.status);
-  const res = await fetch(`${API_BASE}/admin/licenses?${qs.toString()}`, { headers: authHeaders(token) });
-  if (!res.ok) throw new Error("Failed to fetch licenses");
-  return res.json();
-}
-
-export async function createLicense(payload: LicenseCreatePayload, token?: string): Promise<LicenseCreateResponse> {
-  const res = await fetch(`${API_BASE}/admin/licenses`, {
-    method: "POST",
-    headers: authHeaders(token),
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Failed to create license" }));
-    throw new Error(err.detail || "Failed to create license");
-  }
-  return res.json();
-}
-
-export async function revokeLicense(license_id: string, token?: string): Promise<License> {
-  const res = await fetch(`${API_BASE}/admin/licenses/${encodeURIComponent(license_id)}`, {
-    method: "DELETE",
-    headers: authHeaders(token),
-  });
-  if (!res.ok) throw new Error("Failed to revoke license");
-  return res.json();
-}
-
-export async function issueOfflineLicenseFile(
-  license_id: string,
-  fingerprint: string,
-  token?: string
-): Promise<{ license_id: string; license_file: string; venue_id: string; venue_name?: string | null }> {
-  const res = await fetch(`${API_BASE}/admin/licenses/${encodeURIComponent(license_id)}/offline`, {
-    method: "POST",
-    headers: authHeaders(token),
-    body: JSON.stringify({ fingerprint }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Failed to issue offline file" }));
-    throw new Error(err.detail || "Failed to issue offline file");
-  }
   return res.json();
 }
 

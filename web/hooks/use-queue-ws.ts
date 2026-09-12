@@ -76,7 +76,7 @@ export function useQueueWS(venueId: string = DEFAULT_VENUE_ID) {
     // during handshake, which surfaces in the browser as
     // "WebSocket is closed before the connection is established".
     if (!token || !venueId || venueId === "default") {
-      setConnectionState((prev) => (prev === "connecting" ? "closed" : prev));
+      setConnectionState("closed");
       return;
     }
     const base = SOCKET_BASE.replace(/\/$/, "");
