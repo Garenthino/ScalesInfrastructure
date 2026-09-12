@@ -59,13 +59,13 @@ const defaultChannel = {
   platforms: {
     android: {
       stable: {
-        url: "https://dancingdragonservices.com/releases/stable/android/scales-1.0.0.apk",
+        url: "",
         size: 0,
         sha256: "-",
         signatureSha256: "-",
       },
       beta: {
-        url: "https://dancingdragonservices.com/releases/beta/android/scales-1.0.0-beta.apk",
+        url: "",
         size: 0,
         sha256: "-",
         signatureSha256: "-",
@@ -74,24 +74,24 @@ const defaultChannel = {
     },
     windows: {
       stable: {
-        url: "https://dancingdragonservices.com/releases/stable/windows/Scales-1.0.0-win-x64.exe",
+        url: "",
         size: 0,
         sha256: "-",
       },
       beta: {
-        url: "https://dancingdragonservices.com/releases/beta/windows/Scales-1.0.0-beta-win-x64.exe",
+        url: "",
         size: 0,
         sha256: "-",
       },
     },
     macos: {
       stable: {
-        url: "https://dancingdragonservices.com/releases/stable/macos/Scales-1.0.0-mac.dmg",
+        url: "",
         size: 0,
         sha256: "-",
       },
       beta: {
-        url: "https://dancingdragonservices.com/releases/beta/macos/Scales-1.0.0-beta-mac.dmg",
+        url: "",
         size: 0,
         sha256: "-",
       },
@@ -106,9 +106,17 @@ async function fetchChannel(): Promise<typeof defaultChannel> {
     });
     if (!res.ok) return defaultChannel;
     const data = await res.json();
-    // Basic shape guard; fall back to defaults if the remote payload is malformed.
+    // Merge remote data over defaults so missing fields fall back safely.
     if (!data || typeof data !== "object" || !data.platforms) return defaultChannel;
-    return data as typeof defaultChannel;
+    return {
+      ...defaultChannel,
+      ...data,
+      platforms: {
+        android: { ...defaultChannel.platforms.android, ...(data.platforms?.android || {}) },
+        windows: { ...defaultChannel.platforms.windows, ...(data.platforms?.windows || {}) },
+        macos: { ...defaultChannel.platforms.macos, ...(data.platforms?.macos || {}) },
+      },
+    };
   } catch {
     return defaultChannel;
   }
@@ -144,6 +152,8 @@ function DownloadCard({
   const hasChecksum = channel.sha256 && channel.sha256 !== "-";
   const hasSize = !!channel.size;
   const hasApkSig = channel.signatureSha256 && channel.signatureSha256 !== "-";
+  const isAndroid = platform === "android";
+  const comingSoon = `${title} download will be available when Scales ${version} launches.`;
   return (
     <div className="rounded-xl border bg-card p-6 shadow-sm">
       <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -162,10 +172,10 @@ function DownloadCard({
               data-download={platform}
               data-channel="stable"
               data-version={version}
-              className={isMissing ? "pointer-events-none" : undefined}
-              aria-disabled={isMissing}
+              className={!playStoreUrl ? "pointer-events-none" : undefined}
+              aria-disabled={!playStoreUrl}
             >
-              <Button className="w-full gap-2" disabled={isMissing}>
+              <Button className="w-full gap-2" disabled={!playStoreUrl}>
                 <Smartphone className="h-4 w-4" />
                 Get it on Google Play
               </Button>
@@ -206,7 +216,9 @@ function DownloadCard({
         )}
       </div>
 
-      {!isMissing && (
+      {isMissing ? (
+        <p className="mt-4 border-t pt-4 text-xs text-muted-foreground italic">{comingSoon}</p>
+      ) : (
         <div className="mt-4 space-y-1 border-t pt-4 text-xs text-muted-foreground">
           {hasSize ? (
             <p>Size: {formatBytes(channel.size)}</p>
@@ -218,11 +230,12 @@ function DownloadCard({
           ) : (
             <p>SHA-256: will be published when release artifacts ship</p>
           )}
-          {hasApkSig ? (
-            <p className="break-all">APK signature: {channel.signatureSha256}</p>
-          ) : (
-            <p>APK signature: will be published when release artifacts ship</p>
-          )}
+          {isAndroid &&
+            (hasApkSig ? (
+              <p className="break-all">APK signature: {channel.signatureSha256}</p>
+            ) : (
+              <p>APK signature: will be published when release artifacts ship</p>
+            ))}
           <div className="flex flex-wrap gap-x-4">
             <Link href={VERIFY_URL} className="inline-flex items-center gap-1 text-primary hover:underline">
               <ShieldCheck className="h-3 w-3" />
