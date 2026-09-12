@@ -217,7 +217,15 @@ function DownloadCard({
       </div>
 
       {isMissing ? (
-        <p className="mt-4 border-t pt-4 text-xs text-muted-foreground italic">{comingSoon}</p>
+        <div className="mt-4 space-y-1 border-t pt-4 text-xs text-muted-foreground">
+          <p className="italic">{comingSoon}</p>
+          <div className="flex flex-wrap gap-x-4">
+            <Link href={VERIFY_URL} className="inline-flex items-center gap-1 text-primary hover:underline">
+              <ShieldCheck className="h-3 w-3" />
+              How to verify
+            </Link>
+          </div>
+        </div>
       ) : (
         <div className="mt-4 space-y-1 border-t pt-4 text-xs text-muted-foreground">
           {hasSize ? (
