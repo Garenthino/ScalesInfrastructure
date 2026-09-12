@@ -17,10 +17,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # CONCURRENTLY is safe on production and avoids locking the songs table while
-    # KJ desktop syncs may be running. The index is critical for the
-    # /v1/kj/sync/songs batch upsert path.
-    op.execute("CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_songs_venue_file_path ON songs (venue_id, file_path)")
+    # The index is critical for the /v1/kj/sync/songs batch upsert path.
+    # CREATE INDEX CONCURRENTLY cannot run inside the Alembic transaction, so we
+    # use a plain CREATE INDEX with IF NOT EXISTS to stay idempotent in case a
+    # previous failed attempt left the index behind.
+    op.execute("CREATE INDEX IF NOT EXISTS ix_songs_venue_file_path ON songs (venue_id, file_path)")
 
 
 def downgrade() -> None:
