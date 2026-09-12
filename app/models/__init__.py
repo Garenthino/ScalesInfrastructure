@@ -884,6 +884,32 @@ class DeviceToken(Base):
     )
 
 
+class License(Base):
+    __tablename__ = "licenses"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    venue_id = Column(String(36), ForeignKey("venues.id"), nullable=False)
+    license_key_hash = Column(Text, nullable=False)  # SHA-256 of the key
+    license_key_prefix = Column(Text, nullable=False)  # first 8 chars for display
+    fingerprint_hash = Column(Text)  # SHA-256 of device fingerprint once activated
+    status = Column(Text, default="unactivated")  # unactivated | active | expired | revoked
+    plan = Column(Text, default="basic")
+    seat_limit = Column(Integer, nullable=True)
+    expires_at = Column(Text)
+    grace_days = Column(Integer, default=7)
+    activated_at = Column(Text)
+    last_check_in_at = Column(Text)
+    revoked_at = Column(Text)
+    created_at = Column(Text, default=_now_iso)
+    updated_at = Column(Text, default=_now_iso, onupdate=_now_iso)
+
+    __table_args__ = (
+        UniqueConstraint("venue_id", "license_key_hash", name="uq_license_venue_key"),
+        Index("ix_licenses_venue", "venue_id", "status"),
+        Index("ix_licenses_key_prefix", "license_key_prefix"),
+    )
+
+
 class NotificationSetting(Base):
     __tablename__ = "notification_settings"
 

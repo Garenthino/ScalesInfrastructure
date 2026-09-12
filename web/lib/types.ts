@@ -593,6 +593,40 @@ export interface ConflictResolution {
   field_resolutions?: Record<string, ConflictFieldSide>;
 }
 
+export interface License {
+  id: string;
+  venue_id: string;
+  license_key_prefix: string;
+  fingerprint_hash?: string | null;
+  status: "unactivated" | "active" | "expired" | "revoked";
+  plan: string;
+  seat_limit?: number | null;
+  expires_at?: string | null;
+  grace_days: number;
+  activated_at?: string | null;
+  last_check_in_at?: string | null;
+  revoked_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LicenseCreatePayload {
+  venue_id: string;
+  plan?: string;
+  seat_limit?: number | null;
+  expires_at?: string | null;
+  grace_days?: number;
+}
+
+export interface LicenseCreateResponse {
+  id: string;
+  license_key: string;
+  venue_id: string;
+  plan: string;
+  expires_at?: string | null;
+  created_at: string;
+}
+
 export interface ProblemDetail {
   type: string;
   title: string;
