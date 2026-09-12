@@ -79,6 +79,7 @@ services:
         condition: service_healthy
     volumes:
     - ./scripts/entrypoint.sh:/app/entrypoint.sh:ro
+    - /home/scales/analytics-logs:/app/data
     entrypoint:
     - sh
     - /app/entrypoint.sh

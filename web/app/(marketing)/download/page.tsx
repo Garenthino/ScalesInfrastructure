@@ -40,7 +40,7 @@ export const metadata: Metadata = {
   },
 };
 
-// Channel metadata is served from the VPS /public/releases directory.
+// Channel metadata is served from the VPS /releases directory.
 // Build-time defaults ensure the page is never empty, even before CI mirrors a release.
 const DEFAULT_VERSION = "1.0.0";
 const BUILD_DATE = "2026-09-12";

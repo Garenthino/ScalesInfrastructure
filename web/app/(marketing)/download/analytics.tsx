@@ -10,8 +10,8 @@ import { useEffect } from "react";
  * failures are silently ignored so the page keeps working even if the backend
  * counter is not deployed yet.
  *
- * NOTE: If Redis is unavailable, the backend falls back to writing JSON lines to
- * /var/log/scales/download-analytics.log inside the API container.
+ * NOTE: The backend stores counters in Redis when available and falls back to
+ * JSON-line logs in /app/data inside the API container.
  */
 export function DownloadAnalytics({ endpoint }: { endpoint: string }) {
   useEffect(() => {
